@@ -1,0 +1,534 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Edit RuleSet - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Edit RuleSet</h1>
+                    <p class="text-gray-600 mt-1">Modify rules to automatically match DICOM series with segmentation templates</p>
+                </div>
+                <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to RuleSets
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Form -->
+    <form method="post" id="ruleset-form" class="space-y-6">
+        {% csrf_token %}
+        
+        <!-- RuleSet Information -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">RuleSet Information</h2>
+                <p class="text-sm text-gray-600 mt-1">Basic information about the ruleset</p>
+            </div>
+            <div class="px-6 py-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="{{ form.ruleset_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.ruleset_name.label }}
+                            <span class="text-red-500">*</span>
+                        </label>
+                        {{ form.ruleset_name }}
+                        {% if form.ruleset_name.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.ruleset_name.errors.0 }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label for="{{ form.rule_combination_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.rule_combination_type.label }}
+                            <span class="text-red-500">*</span>
+                        </label>
+                        {{ form.rule_combination_type }}
+                        {% if form.rule_combination_type.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.rule_combination_type.errors.0 }}
+                            </div>
+                        {% endif %}
+                        <p class="mt-1 text-sm text-gray-500">Choose how multiple rules should be combined</p>
+                    </div>
+                </div>
+                <div class="mt-6">
+                    <label for="{{ form.ruleset_description.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ form.ruleset_description.label }}
+                        <span class="text-red-500">*</span>
+                    </label>
+                    {{ form.ruleset_description }}
+                    {% if form.ruleset_description.errors %}
+                        <div class="mt-1 text-sm text-red-600">
+                            {{ form.ruleset_description.errors.0 }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="mt-6">
+                    <label for="{{ form.associated_autosegmentation_template.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ form.associated_autosegmentation_template.label }}
+                        <span class="text-red-500">*</span>
+                    </label>
+                    {{ form.associated_autosegmentation_template }}
+                    {% if form.associated_autosegmentation_template.errors %}
+                        <div class="mt-1 text-sm text-red-600">
+                            {{ form.associated_autosegmentation_template.errors.0 }}
+                        </div>
+                    {% endif %}
+                    <p class="mt-1 text-sm text-gray-500">Select the template to use when this ruleset matches</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules Section -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900">Rules</h2>
+                        <p class="text-sm text-gray-600 mt-1">Define conditions that DICOM series must meet</p>
+                    </div>
+                    <button type="button" id="add-rule" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Add Rule
+                    </button>
+                </div>
+            </div>
+            <div class="px-6 py-4">
+                <div id="rule-formset">
+                    {{ formset.management_form }}
+                    {% for form in formset %}
+                        <div class="rule-form border border-gray-200 rounded-lg p-4 mb-4" data-form-index="{{ forloop.counter0 }}">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-md font-medium text-gray-900">Rule {{ forloop.counter }}</h3>
+                                <div class="flex items-center space-x-2">
+                                    {% if form.DELETE %}
+                                        <label class="inline-flex items-center">
+                                            {{ form.DELETE }}
+                                            <span class="ml-2 text-sm text-red-600">Delete</span>
+                                        </label>
+                                    {% endif %}
+                                    {% if not forloop.first %}
+                                        <button type="button" class="remove-rule text-red-600 hover:text-red-800 text-sm font-medium">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                            </svg>
+                                            Remove
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <!-- DICOM Tag Selection -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        DICOM Tag <span class="text-red-500">*</span>
+                                    </label>
+                                    <select name="{{ form.dicom_tag_type.html_name }}" id="{{ form.dicom_tag_type.id_for_label }}" 
+                                            class="dicom-tag-select w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                                            data-placeholder="Search for DICOM tag..." onchange="handleTagChange(this)">
+                                        <option value="">Search for DICOM tag...</option>
+                                        {% for choice in form.dicom_tag_type.field.queryset %}
+                                            <option value="{{ choice.id }}" data-vr="{{ choice.value_representation }}" 
+                                                    {% if form.dicom_tag_type.value == choice.id %}selected{% endif %}>
+                                                {{ choice.tag_name }} - {{ choice.tag_description }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if form.dicom_tag_type.errors %}
+                                        <div class="mt-1 text-sm text-red-600">{{ form.dicom_tag_type.errors.0 }}</div>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Operator Selection -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Operator <span class="text-red-500">*</span>
+                                    </label>
+                                    {{ form.operator_type }}
+                                    {% if form.operator_type.errors %}
+                                        <div class="mt-1 text-sm text-red-600">{{ form.operator_type.errors.0 }}</div>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Value Input -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Value <span class="text-red-500">*</span>
+                                    </label>
+                                    {{ form.tag_value_to_evaluate }}
+                                    {% if form.tag_value_to_evaluate.errors %}
+                                        <div class="mt-1 text-sm text-red-600">{{ form.tag_value_to_evaluate.errors.0 }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- VR Guidance Display -->
+                            <div class="vr-guidance mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md" style="display: none;">
+                                <div class="flex items-start">
+                                    <svg class="w-5 h-5 text-blue-400 mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <div class="text-sm">
+                                        <p class="font-medium text-blue-800">VR Guidance</p>
+                                        <div class="vr-content text-blue-700 mt-1"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Hidden fields for formset -->
+                            {% for hidden in form.hidden_fields %}
+                                {{ hidden }}
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- Formset errors -->
+                {% if formset.non_form_errors %}
+                    <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                        <div class="text-sm text-red-700">
+                            {{ formset.non_form_errors }}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex justify-end space-x-3">
+            <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                Cancel
+            </a>
+            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Update RuleSet
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<!-- Select2 CSS and JS -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<style>
+    /* Custom Select2 styling to match Tailwind */
+    .select2-container--default .select2-selection--single {
+        height: 42px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+        padding: 0.5rem 0.75rem !important;
+    }
+    
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 26px !important;
+        padding-left: 0 !important;
+        color: #374151 !important;
+    }
+    
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 40px !important;
+        right: 8px !important;
+    }
+    
+    .select2-container--default.select2-container--focus .select2-selection--single {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) !important;
+    }
+    
+    .select2-dropdown {
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+    }
+    
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+        background-color: #3b82f6 !important;
+    }
+</style>
+
+<script>
+$(document).ready(function() {
+    let formIndex = parseInt('{{ formset.total_form_count }}');
+    
+    // Initialize Select2 for existing DICOM tag selects
+    initializeSelect2();
+    
+    // Show VR guidance for existing forms with selected tags
+    $('.dicom-tag-select').each(function() {
+        if ($(this).val()) {
+            handleTagChange(this);
+        }
+    });
+    
+    // Add new rule functionality
+    $('#add-rule').click(function() {
+        addNewRuleForm();
+    });
+    
+    // Remove rule functionality
+    $(document).on('click', '.remove-rule', function() {
+        $(this).closest('.rule-form').remove();
+        updateFormNumbers();
+    });
+    
+    function initializeSelect2() {
+        $('.dicom-tag-select').each(function() {
+            if (!$(this).hasClass('select2-hidden-accessible')) {
+                $(this).select2({
+                    placeholder: 'Search for DICOM tag...',
+                    allowClear: true,
+                    ajax: {
+                        url: '{% url "dicom_handler:search_dicom_tags" %}',
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return {
+                                q: params.term,
+                                page: params.page
+                            };
+                        },
+                        processResults: function (data, params) {
+                            return {
+                                results: data.tags.map(function(tag) {
+                                    return {
+                                        id: tag.id,
+                                        text: tag.name + ' - ' + tag.description,
+                                        vr: tag.vr
+                                    };
+                                })
+                            };
+                        },
+                        cache: true
+                    },
+                    minimumInputLength: 2,
+                    templateResult: function(tag) {
+                        if (tag.loading) return tag.text;
+                        
+                        var $container = $(
+                            "<div class='select2-result-tag'>" +
+                                "<div class='select2-result-tag__title'>" + tag.text + "</div>" +
+                                (tag.vr ? "<div class='select2-result-tag__vr text-xs text-gray-500'>VR: " + tag.vr + "</div>" : "") +
+                            "</div>"
+                        );
+                        return $container;
+                    }
+                });
+            }
+        });
+    }
+    
+    function addNewRuleForm() {
+        // Clone the first rule form
+        var newForm = $('.rule-form').first().clone();
+        
+        // Update form index
+        newForm.attr('data-form-index', formIndex);
+        
+        // Clear values and update names/ids
+        newForm.find('input, select, textarea').each(function() {
+            var name = $(this).attr('name');
+            var id = $(this).attr('id');
+            
+            if (name) {
+                $(this).attr('name', name.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
+            }
+            if (id) {
+                $(this).attr('id', id.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
+            }
+            
+            // Clear values
+            if ($(this).is('select')) {
+                $(this).val('').trigger('change');
+            } else {
+                $(this).val('');
+            }
+        });
+        
+        // Update labels
+        newForm.find('label').each(function() {
+            var forAttr = $(this).attr('for');
+            if (forAttr) {
+                $(this).attr('for', forAttr.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
+            }
+        });
+        
+        // Update rule number
+        newForm.find('h3').text('Rule ' + (formIndex + 1));
+        
+        // Show remove button
+        newForm.find('.remove-rule').show();
+        
+        // Hide VR guidance
+        newForm.find('.vr-guidance').hide();
+        
+        // Remove delete checkbox for new forms
+        newForm.find('input[type="checkbox"][name*="DELETE"]').closest('label').remove();
+        
+        // Destroy existing Select2 and reinitialize
+        newForm.find('.select2-container').remove();
+        newForm.find('.dicom-tag-select').removeClass('select2-hidden-accessible');
+        
+        // Add to formset
+        $('#rule-formset').append(newForm);
+        
+        // Update total forms count
+        formIndex++;
+        $('#id_rule_set-TOTAL_FORMS').val(formIndex);
+        
+        // Initialize Select2 for new form
+        initializeSelect2();
+        
+        updateFormNumbers();
+    }
+    
+    function updateFormNumbers() {
+        $('.rule-form').each(function(index) {
+            $(this).find('h3').text('Rule ' + (index + 1));
+        });
+    }
+});
+
+// Handle DICOM tag change to show VR guidance
+function handleTagChange(selectElement) {
+    var $select = $(selectElement);
+    var $ruleForm = $select.closest('.rule-form');
+    var $vrGuidance = $ruleForm.find('.vr-guidance');
+    var $vrContent = $ruleForm.find('.vr-content');
+    var $operatorSelect = $ruleForm.find('select[name*="operator_type"]');
+    
+    var selectedOption = $select.find('option:selected');
+    var vrCode = selectedOption.data('vr');
+    var tagId = $select.val();
+    
+    if (tagId && vrCode) {
+        // Show VR guidance
+        $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>Loading guidance...</em>');
+        $vrGuidance.show();
+        
+        // Fetch VR guidance via AJAX
+        $.ajax({
+            url: '/dicom/vr-guidance/' + tagId + '/',
+            method: 'GET',
+            success: function(data) {
+                if (data.success) {
+                    var guidanceHtml = '<strong>VR Code:</strong> ' + data.vr_code;
+                    if (data.guidance) {
+                        guidanceHtml += '<br><strong>Format:</strong> ' + data.guidance;
+                    }
+                    if (data.compatible_operators && data.compatible_operators.length > 0) {
+                        guidanceHtml += '<br><strong>Compatible Operators:</strong> ' + data.compatible_operators.join(', ');
+                    }
+                    $vrContent.html(guidanceHtml);
+                    
+                    // Update operator options based on compatibility
+                    if (data.compatible_operators) {
+                        updateOperatorOptions($operatorSelect, data.compatible_operators);
+                    }
+                } else {
+                    $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>No guidance available</em>');
+                }
+            },
+            error: function() {
+                $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>Error loading guidance</em>');
+            }
+        });
+    } else {
+        $vrGuidance.hide();
+        // Reset operator options
+        resetOperatorOptions($operatorSelect);
+    }
+}
+
+function updateOperatorOptions($operatorSelect, compatibleOperators) {
+    // Store original options if not already stored
+    if (!$operatorSelect.data('original-options')) {
+        $operatorSelect.data('original-options', $operatorSelect.html());
+    }
+    
+    // Filter options based on compatibility
+    $operatorSelect.find('option').each(function() {
+        var optionValue = $(this).val();
+        if (optionValue && compatibleOperators.indexOf(optionValue) === -1) {
+            $(this).hide();
+        } else {
+            $(this).show();
+        }
+    });
+}
+
+function resetOperatorOptions($operatorSelect) {
+    // Restore original options
+    var originalOptions = $operatorSelect.data('original-options');
+    if (originalOptions) {
+        $operatorSelect.html(originalOptions);
+    }
+}
+
+// Validate operator and value combination
+function validateOperatorValue(element) {
+    var $element = $(element);
+    var $ruleForm = $element.closest('.rule-form');
+    var $tagSelect = $ruleForm.find('select[name*="dicom_tag_type"]');
+    var $operatorSelect = $ruleForm.find('select[name*="operator_type"]');
+    var $valueInput = $ruleForm.find('input[name*="tag_value_to_evaluate"]');
+    
+    var tagId = $tagSelect.val();
+    var operator = $operatorSelect.val();
+    var value = $valueInput.val();
+    
+    if (tagId && operator && value) {
+        // Perform AJAX validation
+        $.ajax({
+            url: '{% url "dicom_handler:validate_vr_value" %}',
+            method: 'POST',
+            data: {
+                'tag_id': tagId,
+                'operator': operator,
+                'value': value,
+                'csrfmiddlewaretoken': '{{ csrf_token }}'
+            },
+            success: function(data) {
+                // Remove existing validation messages
+                $ruleForm.find('.validation-message').remove();
+                
+                if (!data.is_valid) {
+                    var errorMessage = '';
+                    if (data.vr_message) {
+                        errorMessage += data.vr_message;
+                    }
+                    if (data.operator_message) {
+                        if (errorMessage) errorMessage += '<br>';
+                        errorMessage += data.operator_message;
+                    }
+                    
+                    if (errorMessage) {
+                        $valueInput.after('<div class="validation-message mt-1 text-sm text-red-600">' + errorMessage + '</div>');
+                        $valueInput.addClass('border-red-300');
+                    }
+                } else {
+                    $valueInput.removeClass('border-red-300');
+                }
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

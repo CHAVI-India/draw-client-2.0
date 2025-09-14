@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ ruleset.ruleset_name }} - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-8">
+        <!-- Header -->
+        <div class="flex justify-between items-start mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ ruleset.ruleset_name }}</h1>
+                <p class="text-gray-600">{{ ruleset.ruleset_description|default:"No description provided" }}</p>
+            </div>
+            <div class="flex space-x-3">
+                <a href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}" 
+                   class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                    Edit RuleSet
+                </a>
+                <a href="{% url 'dicom_handler:ruleset_delete' ruleset.id %}" 
+                   class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
+                    Delete
+                </a>
+            </div>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-6 p-4 rounded-lg {% if message.tags == 'error' %}bg-red-50 border border-red-200 text-red-700{% else %}bg-green-50 border border-green-200 text-green-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <!-- RuleSet Information -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-gray-50 p-6 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Rule Combination</h3>
+                <div class="flex items-center">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+                        {% if ruleset.rule_combination_type == 'AND' %}bg-blue-100 text-blue-800{% else %}bg-green-100 text-green-800{% endif %}">
+                        {{ ruleset.get_rule_combination_type_display }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 p-6 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Associated Template</h3>
+                <div>
+                    {% if ruleset.associated_autosegmentation_template %}
+                        <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}"
+                           class="text-primary-600 hover:text-primary-900 hover:underline font-medium">
+                            {{ ruleset.associated_autosegmentation_template.template_name }}
+                        </a>
+                    {% else %}
+                        <span class="text-gray-400">No template assigned</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="bg-gray-50 p-6 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Created</h3>
+                <div class="text-gray-900 font-medium">
+                    {{ ruleset.created_at|date:"M d, Y" }}
+                    <div class="text-sm text-gray-500">{{ ruleset.created_at|time:"g:i A" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules Section -->
+        <div class="border-t border-gray-200 pt-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Rules ({{ rules.count }})</h2>
+            
+            {% if rules %}
+                <div class="space-y-4">
+                    {% for rule in rules %}
+                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-medium text-gray-900">Rule {{ forloop.counter }}</h3>
+                                <span class="text-sm text-gray-500">
+                                    Created {{ rule.created_at|date:"M d, Y" }}
+                                </span>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">DICOM Tag</h4>
+                                    <div class="bg-white p-3 rounded border">
+                                        <span class="font-mono text-sm text-gray-900">
+                                            {{ rule.dicom_tag_type.tag_name }}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Operator</h4>
+                                    <div class="bg-white p-3 rounded border">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                            {{ rule.get_operator_type_display }}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Value to Evaluate</h4>
+                                    <div class="bg-white p-3 rounded border">
+                                        <span class="font-mono text-sm text-gray-900">
+                                            "{{ rule.tag_value_to_evaluate }}"
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Rule Logic Explanation -->
+                            <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                                <p class="text-sm text-blue-800">
+                                    <strong>Logic:</strong> 
+                                    If DICOM tag <code class="bg-blue-100 px-1 rounded">{{ rule.dicom_tag_type.tag_name }}</code> 
+                                    <em>{{ rule.get_operator_type_display|lower }}</em> 
+                                    <code class="bg-blue-100 px-1 rounded">"{{ rule.tag_value_to_evaluate }}"</code>
+                                </p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- Overall Logic Summary -->
+                <div class="mt-8 p-6 bg-indigo-50 border border-indigo-200 rounded-lg">
+                    <h3 class="text-lg font-medium text-indigo-900 mb-3">RuleSet Logic Summary</h3>
+                    <p class="text-indigo-800">
+                        This ruleset will match DICOM series when 
+                        <strong>
+                            {% if ruleset.rule_combination_type == 'AND' %}
+                                ALL
+                            {% else %}
+                                ANY
+                            {% endif %}
+                        </strong>
+                        of the above {{ rules.count }} rule{{ rules.count|pluralize }} 
+                        {% if ruleset.rule_combination_type == 'AND' %}are{% else %}is{% endif %} satisfied.
+                        {% if ruleset.associated_autosegmentation_template %}
+                            When matched, the template 
+                            <strong>{{ ruleset.associated_autosegmentation_template.template_name }}</strong> 
+                            will be applied for automatic segmentation.
+                        {% endif %}
+                    </p>
+                </div>
+            {% else %}
+                <div class="text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No Rules Defined</h3>
+                    <p class="mt-1 text-sm text-gray-500">This ruleset doesn't have any rules yet.</p>
+                    <div class="mt-6">
+                        <a href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}" 
+                           class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
+                            Add Rules
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Navigation -->
+        <div class="flex justify-between items-center pt-8 border-t border-gray-200">
+            <a href="{% url 'dicom_handler:ruleset_list' %}" 
+               class="inline-flex items-center text-primary-600 hover:text-primary-900">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                </svg>
+                Back to RuleSets
+            </a>
+            
+            {% if ruleset.associated_autosegmentation_template %}
+                <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}" 
+                   class="inline-flex items-center text-primary-600 hover:text-primary-900">
+                    View Associated Template
+                    <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

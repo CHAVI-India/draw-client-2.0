@@ -1,0 +1,433 @@
+
+{% extends 'base.html' %}
+
+{% block title %}Select Models - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Select Models</h1>
+        <p class="text-gray-600">Choose the structures you want to include in your autosegmentation template.</p>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <!-- Search and Filter Section -->
+        <div class="mb-6 space-y-4">
+            <!-- Search Bar -->
+            <div class="flex items-center space-x-4">
+                <div class="flex-1">
+                    <input type="text" id="search-input" placeholder="Search structures..." 
+                           value="{{ search_query }}"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <button type="button" id="search-btn" class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+                    Search
+                </button>
+            </div>
+
+            <!-- Filter Dropdowns -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label for="category-filter" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select id="category-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Categories</option>
+                        {% for category in categories %}
+                            <option value="{{ category }}">{{ category }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="anatomic-filter" class="block text-sm font-medium text-gray-700 mb-1">Anatomic Region</label>
+                    <select id="anatomic-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Regions</option>
+                        {% for region in anatomic_regions %}
+                            <option value="{{ region }}">{{ region }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="model-filter" class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                    <select id="model-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Models</option>
+                        {% for model in model_names %}
+                            <option value="{{ model }}">{{ model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Selection Summary -->
+        <div class="mb-4 flex justify-between items-center">
+            <div class="text-sm text-gray-600">
+                <span id="selected-count">0</span> structures selected
+            </div>
+            <button type="button" id="clear-selections" class="text-sm text-red-600 hover:text-red-800 hidden" onclick="clearSelections()">
+                Clear All Selections
+            </button>
+        </div>
+
+        <!-- Structures Table -->
+        <div id="structures-container">
+            {% include 'dicom_handler/structures_table.html' %}
+        </div>
+
+        <!-- Bottom Actions -->
+        <div class="mt-8 flex justify-between items-center">
+            <div class="flex space-x-4">
+                <a href="{% url 'home' %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                    ← Home
+                </a>
+                <a href="{% url 'dicom_handler:create_template' %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                    Back
+                </a>
+            </div>
+            <div class="flex space-x-4">
+                <div id="bottom-selection-summary" class="text-sm text-gray-600 py-2">
+                    <span id="bottom-selected-count">0</span> structures selected
+                </div>
+                <button type="button" id="save-template-btn" class="px-6 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed" disabled onclick="createTemplate()">
+                    Create Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedStructures = new Set();
+let currentSearchQuery = '{{ search_query|default:"" }}';
+let currentCategoryFilter = '';
+let currentAnatomicFilter = '';
+let currentModelFilter = '';
+
+// Load existing selections from session
+try {
+    const sessionData = '{{ selected_structures|escapejs }}';
+    if (sessionData && sessionData !== '[]') {
+        const sessionSelections = JSON.parse(sessionData);
+        if (Array.isArray(sessionSelections)) {
+            sessionSelections.forEach(id => selectedStructures.add(id));
+        }
+    }
+} catch (e) {
+    console.warn('Could not parse session selections:', e);
+}
+
+// Update selection count and button state
+function updateSelectionCount() {
+    const count = selectedStructures.size;
+    
+    // Update count displays
+    document.getElementById('selected-count').textContent = count;
+    document.getElementById('bottom-selected-count').textContent = count;
+    
+    // Update clear button visibility
+    const clearButton = document.getElementById('clear-selections');
+    if (count > 0) {
+        clearButton.classList.remove('hidden');
+    } else {
+        clearButton.classList.add('hidden');
+    }
+    
+    // Update save button state
+    const saveButton = document.getElementById('save-template-btn');
+    if (count > 0) {
+        saveButton.disabled = false;
+        saveButton.className = 'px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors';
+    } else {
+        saveButton.disabled = true;
+        saveButton.className = 'px-6 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed';
+    }
+}
+
+// Sync checkboxes with selected structures
+function syncCheckboxes() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        const structureId = checkbox.getAttribute('data-id');
+        checkbox.checked = selectedStructures.has(structureId);
+    });
+}
+
+// Handle checkbox changes
+function handleCheckboxChange(checkbox) {
+    const structureId = checkbox.getAttribute('data-id');
+    const structureData = {
+        id: checkbox.getAttribute('data-id'),
+        mapid: checkbox.getAttribute('data-mapid'),
+        map_tg263_primary_name: checkbox.getAttribute('data-map-tg263-primary-name'),
+        model_id: checkbox.getAttribute('data-model-id'),
+        model_name: checkbox.getAttribute('data-model-name'),
+        model_config: checkbox.getAttribute('data-model-config'),
+        model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
+        model_postprocess: checkbox.getAttribute('data-model-postprocess')
+    };
+    
+    if (checkbox.checked) {
+        selectedStructures.add(structureId);
+        // Store full structure data for later use
+        window.structureData = window.structureData || {};
+        window.structureData[structureId] = structureData;
+    } else {
+        selectedStructures.delete(structureId);
+        if (window.structureData) {
+            delete window.structureData[structureId];
+        }
+    }
+    updateSelectionCount();
+    saveSelections();
+}
+
+// Save selections to session
+function saveSelections() {
+    // Convert Set to Array and include full structure data
+    const structuresArray = Array.from(selectedStructures).map(structureId => {
+        if (window.structureData && window.structureData[structureId]) {
+            return window.structureData[structureId];
+        }
+        return structureId; // fallback to just ID
+    });
+    
+    fetch('{% url "dicom_handler:save_selections" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            selected_structures: structuresArray
+        })
+    });
+}
+
+// Load page function for pagination and search
+function loadPage(pageNumber = 1) {
+    const params = new URLSearchParams({
+        page: pageNumber,
+        search: currentSearchQuery,
+        category: currentCategoryFilter,
+        anatomic_region: currentAnatomicFilter,
+        model_name: currentModelFilter
+    });
+    
+    fetch('{% url "dicom_handler:select_models" %}?' + params.toString())
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newTable = doc.querySelector('#structures-container');
+            if (newTable) {
+                document.getElementById('structures-container').innerHTML = newTable.innerHTML;
+                syncCheckboxes();
+                attachEventListeners();
+            }
+        });
+}
+
+// Perform search with current filters
+function performSearch() {
+    currentSearchQuery = document.getElementById('search-input').value;
+    currentCategoryFilter = document.getElementById('category-filter').value;
+    currentAnatomicFilter = document.getElementById('anatomic-filter').value;
+    currentModelFilter = document.getElementById('model-filter').value;
+    loadPage(1);
+}
+
+// Attach event listeners to checkboxes
+function attachEventListeners() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            handleCheckboxChange(this);
+        });
+    });
+}
+
+// Clear all selections
+function clearSelections() {
+    selectedStructures.clear();
+    syncCheckboxes();
+    updateSelectionCount();
+    saveSelections();
+}
+
+// Create template
+function createTemplate() {
+    if (selectedStructures.size === 0) {
+        showNotification('Please select at least one structure before creating the template.', 'error');
+        return;
+    }
+    
+    // Use existing template name and description from session (first step)
+    // No need to ask again - just save directly
+    fetch('{% url "dicom_handler:save_template" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            // Backend will get name/description from session
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Template created successfully!', 'success');
+            setTimeout(() => {
+                window.location.href = '{% url "dicom_handler:create_template" %}';
+            }, 1500);
+        } else {
+            showNotification('Error: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('Error creating template', 'error');
+    });
+}
+
+// Show notification instead of alert
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+        type === 'error' ? 'bg-red-500 text-white' : 
+        type === 'success' ? 'bg-green-500 text-white' : 
+        'bg-blue-500 text-white'
+    }`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+// Show template creation modal
+function showTemplateModal() {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg p-6 w-96 max-w-md mx-4">
+            <h3 class="text-lg font-semibold mb-4">Create Template</h3>
+            <form id="template-form">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Template Name *</label>
+                    <input type="text" id="template-name" required 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                    <textarea id="template-description" rows="3"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeTemplateModal()" 
+                            class="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
+                        Cancel
+                    </button>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        Create Template
+                    </button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Focus on template name input
+    document.getElementById('template-name').focus();
+    
+    // Handle form submission
+    document.getElementById('template-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitTemplate();
+    });
+    
+    // Close modal on outside click
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeTemplateModal();
+        }
+    });
+}
+
+// Close template modal
+function closeTemplateModal() {
+    const modal = document.querySelector('.fixed.inset-0');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Submit template form
+function submitTemplate() {
+    const templateName = document.getElementById('template-name').value.trim();
+    const templateDescription = document.getElementById('template-description').value.trim();
+    
+    if (!templateName) {
+        showNotification('Template name is required', 'error');
+        return;
+    }
+    
+    fetch('{% url "dicom_handler:save_template" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            template_name: templateName,
+            template_description: templateDescription
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        closeTemplateModal();
+        if (data.success) {
+            showNotification('Template created successfully!', 'success');
+            setTimeout(() => {
+                window.location.href = '{% url "dicom_handler:create_template" %}';
+            }, 1500);
+        } else {
+            showNotification('Error: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        closeTemplateModal();
+        console.error('Error:', error);
+        showNotification('Error creating template', 'error');
+    });
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    syncCheckboxes();
+    updateSelectionCount();
+    attachEventListeners();
+    
+    // Search button event
+    document.getElementById('search-btn').addEventListener('click', performSearch);
+    
+    // Enter key in search input
+    document.getElementById('search-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+    
+    // Filter change events
+    document.getElementById('category-filter').addEventListener('change', performSearch);
+    document.getElementById('anatomic-filter').addEventListener('change', performSearch);
+    document.getElementById('model-filter').addEventListener('change', performSearch);
+});
+
+// Global functions for template use
+window.loadPage = loadPage;
+window.clearSelections = clearSelections;
+</script>
+
+{% csrf_token %}
+{% endblock %}

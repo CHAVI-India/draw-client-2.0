@@ -1,0 +1,460 @@
+from pickle import EMPTY_DICT
+from django.db import models
+from django.core.exceptions import ValidationError
+import uuid
+import re
+
+# Create your models here.
+
+class SystemConfiguration(models.Model):
+    '''
+    This is a model to store data about the system configuration. This will be a singleton model.
+    '''
+    id = models.IntegerField(primary_key=True, default=1, editable=False)
+    draw_base_url = models.CharField(max_length=256,null=True,blank=True,help_text="Base URL of the DRAW API server", default="https://draw.chavi.ai")
+    draw_api_credentials = models.CharField(max_length=256,null=True,blank=True,help_text="Bearer token from the DRAW API server")
+    bearer_token_validaty = models.DateTimeField(null=True,blank=True,help_text="Bearer token validity for the DRAW API server")
+    folder_configuration = models.CharField(max_length=256,null=True,blank=True,help_text="Full path of the DICOM folder from which DICOM data will be read and RT Structure file will be exported to")
+    data_pull_start_datetime = models.DateTimeField(null=True,blank=True,help_text="Data pull start datetime for the DRAW API server")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        # Ensure only one instance exists
+        self.pk = 1
+        super(SystemConfiguration, self).save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Prevent deletion of the singleton instance
+        pass
+
+    def __str__(self):
+        return "System Configuration"
+
+    class Meta:
+        verbose_name = "System Configuration"
+        verbose_name_plural = "System Configuration"
+
+    @classmethod
+    def load(cls):
+        """
+        Load the singleton instance. Creates one if it doesn't exist.
+        """
+        obj, created = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @staticmethod
+    def get_singleton():
+        """
+        Get the singleton instance. Returns None if it doesn't exist.
+        """
+        try:
+            return SystemConfiguration.objects.get(pk=1)
+        except SystemConfiguration.DoesNotExist:
+            return None
+
+    
+
+class AutosegmentationTemplate(models.Model):
+    '''
+    This is a model to store data about the templates.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template_name = models.CharField(max_length=256)
+    template_description = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.template_name
+
+    class Meta:
+        verbose_name = "Template"
+        verbose_name_plural = "Templates"
+
+
+class AutosegmentationModel(models.Model):
+    '''
+    This table will hold the information related to models from the DRAW API server for the autosegmentation templates
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    autosegmentation_template_name= models.ForeignKey(AutosegmentationTemplate,on_delete=models.CASCADE,null=True,blank=True)
+    model_id = models.IntegerField(null=True,blank=True)
+    name = models.CharField(max_length=256)
+    config = models.CharField(max_length=256)
+    trainer_name = models.CharField(max_length=256)
+    postprocess = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "Autosegmentation Model"
+        verbose_name_plural = "Autosegmentation Models"
+
+
+class AutosegmentationStructure(models.Model):
+    '''
+    This table will hold the information related to the individual structures in a given model.Again data will come from the DRAW API.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    autosegmentation_model = models.ForeignKey(AutosegmentationModel,on_delete=models.CASCADE,null=True,blank=True)
+    map_id = models.IntegerField(null=True,blank=True)
+    name = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "Autosegmentation Mapped Structure"
+        verbose_name_plural = "Autosegmentation Mapped Structures"
+    
+
+
+class DICOMTagType(models.Model):
+    '''
+    This is a model to store data about the DICOM tags. Note that only DICOM tags approved by the DICOM standards are allowed.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tag_name = models.CharField(max_length=256)
+    tag_id = models.CharField(max_length=256, null=True, blank = True)
+    tag_description = models.CharField(max_length=256, null=True, blank = True)
+    value_representation = models.CharField(max_length=256, null=True, blank = True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.tag_name
+
+    @property
+    def vr_guidance(self):
+        """Get VR guidance for this DICOM tag"""
+        if self.value_representation:
+            from .vr_validators import VRValidator
+            return VRValidator.get_vr_guidance(self.value_representation)
+        return None
+
+    @property
+    def compatible_operators(self):
+        """Get compatible operators for this DICOM tag's VR"""
+        if self.value_representation:
+            from .vr_validators import VRValidator
+            return VRValidator.get_compatible_operators(self.value_representation)
+        return []
+
+    def validate_value_for_vr(self, value):
+        """Validate a value against this tag's VR requirements"""
+        if self.value_representation:
+            from .vr_validators import VRValidator
+            return VRValidator.validate_value_for_vr(value, self.value_representation)
+        return True, ""
+
+    def is_operator_compatible(self, operator):
+        """Check if an operator is compatible with this tag's VR"""
+        if self.value_representation:
+            from .vr_validators import VRValidator
+            return VRValidator.is_operator_compatible(self.value_representation, operator)
+        return True
+
+    class Meta:
+        verbose_name = "DICOM Tag Type"
+        verbose_name_plural = "DICOM Tag Types"
+
+
+
+class RuleCombinationType(models.TextChoices):
+    '''
+    This is an enumerated list of rule combination types for the rulesets.
+    '''
+    AND = "AND", "And"
+    OR = "OR", "Or"
+
+class RuleSet(models.Model):
+    '''
+    This is a model to store data about the rulesets. A ruleset is a collection of rules that are applied to a DICOM series to determine the automatic segmentation template to be used.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ruleset_name = models.CharField(max_length=256, help_text="The name of the ruleset.")
+    ruleset_description = models.CharField(max_length=256, help_text="The description of the ruleset.")
+    rule_combination_type = models.CharField(max_length=256, choices=RuleCombinationType.choices, help_text="The rule combination type. This can be AND or OR.")
+    associated_autosegmentation_template = models.ForeignKey(AutosegmentationTemplate, on_delete=models.CASCADE, null=True, blank=True, help_text="The autosegmentation template associated with the ruleset.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.ruleset_name
+
+    class Meta:
+        verbose_name = "Rule Set"
+        verbose_name_plural = "Rule Sets"
+
+class OperatorType(models.TextChoices):
+    '''
+    This is an enumerated list of operator choices for the rules to be evaluated against.
+    '''
+    EQUALS = "EQUALS", "Equals"
+    NOT_EQUALS = "NOT_EQUALS", "Not Equals"
+    GREATER_THAN = "GREATER_THAN", "Greater Than"
+    LESS_THAN = "LESS_THAN", "Less Than"
+    GREATER_THAN_OR_EQUAL_TO = "GREATER_THAN_OR_EQUAL_TO", "Greater Than Or Equal To"
+    LESS_THAN_OR_EQUAL_TO = "LESS_THAN_OR_EQUAL_TO", "Less Than Or Equal To"
+    CASE_SENSITIVE_STRING_CONTAINS = "CASE_SENSITIVE_STRING_CONTAINS", "Case Sensitive String Contains"
+    CASE_INSENSITIVE_STRING_CONTAINS = "CASE_INSENSITIVE_STRING_CONTAINS", "Case Insensitive String Contains"
+    CASE_SENSITIVE_STRING_DOES_NOT_CONTAIN = "CASE_SENSITIVE_STRING_DOES_NOT_CONTAIN", "Case Sensitive String Does Not Contain"
+    CASE_INSENSITIVE_STRING_DOES_NOT_CONTAIN = "CASE_INSENSITIVE_STRING_DOES_NOT_CONTAIN", "Case Insensitive String Does Not Contain"
+    CASE_SENSITIVE_STRING_EXACT_MATCH = "CASE_SENSITIVE_STRING_EXACT_MATCH", "Case Sensitive String Exact Match"
+    CASE_INSENSITIVE_STRING_EXACT_MATCH = "CASE_INSENSITIVE_STRING_EXACT_MATCH", "Case Insensitive String Exact Match"
+    
+class Rule(models.Model):
+    '''
+    This is a model to store data about the rules. A rule is a condition that is evaluated against a DICOM tag to determine if it matches a specific value.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ruleset = models.ForeignKey(RuleSet, on_delete=models.CASCADE, help_text="The ruleset to which this rule belongs to.")
+    dicom_tag_type = models.ForeignKey(DICOMTagType, on_delete=models.CASCADE, help_text="The DICOM tag type whose value will be evaluated.")
+    operator_type = models.CharField(max_length=256, choices=OperatorType.choices, help_text="The operator type. This can be a string operator to be used for text and number or a numeric operator for numeric values.")
+    tag_value_to_evaluate = models.CharField(max_length=256, help_text="The tag value to evaluate. This is the value that the rule will match to.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def is_numeric_value(self, value):
+        """Check if the value is numeric (integer or float)"""
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+
+    def clean(self):
+        """Validate that operators are used appropriately with value types and VR requirements"""
+        from .vr_validators import VRValidator
+        super().clean()
+        
+        if not self.operator_type or not self.tag_value_to_evaluate:
+            return
+        
+        # Get the VR code from the selected DICOM tag
+        vr_code = None
+        if self.dicom_tag_type and self.dicom_tag_type.value_representation:
+            vr_code = self.dicom_tag_type.value_representation
+        
+        # VR-specific validation
+        if vr_code:
+            # Validate value format against VR requirements
+            is_valid, vr_error = VRValidator.validate_value_for_vr(
+                self.tag_value_to_evaluate, vr_code
+            )
+            if not is_valid:
+                raise ValidationError({
+                    'tag_value_to_evaluate': f'Value format invalid for {vr_code} VR: {vr_error}'
+                })
+            
+            # Check operator compatibility with VR
+            if not VRValidator.is_operator_compatible(vr_code, self.operator_type):
+                compatible_ops = VRValidator.get_compatible_operators(vr_code)
+                raise ValidationError({
+                    'operator_type': f'Operator "{self.get_operator_type_display()}" is not compatible with '
+                                   f'{vr_code} VR. Compatible operators: {", ".join(compatible_ops)}'
+                })
+        
+        # Fallback to original operator-based validation if no VR available
+        else:
+            # Define string operators that allow string values (contain "STRING" in their name)
+            string_operators = [
+                OperatorType.CASE_SENSITIVE_STRING_CONTAINS,
+                OperatorType.CASE_INSENSITIVE_STRING_CONTAINS,
+                OperatorType.CASE_SENSITIVE_STRING_DOES_NOT_CONTAIN,
+                OperatorType.CASE_INSENSITIVE_STRING_DOES_NOT_CONTAIN,
+                OperatorType.CASE_SENSITIVE_STRING_EXACT_MATCH,
+                OperatorType.CASE_INSENSITIVE_STRING_EXACT_MATCH,
+            ]
+            
+            is_numeric = self.is_numeric_value(self.tag_value_to_evaluate)
+            
+            # All operators except string operators require numeric values
+            if self.operator_type not in string_operators and not is_numeric:
+                raise ValidationError({
+                    'tag_value_to_evaluate': f'Operator "{self.get_operator_type_display()}" can only be used with numeric values. '
+                                           f'The value "{self.tag_value_to_evaluate}" is not numeric. Use string operators for text values.'
+                })
+
+    def save(self, *args, **kwargs):
+        """Override save to run validation"""
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.dicom_tag_type.tag_name} {self.get_operator_type_display()} {self.tag_value_to_evaluate}"
+
+    class Meta:
+        verbose_name = "Rule"
+        verbose_name_plural = "Rules"
+
+class Patient(models.Model):
+    '''
+    This is a model to store data about the patients.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    patient_id = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_patient_id = models.CharField(max_length=256,null=True,blank=True)
+    patient_name = models.CharField(max_length=100,null=True,blank=True)
+    patient_gender = models.CharField(max_length=10,null=True,blank=True)
+    patient_date_of_birth = models.DateField(null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.patient_name
+
+    class Meta:
+        verbose_name = "Patient"
+        verbose_name_plural = "Patients"
+        ordering = ["-patient_date_of_birth"]    
+
+class DICOMStudy(models.Model):
+    '''
+    This is a model to store data about the DICOM studies.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    patient = models.ForeignKey(Patient,on_delete=models.CASCADE)
+    study_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_study_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    study_date = models.DateField(null=True,blank=True)
+    deidentified_study_date = models.DateField(null=True,blank=True)
+    study_description = models.CharField(max_length=256,null=True,blank=True)
+    study_protocol = models.CharField(max_length=256,null=True,blank=True)
+    study_modality = models.CharField(max_length=256,null=True,blank=True)
+    study_date = models.DateField(null=True,blank=True)
+    deidentified_study_date = models.DateField(null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)    
+
+    def __str__(self):
+        return self.study_instance_uid
+    
+    class Meta:
+        verbose_name = "DICOM Study"
+        verbose_name_plural = "DICOM Studies"
+        ordering = ["-study_date"]
+
+class ProcessingStatus(models.TextChoices):
+    '''
+    This is an enumerated list of processing statuses for the DICOM series.
+    '''
+    UNPROCESSED = "UNPROCESSED", "Unprocessed"
+    RULE_MATCHED = "RULE_MATCHED", "Rule Matched"
+    RULE_NOT_MATCHED = "RULE_NOT_MATCHED", "Rule Not Matched"
+    MULTIPLE_RULES_MATCHED = "MULTIPLE_RULES_MATCHED", "Multiple Rules Matched"
+    DEIDENTIFIED_SUCCESSFULLY = "DEIDENTIFIED_SUCCESSFULLY", "Deidentified Successfully"
+    DEIDENTIFICATION_FAILED = "DEIDENTIFICATION_FAILED", "Deidentification Failed"  
+    PENDING_TRANSFER_TO_DRAW_SERVER = "PENDING_TRANSFER_TO_DRAW_SERVER", "Pending Transfer to Draw Server"
+    SENT_TO_DRAW_SERVER = "SENT_TO_DRAW_SERVER", "Sent to Draw Server"
+    RTSTRUCTURE_RECEIVED = "RTSTRUCTURE_RECEIVED", "RT Structure Received"
+    RTSTRUCTURE_EXPORTED  = "RTSTRUCTURE_EXPORTED", "RT Structure Exported"
+    RTSTRUCTURE_EXPORT_FAILED = "RTSTRUCTURE_EXPORT_FAILED", "RT Structure Export Failed"    
+
+class DICOMSeries(models.Model):
+    '''
+    This is a model to store data about the DICOM series. The primary matching of the rules will always be done with the DICOM series.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    study = models.ForeignKey(DICOMStudy,on_delete=models.CASCADE)
+    series_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_series_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    series_root_path = models.CharField(max_length=256,null=True,blank=True)
+    frame_of_reference_uid = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_frame_of_reference_uid = models.CharField(max_length=256,null=True,blank=True)
+    series_date = models.DateField(null=True,blank=True)
+    deidentified_series_date = models.DateField(null=True,blank=True)
+    instance_count = models.IntegerField(null=True,blank=True)
+    matched_rule_sets = models.ManyToManyField(RuleSet)
+    matched_templates = models.ManyToManyField(AutosegmentationTemplate)
+    series_processsing_status = models.CharField(max_length=256,choices=ProcessingStatus.choices,default=ProcessingStatus.UNPROCESSED, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.series_instance_uid
+    
+    class Meta:
+        verbose_name = "DICOM Series"
+        verbose_name_plural = "DICOM Series"
+
+class DICOMInstance(models.Model):
+    '''
+    This is a model to store data about the DICOM instances.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    series_instance_uid = models.ForeignKey(DICOMSeries,on_delete=models.CASCADE)
+    sop_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_sop_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    instance_path = models.CharField(max_length=256,null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.sop_instance_uid
+    
+    class Meta:
+        verbose_name = "DICOM Instance"
+        verbose_name_plural = "DICOM Instances"
+
+class DICOMFileTransferStatus(models.TextChoices):
+    '''
+    This is an enumerated list of DICOM file transfer statuses.
+    '''
+    PENDING = "PENDING", "Pending"
+    IN_PROGRESS = "IN_PROGRESS", "In Progress"
+    COMPLETED = "COMPLETED", "Completed"
+    FAILED = "FAILED", "Failed"
+
+class DICOMFileExport(models.Model):
+    '''
+    This is a model to store data about the DICOM files exported to DRAW server
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    deidentified_series_instance_uid = models.ForeignKey(DICOMSeries,on_delete=models.CASCADE)
+    deidentified_zip_file_path = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_zip_file_checksum = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_zip_file_transfer_status = models.CharField(max_length=256,choices=DICOMFileTransferStatus.choices,default=DICOMFileTransferStatus.PENDING, null=True, blank=True)
+    deidentified_zip_file_transfer_datetime = models.DateTimeField(null=True,blank=True)
+    server_segmentation_status = models.CharField(max_length=256,null=True, blank=True)
+    server_segmentation_file_transaction_token = models.CharField(max_length=256,null=True, blank=True)
+    server_segmentation_updated_datetime = models.DateTimeField(null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)    
+    
+    def __str__(self):
+        return self.deidentified_zip_file_path  
+
+    class Meta:
+        verbose_name = "DICOM File Export"
+        verbose_name_plural = "DICOM File Exports"
+
+class RTStructureFileImport(models.Model):
+    '''
+    This is a model to store data about the RT structure files imported from DRAW server
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    deidentified_series_instance_uid = models.ForeignKey(DICOMSeries,on_delete=models.CASCADE,null=True,blank=True)
+    deidentified_sop_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    deidentified_rt_structure_file_path = models.CharField(max_length=256,null=True,blank=True)
+    received_rt_structure_file_checksum = models.CharField(max_length=256,null=True,blank=True)
+    received_rt_structure_file_download_datetime = models.DateTimeField(null=True,blank=True)
+    server_segmentation_status = models.CharField(max_length=256,null=True, blank=True)
+    server_segmentation_updated_datetime = models.DateTimeField(null=True,blank=True)
+    reidentified_rt_structure_file_path = models.CharField(max_length=256,null=True,blank=True)
+    reidentified_rt_structure_file_export_datetime = models.DateTimeField(null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)    
+    
+    def __str__(self):
+        return self.rt_structure_file_path  
+
+    class Meta:
+        verbose_name = "RT Structure File Import"
+        verbose_name_plural = "RT Structure File Imports"    

@@ -1,0 +1,142 @@
+<div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Structure Name</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anatomic Region</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model Name</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DRAW Link</th>
+                {% if system_config.show_dice_scores %}
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dice Score</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% for structure in page_obj %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-4 whitespace-nowrap">
+                        <input type="checkbox" 
+                               class="structure-checkbox h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                               data-id="{{ structure.id }}"
+                               data-mapid="{{ structure.mapid }}"
+                               data-map-tg263-primary-name="{{ structure.map_tg263_primary_name }}"
+                               data-model-id="{{ structure.model_id }}"
+                               data-model-name="{{ structure.model_name }}"
+                               data-model-config="{{ structure.model_config }}"
+                               data-model-trainer-name="{{ structure.model_trainer_name }}"
+                               data-model-postprocess="{{ structure.model_postprocess }}"
+                               {% if structure.id|stringformat:"s" in selected_structures %}checked{% endif %}>
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {{ structure.map_tg263_primary_name|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {{ structure.Major_Category|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {{ structure.Anatomic_Group|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 text-sm text-gray-500 max-w-xs truncate">
+                        {{ structure.Description|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {{ structure.model_name|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm">
+                        {% if structure.id and system_config.draw_base_url %}
+                            <a href="{{ system_config.draw_base_url }}/models/{{ structure.id }}" 
+                               target="_blank" 
+                               class="text-primary-600 hover:text-primary-900 hover:underline inline-flex items-center">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                </svg>
+                                View in DRAW
+                            </a>
+                        {% else %}
+                            <span class="text-gray-400">N/A</span>
+                        {% endif %}
+                    </td>
+                    {% if system_config.show_dice_scores %}
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {% if structure.median_dice_score %}
+                                {{ structure.median_dice_score|floatformat:3 }}
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                    {% endif %}
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="{% if system_config.show_dice_scores %}8{% else %}7{% endif %}" class="px-4 py-8 text-center text-gray-500">
+                        {% if search_query %}
+                            No structures found matching "{{ search_query }}".
+                        {% else %}
+                            No structures available.
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if page_obj.paginator.num_pages > 1 %}
+    <div class="px-6 py-3 flex items-center justify-between border-t border-gray-200">
+        <div class="flex-1 flex justify-between sm:hidden">
+            {% if page_obj.has_previous %}
+                <button onclick="loadPage({{ page_obj.previous_page_number }})" 
+                        class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Previous
+                </button>
+            {% endif %}
+            {% if page_obj.has_next %}
+                <button onclick="loadPage({{ page_obj.next_page_number }})" 
+                        class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Next
+                </button>
+            {% endif %}
+        </div>
+        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+            <div>
+                <p class="text-sm text-gray-700">
+                    Showing <span class="font-medium">{{ page_obj.start_index }}</span> to <span class="font-medium">{{ page_obj.end_index }}</span> of <span class="font-medium">{{ page_obj.paginator.count }}</span> results
+                </p>
+            </div>
+            <div>
+                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    {% if page_obj.has_previous %}
+                        <button onclick="loadPage({{ page_obj.previous_page_number }})" 
+                                class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            Previous
+                        </button>
+                    {% endif %}
+                    
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-primary-50 text-sm font-medium text-primary-600">
+                                {{ num }}
+                            </span>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <button onclick="loadPage({{ num }})" 
+                                    class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                {{ num }}
+                            </button>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if page_obj.has_next %}
+                        <button onclick="loadPage({{ page_obj.next_page_number }})" 
+                                class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            Next
+                        </button>
+                    {% endif %}
+                </nav>
+            </div>
+        </div>
+    </div>
+{% endif %}

@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+
+{% block title %}Templates{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">Autosegmentation Templates</h1>
+                    {% if perms.dicom_handler.add_autosegmentationtemplate %}
+                        <a href="{% url 'dicom_handler:create_template' %}" 
+                           class="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            Create New Template
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if templates %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Models</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Structures</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RuleSet</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for template in templates %}
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900">{{ template.template_name }}</div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm text-gray-600">
+                                            {% if template.template_description %}
+                                                {{ template.template_description|truncatechars:100 }}
+                                            {% else %}
+                                                <span class="text-gray-400 italic">No description</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                            {{ template.model_count }} model{{ template.model_count|pluralize }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            {{ template.structure_count }} structure{{ template.structure_count|pluralize }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        {% if template.related_ruleset %}
+                                            <a href="{% url 'dicom_handler:ruleset_detail' template.related_ruleset.id %}" 
+                                               class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 hover:bg-purple-200">
+                                                {{ template.related_ruleset.ruleset_name }}
+                                            </a>
+                                        {% else %}
+                                            <span class="text-gray-400 italic text-xs">No RuleSet</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                        {{ template.created_at|date:"M d, Y" }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <div class="flex space-x-2">
+                                            {% if perms.dicom_handler.view_autosegmentationtemplate %}
+                                                <a href="{% url 'dicom_handler:template_detail' template.id %}" 
+                                                   class="text-primary-600 hover:text-primary-900">View</a>
+                                            {% endif %}
+                                            {% if perms.dicom_handler.change_autosegmentationtemplate %}
+                                                <a href="{% url 'dicom_handler:edit_template' template.id %}" 
+                                                   class="text-indigo-600 hover:text-indigo-900">Edit</a>
+                                            {% endif %}
+                                            {% if perms.dicom_handler.delete_autosegmentationtemplate %}
+                                                <button onclick="deleteTemplate('{{ template.id }}', '{{ template.template_name|escapejs }}')" 
+                                                        class="text-red-600 hover:text-red-900">Delete</button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-12">
+                    <div class="text-gray-500 text-lg mb-4">No templates found.</div>
+                    {% if perms.dicom_handler.add_autosegmentationtemplate %}
+                        <a href="{% url 'dicom_handler:create_template' %}" 
+                           class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
+                            Create Your First Template
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function deleteTemplate(templateId, templateName) {
+    if (confirm(`Are you sure you want to delete the template "${templateName}"? This action cannot be undone.`)) {
+        fetch(`{% url 'dicom_handler:template_delete' '00000000-0000-0000-0000-000000000000' %}`.replace('00000000-0000-0000-0000-000000000000', templateId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert('Error deleting template: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while deleting the template.');
+        });
+    }
+}
+</script>
+
+{% csrf_token %}
+{% endblock %}
