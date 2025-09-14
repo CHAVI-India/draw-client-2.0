@@ -45,11 +45,36 @@
 # Task 3: Deidentify the series (code to be written in task3_deidentify_series.py)
 # For the series root path, read the DICOM metadata of each file one by one. 
 # Deidentification will involve replacement of all the UIDs, Patient name, Patient Date of Birth, Center information, addresses as well as provider related information. For most fields these will be replaced with and #. However UIDs will be replaced with valid DICOM UIDs. 
+# The following DICOM data will be replaced with # :
+
+        # 'PatientName',  # (0010,0010)
+        # 'ReferringPhysicianName',  # (0008,0090)
+        # 'InstitutionName',  # (0008,0080)
+        # 'PerformingPhysicianName',  # (0008,1050)
+        # 'OperatorsName',  # (0008,1070)
+        # 'StationName',  # (0008,1010)
+        # 'InstitutionalDepartmentName',  # (0008,1040)
+        # 'PhysiciansOfRecord',  # (0008,1048)
+        # 'RequestingPhysician',  # (0032,1032)
+        # 'ReferringPhysicianIdentificationSequence',  # (0008,0096)
+        # 'ConsultingPhysicianName',  # (0008,009C)
+        # 'ResponsiblePerson',  # (0010,2297)
+        # 'ReviewerName'  # (300E,0008)
+        # Person's Address #
+        # Institution Address #
+        # Phone Number #
+
+# The dates like Study Date, Series Date, Instance Date will be replaced with a random but valid date (all of these dates should be same so generate a random date before replacement. All instances in the series should have the same date. Similiarly if two studies are done on the same date then the same date should be used to replace. To do this check the value representation of the tag and if it  DA or DT then apply this rule. 
+
 # UID generation rules are as follows:
+# The organization prefix to be used is 1.2.826.0.1.3680043.10.1561
 # Patient ID : Random UUID
-# Study Instance UID : 1.2.840.113619.<random 5 digit number>.<random 4 digit number> 
-# Series Instance UID : 1.2.840.113619.<random 5 digit number>.<random 4 digit number>.<random 5 digit number>
-# SOP Instance UID : 1.2.840.113619.<random 5 digit number>.<random 4 digit number>.<random 5 digit number>.001, 002, 003 and so for the instance serially.
+# Study Instance UID : <organization_prefix>>.<random_integer(length=3)>.<random_integer(length=2)>.<random_integer(length=3)> 
+# Series Instance UID : <deidentified_study_instance_uid>.<count> where count is the number of series for the given study.
+# Frame of Reference UID : <deidentified_series_instance_uid>.<random_integer(length=4)>
+# SOP Instance UID : <deidentified_series_instance_uid>.<random_integer(length=7)>.<random_integer(length=3)>
+# For all nested referenced UID these should be replaced by the corresponding UIDs from the database if available. If not then randomly the digits should be changed while maintaining the length of the UID.
+# MediaStorageSOPInstanceUID should be equal to the SOP Instance UID
 # Store the IDs in the database 
 # - Deidentified patient ID (patient table)
 # - Deidentified patient date of birth (patient table)
@@ -59,12 +84,15 @@
 # - Deidentified frame of reference uid (series table)
 # - Deidentified series date (series table)
 # - Deidentified sop instance uid (instance table)
+# 
+# Also remove all private tags from the DICOM file using pydicom native functionality.
 # Replace the uids and write the file to a local folder (deidentified_dicom). If folder does not exist create it.
 # Generate the autosegmentation template file.yml and save it to the deidentified_dicom folder
 # Zip the deidentified_dicom folder and save it to the deidentified_dicom folder. Remove the  folder after all files have been zipped.
 # Update the processing_status field of the DICOMSeries model to DEIDENTIFIED_SUCCESSFULLY. Store the deidentified SEries instance UID, deiedentified zip file in the DICOMFileExport model
 # Pass the zip file path to the next task along with corresponding DICOMSeriesUID. 
 # Ensure logging of all operations while masking sensitive information.
+
 
 
 # Task 4: Send the deidentified series to the Draw API server (code to be written to task4_export_series_to_api.py)

@@ -70,18 +70,18 @@ def create_test_templates():
     
     # Create templates
     template1 = AutosegmentationTemplate.objects.create(
-        template_name="CT Head Template",
-        template_description="Template for CT head scans"
+        template_name="Breast Template",
+        template_description="Template for Breast scans"
     )
     
     template2 = AutosegmentationTemplate.objects.create(
-        template_name="MR Brain Template", 
-        template_description="Template for MR brain scans"
+        template_name="Head Neck Template", 
+        template_description="Template for Head Neck scans"
     )
     
     template3 = AutosegmentationTemplate.objects.create(
-        template_name="CT Chest Template",
-        template_description="Template for CT chest scans"
+        template_name="Gyne Template",
+        template_description="Template for Gynecological scans"
     )
     
     print(f"✓ Created {AutosegmentationTemplate.objects.count()} templates")
@@ -102,6 +102,13 @@ def create_test_dicom_tags():
         tag_id="(0008,0060)",
         tag_description="Modality of the image",
         value_representation="CS"
+    )
+    
+    protocol_tag = DICOMTagType.objects.create(
+        tag_name="Protocol Name",
+        tag_id="(0018,1030)",
+        tag_description="Protocol name for the scan",
+        value_representation="LO"
     )
     
     body_part_tag = DICOMTagType.objects.create(
@@ -126,7 +133,7 @@ def create_test_dicom_tags():
     )
     
     print(f"✓ Created {DICOMTagType.objects.count()} DICOM tag types")
-    return modality_tag, body_part_tag, slice_thickness_tag, study_description_tag
+    return modality_tag, protocol_tag, slice_thickness_tag, study_description_tag
 
 def create_test_rulesets(templates, tags):
     """
@@ -135,12 +142,12 @@ def create_test_rulesets(templates, tags):
     print("Creating test rulesets and rules...")
     
     template1, template2, template3 = templates
-    modality_tag, body_part_tag, slice_thickness_tag, study_description_tag = tags
+    modality_tag, protocol_tag, slice_thickness_tag, study_description_tag = tags
     
     # Ruleset 1: CT Head (AND combination)
     ruleset1 = RuleSet.objects.create(
-        ruleset_name="CT Head Ruleset",
-        ruleset_description="Rules for CT head scans",
+        ruleset_name="Breast Ruleset",
+        ruleset_description="Rules for Breast Scans",
         rule_combination_type=RuleCombinationType.AND,
         associated_autosegmentation_template=template1
     )
@@ -155,38 +162,38 @@ def create_test_rulesets(templates, tags):
     
     Rule.objects.create(
         ruleset=ruleset1,
-        dicom_tag_type=body_part_tag,
+        dicom_tag_type=protocol_tag,
         operator_type=OperatorType.CASE_INSENSITIVE_STRING_CONTAINS,
-        tag_value_to_evaluate="HEAD"
+        tag_value_to_evaluate="Breast"
     )
     
-    # Ruleset 2: MR Brain (OR combination)
+    # Ruleset 2: MR Head (OR combination)
     ruleset2 = RuleSet.objects.create(
-        ruleset_name="MR Brain Ruleset",
-        ruleset_description="Rules for MR brain scans",
-        rule_combination_type=RuleCombinationType.OR,
+        ruleset_name="Head Neck Rule Set",
+        ruleset_description="Rules for Head Neck Scans",
+        rule_combination_type=RuleCombinationType.AND,
         associated_autosegmentation_template=template2
     )
     
-    # Rules for MR Brain
+    # Rules for CT Head
     Rule.objects.create(
         ruleset=ruleset2,
         dicom_tag_type=modality_tag,
         operator_type=OperatorType.CASE_SENSITIVE_STRING_EXACT_MATCH,
-        tag_value_to_evaluate="MR"
+        tag_value_to_evaluate="CT"
     )
     
     Rule.objects.create(
         ruleset=ruleset2,
         dicom_tag_type=study_description_tag,
         operator_type=OperatorType.CASE_INSENSITIVE_STRING_CONTAINS,
-        tag_value_to_evaluate="BRAIN"
+        tag_value_to_evaluate="HEAD"
     )
     
-    # Ruleset 3: Thick Slice CT (numeric rule)
+    # Ruleset 3: Gyn CT Scan
     ruleset3 = RuleSet.objects.create(
-        ruleset_name="Thick Slice CT",
-        ruleset_description="CT scans with thick slices",
+        ruleset_name="Gyn CT Scan",
+        ruleset_description="Gyn CT Scans",
         rule_combination_type=RuleCombinationType.AND,
         associated_autosegmentation_template=template3
     )
@@ -201,9 +208,9 @@ def create_test_rulesets(templates, tags):
     
     Rule.objects.create(
         ruleset=ruleset3,
-        dicom_tag_type=slice_thickness_tag,
-        operator_type=OperatorType.GREATER_THAN_OR_EQUAL_TO,
-        tag_value_to_evaluate="5.0"
+        dicom_tag_type=protocol_tag,
+        operator_type=OperatorType.CASE_INSENSITIVE_STRING_CONTAINS,
+        tag_value_to_evaluate="Gyn"
     )
     
     print(f"✓ Created {RuleSet.objects.count()} rulesets with {Rule.objects.count()} rules")
