@@ -155,6 +155,22 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+# Cache Configuration (Memcached)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.memcached.PyMemcacheCache',
+        'LOCATION': os.getenv('MEMCACHED_LOCATION', '127.0.0.1:11211'),
+        'TIMEOUT': 300,  # 5 minutes default timeout
+        'KEY_PREFIX': 'draw_client',
+        'VERSION': 1,
+    }
+}
+
+# Session Configuration (use memcached for sessions as well)
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'default'
+
+
 # Celery Settings
 
 CELERY_BROKER_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
@@ -174,28 +190,16 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
-    'dicom-processing-workflow': {
-        'task': 'dicom_handler.scheduled_dicom_workflow',
-        'schedule': crontab(minute='*/15'),  # Run every 15 minutes
-        'options': {
-            'expires': 60 * 10,  # Task expires after 10 minutes if not picked up
-        },
-    },
-    'dicom-processing-hourly': {
-        'task': 'dicom_handler.scheduled_dicom_workflow',
-        'schedule': crontab(minute=0),  # Run every hour at minute 0
+    'backend-cleanup': {
+        'task': 'dicom_handler.cleanup_backend',
+        'schedule': crontab(minute=0, hour='*/6'),  # Run every 6 hours
         'options': {
             'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
         },
     },
-    'dicom-processing-daily': {
-        'task': 'dicom_handler.scheduled_dicom_workflow',
-        'schedule': crontab(hour=2, minute=0),  # Run daily at 2:00 AM
-        'options': {
-            'expires': 60 * 60 * 2,  # Task expires after 2 hours if not picked up
-        },
-    },
 }
+
+
 
 # Logging Configuration
 import os

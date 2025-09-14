@@ -21,7 +21,7 @@ import pydicom
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import transaction
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 import json
 from ..models import (
@@ -57,7 +57,7 @@ def mask_sensitive_data(data, field_name=""):
 
 def process_single_file(file_info):
     """
-    Process a single DICOM file - designed for multiprocessing
+    Process a single DICOM file - designed for threading
     Returns: Dictionary with file processing results
     """
     file_path, series_root_path, date_filter, current_time, ten_minutes_ago = file_info
@@ -448,7 +448,7 @@ def get_series_for_next_task():
 
 def read_dicom_from_storage():
     """
-    Main function to read DICOM files from configured storage folder (PARALLEL VERSION)
+    Main function to read DICOM files from configured storage folder (THREAD-PARALLEL VERSION)
     Returns: Dictionary containing processing results and series information for next task
     """
     logger.info("Starting DICOM file reading task (parallel processing)")
@@ -489,9 +489,9 @@ def read_dicom_from_storage():
         )
         logger.info(f"Found {len(existing_sop_uids)} existing SOP Instance UIDs in database")
         
-        # Process files in parallel
-        max_workers = min(cpu_count(), 8)  # Limit to 8 processes max
-        logger.info(f"Processing files with {max_workers} parallel workers")
+        # Process files in parallel using threads (Celery-compatible)
+        max_workers = min(cpu_count(), 8)  # Limit to 8 threads max
+        logger.info(f"Processing files with {max_workers} parallel threads")
         
         processed_files = 0
         skipped_files = 0
@@ -504,7 +504,7 @@ def read_dicom_from_storage():
             batch = file_list[i:i + batch_size]
             logger.info(f"Processing batch {i//batch_size + 1}/{(len(file_list)-1)//batch_size + 1} ({len(batch)} files)")
             
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all files in batch
                 future_to_file = {
                     executor.submit(process_single_file, file_info): file_info[0]

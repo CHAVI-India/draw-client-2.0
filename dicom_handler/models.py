@@ -1,8 +1,9 @@
-from pickle import EMPTY_DICT
 from django.db import models
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from datetime import timedelta
 import uuid
-import re
 
 # Create your models here.
 
@@ -456,4 +457,28 @@ class RTStructureFileImport(models.Model):
 
     class Meta:
         verbose_name = "RT Structure File Import"
-        verbose_name_plural = "RT Structure File Imports"    
+        verbose_name_plural = "RT Structure File Imports"
+
+class ChainExecutionLock(models.Model):
+    '''
+    Model to handle atomic locking for DICOM processing chain execution
+    Prevents multiple chains from running simultaneously
+    '''
+    id = models.AutoField(primary_key=True)
+    lock_name = models.CharField(max_length=100, unique=True, help_text="Name of the lock")
+    chain_id = models.CharField(max_length=100, help_text="Celery chain ID")
+    started_at = models.DateTimeField(auto_now_add=True)
+    started_by = models.CharField(max_length=100, help_text="Task or process that acquired the lock")
+    expires_at = models.DateTimeField(help_text="When this lock expires")
+    status = models.CharField(max_length=50, default='running', help_text="Chain execution status")
+    
+    def __str__(self):
+        return f"Lock: {self.lock_name} - Chain: {self.chain_id}"
+    
+    def is_expired(self):
+        """Check if the lock has expired"""
+        return timezone.now() > self.expires_at
+    
+    class Meta:
+        verbose_name = "Chain Execution Lock"
+        verbose_name_plural = "Chain Execution Locks"

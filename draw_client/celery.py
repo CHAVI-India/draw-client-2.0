@@ -16,6 +16,9 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
 
+# Explicitly import tasks to ensure registration
+app.autodiscover_tasks(['dicom_handler'])
+
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):
