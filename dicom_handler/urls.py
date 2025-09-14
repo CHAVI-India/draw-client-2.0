@@ -29,4 +29,7 @@ urlpatterns = [
     path('vr-guidance/<uuid:tag_id>/', views.get_vr_guidance, name='get_vr_guidance'),
     path('validate-vr-value/', views.validate_vr_value, name='validate_vr_value'),
     path('search-dicom-tags/', views.search_dicom_tags, name='search_dicom_tags'),
+    
+    # DICOM Series Processing Status
+    path('series-status/', views.series_processing_status, name='series_processing_status'),
 ]

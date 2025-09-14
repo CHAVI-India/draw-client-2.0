@@ -1,0 +1,396 @@
+{% extends 'base.html' %}
+
+{% block title %}DICOM Series Processing Status - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-full mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Series Processing Status</h1>
+        <p class="text-gray-600">Monitor and manage DICOM series processing status with filtering and search capabilities.</p>
+    </div>
+
+    <!-- Filters and Search -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <form method="get" id="filter-form" class="space-y-4">
+            <!-- Search Row -->
+            <div class="flex flex-col sm:flex-row gap-4">
+                <div class="flex-1">
+                    <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Search by Patient Name or ID</label>
+                    <input type="text" name="search" id="search" value="{{ search_query }}" 
+                           placeholder="Enter patient name or ID..." 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors">
+                        Search
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filter Row 1 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label for="gender" class="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                    <select name="gender" id="gender" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">All Genders</option>
+                        {% for gender in all_genders %}
+                            <option value="{{ gender }}" {% if gender == gender_filter %}selected{% endif %}>{{ gender }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="modality" class="block text-sm font-medium text-gray-700 mb-1">Modality</label>
+                    <select name="modality" id="modality" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">All Modalities</option>
+                        {% for modality in all_modalities %}
+                            <option value="{{ modality }}" {% if modality == modality_filter %}selected{% endif %}>{{ modality }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="protocol" class="block text-sm font-medium text-gray-700 mb-1">Protocol</label>
+                    <select name="protocol" id="protocol" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">All Protocols</option>
+                        {% for protocol in all_protocols %}
+                            <option value="{{ protocol }}" {% if protocol == protocol_filter %}selected{% endif %}>{{ protocol }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="status" class="block text-sm font-medium text-gray-700 mb-1">Processing Status</label>
+                    <select name="status" id="status" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">All Statuses</option>
+                        {% for status_code, status_display in processing_statuses %}
+                            <option value="{{ status_code }}" {% if status_code == status_filter %}selected{% endif %}>{{ status_display }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Date Filter Row -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                    <label for="study_date_from" class="block text-sm font-medium text-gray-700 mb-1">Study Date From</label>
+                    <input type="date" name="study_date_from" id="study_date_from" value="{{ study_date_from }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+                <div>
+                    <label for="study_date_to" class="block text-sm font-medium text-gray-700 mb-1">Study Date To</label>
+                    <input type="date" name="study_date_to" id="study_date_to" value="{{ study_date_to }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+                <div>
+                    <label for="updated_date_from" class="block text-sm font-medium text-gray-700 mb-1">Updated DateTime From</label>
+                    <input type="datetime-local" name="updated_date_from" id="updated_date_from" value="{{ updated_date_from }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+                <div>
+                    <label for="updated_date_to" class="block text-sm font-medium text-gray-700 mb-1">Updated DateTime To</label>
+                    <input type="datetime-local" name="updated_date_to" id="updated_date_to" value="{{ updated_date_to }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-wrap gap-2">
+                <button type="submit" class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors">
+                    Apply Filters
+                </button>
+                <a href="{% url 'dicom_handler:series_processing_status' %}" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                    Clear Filters
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Selected Actions Bar -->
+    <div id="selected-actions" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 hidden">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center">
+                <span class="text-blue-800 font-medium">
+                    <span id="selected-count">0</span> series selected
+                </span>
+            </div>
+            <div class="flex space-x-2">
+                <button type="button" id="bulk-action-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                    Run Manual Action
+                </button>
+                <button type="button" id="clear-selection-btn" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                    Clear Selection
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Summary -->
+    <div class="mb-4">
+        <p class="text-sm text-gray-600">
+            Showing {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ page_obj.paginator.count }} series
+        </p>
+    </div>
+
+    <!-- Bulk Select Header -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <input type="checkbox" id="select-all" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500">
+                <label for="select-all" class="text-sm font-medium text-gray-700">Select All</label>
+            </div>
+            <div class="text-sm text-gray-500">
+                {{ page_obj.paginator.count }} series total
+            </div>
+        </div>
+    </div>
+
+    <!-- Series Cards -->
+    <div class="space-y-2">
+        {% for series in series_data %}
+        <div class="bg-white rounded border border-gray-200 hover:shadow-sm transition-shadow">
+            <div class="p-3">
+                <!-- Card Header with Checkbox and Status -->
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center space-x-2">
+                        <input type="checkbox" class="series-checkbox rounded border-gray-300 text-primary-600 focus:ring-primary-500" 
+                               value="{{ series.id }}" data-series-id="{{ series.id }}">
+                        <div>
+                            <h3 class="text-base font-semibold text-gray-900">{{ series.patient_name }} <span class="text-sm font-normal text-gray-600">({{ series.patient_id }})</span></h3>
+                        </div>
+                    </div>
+                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                        {% if series.processing_status == 'Rule Matched' %}bg-green-100 text-green-800
+                        {% elif series.processing_status == 'Rule Not Matched' %}bg-red-100 text-red-800
+                        {% elif series.processing_status == 'Multiple Rules Matched' %}bg-yellow-100 text-yellow-800
+                        {% elif series.processing_status == 'Unprocessed' %}bg-gray-100 text-gray-800
+                        {% else %}bg-blue-100 text-blue-800{% endif %}">
+                        {{ series.processing_status }}
+                    </span>
+                </div>
+
+                <!-- Compact Info Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-x-3 gap-y-1 text-xs">
+                    <div>
+                        <span class="text-gray-500">Gender:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.gender }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Date:</span>
+                        <span class="text-gray-900 font-medium ml-1">
+                            {% if series.study_date %}{{ series.study_date|date:"m/d/y" }}{% else %}N/A{% endif %}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Modality:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.study_modality }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Instances:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.instance_count }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Status:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.processing_status|truncatechars:12 }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Protocol:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.study_protocol|truncatechars:15 }}</span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Description:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.study_description|truncatechars:20 }}</span>
+                    </div>
+                </div>
+
+
+                <!-- Matching Info - Compact -->
+                {% if series.matched_rulesets != 'None' or series.matched_templates != 'None' %}
+                <div class="mt-1 pt-1 border-t border-gray-100 text-xs">
+                    {% if series.matched_rulesets != 'None' %}
+                    <span class="text-gray-500">Ruleset:</span>
+                    <span class="text-gray-900">{{ series.matched_rulesets }}</span>
+                    {% endif %}
+                    {% if series.matched_templates != 'None' %}
+                    <span class="text-gray-500 {% if series.matched_rulesets != 'None' %}ml-3{% endif %}">Template:</span>
+                    <span class="text-gray-900">{{ series.matched_templates }}</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+            <div class="text-gray-500">
+                <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-lg font-medium text-gray-900 mb-2">No DICOM series found</p>
+                <p class="text-gray-500">No series match your current search and filter criteria.</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <div class="mt-6 flex items-center justify-between">
+        <div class="flex-1 flex justify-between sm:hidden">
+            {% if page_obj.has_previous %}
+                <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}" 
+                   class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Previous
+                </a>
+            {% endif %}
+            {% if page_obj.has_next %}
+                <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}" 
+                   class="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    Next
+                </a>
+            {% endif %}
+        </div>
+        <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+            <div>
+                <p class="text-sm text-gray-700">
+                    Showing page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                </p>
+            </div>
+            <div>
+                <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    {% if page_obj.has_previous %}
+                        <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}" 
+                           class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            <span class="sr-only">Previous</span>
+                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        </a>
+                    {% endif %}
+
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                            <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-primary-50 text-sm font-medium text-primary-600">
+                                {{ num }}
+                            </span>
+                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                            <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ num }}" 
+                               class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                {{ num }}
+                            </a>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if page_obj.has_next %}
+                        <a href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}" 
+                           class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                            <span class="sr-only">Next</span>
+                            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        </a>
+                    {% endif %}
+                </nav>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const selectAllCheckbox = document.getElementById('select-all');
+    const seriesCheckboxes = document.querySelectorAll('.series-checkbox');
+    const selectedActionsBar = document.getElementById('selected-actions');
+    const selectedCountSpan = document.getElementById('selected-count');
+    const bulkActionBtn = document.getElementById('bulk-action-btn');
+    const clearSelectionBtn = document.getElementById('clear-selection-btn');
+
+    // Handle select all functionality
+    selectAllCheckbox.addEventListener('change', function() {
+        seriesCheckboxes.forEach(checkbox => {
+            checkbox.checked = this.checked;
+        });
+        updateSelectedCount();
+    });
+
+    // Handle individual checkbox changes
+    seriesCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            updateSelectAllState();
+            updateSelectedCount();
+        });
+    });
+
+    // Clear selection button
+    clearSelectionBtn.addEventListener('click', function() {
+        selectAllCheckbox.checked = false;
+        seriesCheckboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        updateSelectedCount();
+    });
+
+    // Bulk action button (placeholder for future implementation)
+    bulkActionBtn.addEventListener('click', function() {
+        const selectedIds = Array.from(seriesCheckboxes)
+            .filter(checkbox => checkbox.checked)
+            .map(checkbox => checkbox.value);
+        
+        if (selectedIds.length === 0) {
+            alert('Please select at least one series.');
+            return;
+        }
+        
+        // Placeholder for bulk action implementation
+        alert(`Selected ${selectedIds.length} series for manual action. This feature will be implemented in the future.`);
+    });
+
+    // Auto-submit form on filter changes
+    const filterSelects = document.querySelectorAll('#gender, #modality, #protocol, #status');
+    const dateInputs = document.querySelectorAll('#study_date_from, #study_date_to, #updated_date_from, #updated_date_to');
+    
+    filterSelects.forEach(select => {
+        select.addEventListener('change', function() {
+            document.getElementById('filter-form').submit();
+        });
+    });
+
+    dateInputs.forEach(input => {
+        input.addEventListener('change', function() {
+            document.getElementById('filter-form').submit();
+        });
+    });
+
+    function updateSelectAllState() {
+        const checkedCount = Array.from(seriesCheckboxes).filter(cb => cb.checked).length;
+        const totalCount = seriesCheckboxes.length;
+        
+        if (checkedCount === 0) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = false;
+        } else if (checkedCount === totalCount) {
+            selectAllCheckbox.indeterminate = false;
+            selectAllCheckbox.checked = true;
+        } else {
+            selectAllCheckbox.indeterminate = true;
+            selectAllCheckbox.checked = false;
+        }
+    }
+
+    function updateSelectedCount() {
+        const checkedCount = Array.from(seriesCheckboxes).filter(cb => cb.checked).length;
+        selectedCountSpan.textContent = checkedCount;
+        
+        if (checkedCount > 0) {
+            selectedActionsBar.classList.remove('hidden');
+        } else {
+            selectedActionsBar.classList.add('hidden');
+        }
+    }
+
+    // Initialize state
+    updateSelectAllState();
+    updateSelectedCount();
+});
+</script>
+{% endblock %}

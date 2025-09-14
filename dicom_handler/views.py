@@ -4,8 +4,9 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
+from django.db import models
 from .forms import TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper
-from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType
+from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus
 from .vr_validators import VRValidator
 import requests
 import json
@@ -1052,3 +1053,119 @@ def search_dicom_tags(request):
         })
     
     return JsonResponse({'tags': results})
+
+@login_required
+@permission_required('dicom_handler.view_dicomseries', raise_exception=True)
+def series_processing_status(request):
+    """
+    View to display DICOM series processing status with filtering, search, and pagination
+    """
+    # Get all series with related data
+    series_queryset = DICOMSeries.objects.select_related(
+        'study__patient'
+    ).prefetch_related(
+        'matched_rule_sets',
+        'matched_templates'
+    ).order_by('-updated_at')
+    
+    # Handle search
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        series_queryset = series_queryset.filter(
+            models.Q(study__patient__patient_name__icontains=search_query) |
+            models.Q(study__patient__patient_id__icontains=search_query)
+        )
+    
+    # Handle filters
+    gender_filter = request.GET.get('gender', '').strip()
+    if gender_filter:
+        series_queryset = series_queryset.filter(study__patient__patient_gender=gender_filter)
+    
+    modality_filter = request.GET.get('modality', '').strip()
+    if modality_filter:
+        series_queryset = series_queryset.filter(study__study_modality=modality_filter)
+    
+    protocol_filter = request.GET.get('protocol', '').strip()
+    if protocol_filter:
+        series_queryset = series_queryset.filter(study__study_protocol__icontains=protocol_filter)
+    
+    status_filter = request.GET.get('status', '').strip()
+    if status_filter:
+        series_queryset = series_queryset.filter(series_processsing_status=status_filter)
+    
+    # Date filters
+    study_date_from = request.GET.get('study_date_from', '').strip()
+    study_date_to = request.GET.get('study_date_to', '').strip()
+    updated_date_from = request.GET.get('updated_date_from', '').strip()
+    updated_date_to = request.GET.get('updated_date_to', '').strip()
+    
+    if study_date_from:
+        series_queryset = series_queryset.filter(study__study_date__gte=study_date_from)
+    if study_date_to:
+        series_queryset = series_queryset.filter(study__study_date__lte=study_date_to)
+    if updated_date_from:
+        series_queryset = series_queryset.filter(updated_at__gte=updated_date_from)
+    if updated_date_to:
+        series_queryset = series_queryset.filter(updated_at__lte=updated_date_to)
+    
+    # Get unique values for filter dropdowns
+    all_genders = DICOMSeries.objects.select_related('study__patient').values_list(
+        'study__patient__patient_gender', flat=True
+    ).distinct().exclude(study__patient__patient_gender__isnull=True).exclude(study__patient__patient_gender='')
+    
+    all_modalities = DICOMSeries.objects.select_related('study').values_list(
+        'study__study_modality', flat=True
+    ).distinct().exclude(study__study_modality__isnull=True).exclude(study__study_modality='')
+    
+    all_protocols = DICOMSeries.objects.select_related('study').values_list(
+        'study__study_protocol', flat=True
+    ).distinct().exclude(study__study_protocol__isnull=True).exclude(study__study_protocol='')
+    
+    # Pagination
+    paginator = Paginator(series_queryset, 10)  # 10 series per page as requested
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Prepare data for template
+    series_data = []
+    for series in page_obj:
+        # Get matched rulesets and templates
+        matched_rulesets = list(series.matched_rule_sets.values_list('ruleset_name', flat=True))
+        matched_templates = list(series.matched_templates.values_list('template_name', flat=True))
+        
+        series_info = {
+            'id': series.id,
+            'patient_id': series.study.patient.patient_id or 'N/A',
+            'patient_name': series.study.patient.patient_name or 'N/A',
+            'gender': series.study.patient.patient_gender or 'N/A',
+            'study_date': series.study.study_date,
+            'study_description': series.study.study_description or 'N/A',
+            'study_protocol': series.study.study_protocol or 'N/A',
+            'study_modality': series.study.study_modality or 'N/A',
+            'instance_count': series.instance_count or 0,
+            'matched_rulesets': ', '.join(matched_rulesets) if matched_rulesets else 'None',
+            'matched_templates': ', '.join(matched_templates) if matched_templates else 'None',
+            'processing_status': series.get_series_processsing_status_display(),
+            'updated_at': series.updated_at,
+        }
+        series_data.append(series_info)
+    
+    context = {
+        'page_obj': page_obj,
+        'series_data': series_data,
+        'search_query': search_query,
+        'gender_filter': gender_filter,
+        'modality_filter': modality_filter,
+        'protocol_filter': protocol_filter,
+        'status_filter': status_filter,
+        'study_date_from': study_date_from,
+        'study_date_to': study_date_to,
+        'updated_date_from': updated_date_from,
+        'updated_date_to': updated_date_to,
+        'all_genders': sorted(list(set(all_genders))),
+        'all_modalities': sorted(list(set(all_modalities))),
+        'all_protocols': sorted(list(set(all_protocols))),
+        'processing_statuses': ProcessingStatus.choices,
+    }
+    
+    return render(request, 'dicom_handler/series_processing_status.html', context)
