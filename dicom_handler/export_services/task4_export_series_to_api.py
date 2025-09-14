@@ -1,9 +1,13 @@
 # Task 4: Send the deidentified series to the Draw API server (code to be written to task4_export_series_to_api.py)
 # For each Zip file which has been deidentified, send it to the DRAW API Server. First we will update the status for the DICOMFileExport model to PENDING_TRANSFER_TO_DRAW_SERVER
-# Prior to each transfer ensure that the API endpoint is accepting file transfer
-# User bearer token authentication for the authentication
+# Prior to each transfer ensure that the API endpoint is accepting file transfer by polling the healthcheck end point. This will be available at <draw_base_url>/api/health. If the response returns a 200 then the API is ready to accept file transfer. If the response is 503 then it means that the API endpoint is not accepting connections. In this case wait for 1 minute and try again. If the response is 503 for 3 consecutive times then raise an exception. Also update the status of the DICOMSeries model to PENDING_TRANSFER_TO_DRAW_SERVER. 
+# If we get a  200 response then the authentication will need to be done using the draw_bearer_token token from the SystemConfiguration model. If the bearer token is expired then the token will need to be refreshed using the draw_refresh_token from the SystemConfiguration model. 
+# If authentication fails again then raise an exception and update the status of the DICOMSeries model to FAILED_TRANSFER_TO_DRAW_SERVER.
 # Calculate the zip file checksum prior to sending it and update the checksum value in the database. (DICOMFileExport model). This checksum value has to be sent as the API payload along with the file. 
-# Update the status for the DICOMFileExport model to SENT_TO_DRAW_SERVER
+# The API endpoint for file transfer will be available at <draw_base_url>/api/upload/ or the URL endpoint in the System configuration. The file will need to be sent as a multipart/form-data request with the following fields:
+# - file - The zip file to be sent to the DRAW API server
+# - checksum - The checksum of the zip file to be sent to the DRAW API server
+# After the transfer is completed the server will issue a task_id which needs to be stored in the task_id field of the DICOMFileExport model. At this time update the DICOMSeries model status to SENT_TO_DRAW_SERVER. Ensure that the date time fields in the DICOMFIleExport are also updated at this time. The status will be returned from the API server at the endpoint <draw_base_url>/api/upload/{task_id}/status/ or the URL endpoint in the System configuration. The deidentified_zip_file_transfer_status field in the DICOMFileExport model should be updated to COMPLETED. 
+# If the upload fails then the status should be updated to FAILED. Also the DICOMSeries model status should be updated to FAILED_TRANSFER_TO_DRAW_SERVER.
 # Delete the zip file after successful transfer
-# Note the transaction ID provided by the API server and update the transaction_id field in the DICOMFileExport model
 # Ensure logging of all operations while masking sensitive information.

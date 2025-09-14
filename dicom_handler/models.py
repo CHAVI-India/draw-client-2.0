@@ -59,8 +59,6 @@ class SystemConfiguration(models.Model):
         except SystemConfiguration.DoesNotExist:
             return None
 
-    
-
 class AutosegmentationTemplate(models.Model):
     '''
     This is a model to store data about the templates.
@@ -77,7 +75,6 @@ class AutosegmentationTemplate(models.Model):
     class Meta:
         verbose_name = "Template"
         verbose_name_plural = "Templates"
-
 
 class AutosegmentationModel(models.Model):
     '''
@@ -100,7 +97,6 @@ class AutosegmentationModel(models.Model):
         verbose_name = "Autosegmentation Model"
         verbose_name_plural = "Autosegmentation Models"
 
-
 class AutosegmentationStructure(models.Model):
     '''
     This table will hold the information related to the individual structures in a given model.Again data will come from the DRAW API.
@@ -119,8 +115,6 @@ class AutosegmentationStructure(models.Model):
         verbose_name = "Autosegmentation Mapped Structure"
         verbose_name_plural = "Autosegmentation Mapped Structures"
     
-
-
 class DICOMTagType(models.Model):
     '''
     This is a model to store data about the DICOM tags. Note that only DICOM tags approved by the DICOM standards are allowed.
@@ -169,8 +163,6 @@ class DICOMTagType(models.Model):
     class Meta:
         verbose_name = "DICOM Tag Type"
         verbose_name_plural = "DICOM Tag Types"
-
-
 
 class RuleCombinationType(models.TextChoices):
     '''
@@ -359,6 +351,7 @@ class ProcessingStatus(models.TextChoices):
     DEIDENTIFICATION_FAILED = "DEIDENTIFICATION_FAILED", "Deidentification Failed"  
     PENDING_TRANSFER_TO_DRAW_SERVER = "PENDING_TRANSFER_TO_DRAW_SERVER", "Pending Transfer to Draw Server"
     SENT_TO_DRAW_SERVER = "SENT_TO_DRAW_SERVER", "Sent to Draw Server"
+    FAILED_TRANSFER_TO_DRAW_SERVER = "FAILED_TRANSFER_TO_DRAW_SERVER", "Failed Transfer to Draw Server"
     RTSTRUCTURE_RECEIVED = "RTSTRUCTURE_RECEIVED", "RT Structure Received"
     RTSTRUCTURE_EXPORTED  = "RTSTRUCTURE_EXPORTED", "RT Structure Exported"
     RTSTRUCTURE_EXPORT_FAILED = "RTSTRUCTURE_EXPORT_FAILED", "RT Structure Export Failed"    
