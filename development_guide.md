@@ -684,6 +684,29 @@ The current implementation uses Tailwind CSS via CDN for rapid development. For 
    - Check Bearer token validity and format
    - Ensure network connectivity to DRAW API endpoint
 
+5. **JavaScript "redeclaration of const" Error**:
+   - **Problem**: Django template loops creating multiple `const` declarations in same scope
+   - **Solution**: Wrap template loop variables in IIFE (Immediately Invoked Function Expression)
+   - **Example Fix**:
+     ```javascript
+     // Before (causes error):
+     {% for structure in selected_structures %}
+     const dbStructure = { ... }; // Redeclared for each iteration
+     {% endfor %}
+     
+     // After (fixed):
+     {% for structure in selected_structures %}
+     (function() {
+         const dbStructure = { ... }; // Each in its own scope
+     })();
+     {% endfor %}
+     ```
+
+6. **Checkbox Selection Not Working - ID Mismatch**:
+   - **Problem**: Database structure IDs don't match API structure IDs
+   - **Solution**: Match structures using `model_id` + `map_id` combination instead of direct ID matching
+   - **Implementation**: Create lookup map with `${model_id}_${map_id}` keys to match database structures with API structures
+
 ### `create_template.html`
 ```html
 {% extends 'base.html' %}
