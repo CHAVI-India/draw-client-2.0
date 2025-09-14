@@ -15,6 +15,7 @@ urlpatterns = [
     path('templates/<uuid:template_id>/edit/', views.edit_template, name='edit_template'),
     path('templates/<uuid:template_id>/delete/', views.template_delete, name='template_delete'),
     path('templates/<uuid:template_id>/update/', views.update_template, name='update_template'),
+    path('templates/<uuid:template_id>/update-info/', views.update_template_info, name='update_template_info'),
     path('search-structures/', search_structures, name='search_structures'),
     
     # RuleSet URLs

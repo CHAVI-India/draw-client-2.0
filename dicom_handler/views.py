@@ -615,7 +615,7 @@ def template_detail(request, template_id):
 @permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
 def edit_template(request, template_id):
     """
-    View to edit an existing template
+    View to edit an existing template - single page with structure selection
     """
     try:
         template = AutosegmentationTemplate.objects.get(id=template_id)
@@ -639,102 +639,138 @@ def edit_template(request, template_id):
                     'model_postprocess': model.postprocess
                 })
         
-        # Store current structures in session for editing
-        request.session['selected_structures'] = current_structures
-        request.session['editing_template_id'] = str(template_id)
-        request.session.modified = True
+        # Fetch API data for structure selection
+        system_config = SystemConfiguration.get_singleton()
+        if not system_config or not system_config.draw_base_url:
+            messages.error(request, 'System configuration not found. Please configure the DRAW API settings.')
+            return redirect('dicom_handler:template_detail', template_id=template_id)
         
-        if request.method == 'POST':
-            form = TemplateCreationForm(request.POST, initial={
-                'template_name': template.template_name,
-                'template_description': template.template_description
+        try:
+            api_url = f"{system_config.draw_base_url.rstrip('/')}/api/models/"
+            headers = {}
+            if system_config.draw_api_credentials:
+                headers['Authorization'] = f"Bearer {system_config.draw_api_credentials}"
+            
+            response = requests.get(api_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            api_data = response.json()
+            
+            # Flatten all structures from all models for pagination and search
+            all_structures = []
+            categories = set()
+            anatomic_regions = set()
+            model_names = set()
+            
+            for model in api_data:
+                if 'modelmap' in model and model['modelmap']:
+                    for structure in model['modelmap']:
+                        structure_data = {
+                            'id': structure.get('id'),
+                            'mapid': structure.get('mapid'),
+                            'map_tg263_primary_name': structure.get('map_tg263_primary_name'),
+                            'Major_Category': structure.get('Major_Category'),
+                            'Anatomic_Group': structure.get('Anatomic_Group'),
+                            'Description': structure.get('Description'),
+                            'median_dice_score': structure.get('median_dice_score'),
+                            'model_id': model.get('model_id'),
+                            'model_name': model.get('model_name'),
+                            'model_config': model.get('model_config'),
+                            'model_trainer_name': model.get('model_trainer_name'),
+                            'model_postprocess': model.get('model_postprocess')
+                        }
+                        all_structures.append(structure_data)
+                        
+                        # Collect filter options
+                        if structure.get('Major_Category'):
+                            categories.add(structure.get('Major_Category'))
+                        if structure.get('Anatomic_Group'):
+                            anatomic_regions.add(structure.get('Anatomic_Group'))
+                        if model.get('model_name'):
+                            model_names.add(model.get('model_name'))
+            
+            # Handle search and filters
+            search_query = request.GET.get('search', '').strip()
+            category_filter = request.GET.get('category', '').strip()
+            anatomic_filter = request.GET.get('anatomic_region', '').strip()
+            model_filter = request.GET.get('model_name', '').strip()
+            
+            filtered_structures = all_structures
+            
+            if search_query:
+                filtered_structures = []
+                for structure in all_structures:
+                    if (search_query.lower() in str(structure.get('map_tg263_primary_name', '')).lower() or
+                        search_query.lower() in str(structure.get('Major_Category', '')).lower() or
+                        search_query.lower() in str(structure.get('Anatomic_Group', '')).lower() or
+                        search_query.lower() in str(structure.get('Description', '')).lower() or
+                        search_query.lower() in str(structure.get('model_name', '')).lower()):
+                        filtered_structures.append(structure)
+            
+            if category_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('Major_Category') == category_filter]
+            
+            if anatomic_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('Anatomic_Group') == anatomic_filter]
+            
+            if model_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('model_name') == model_filter]
+            
+            # Handle pagination
+            page_number = request.GET.get('page', 1)
+            paginator = Paginator(filtered_structures, 25)
+            page_obj = paginator.get_page(page_number)
+            
+            return render(request, 'dicom_handler/edit_template.html', {
+                'template': template,
+                'page_obj': page_obj,
+                'search_query': search_query,
+                'selected_structures': current_structures,
+                'system_config': system_config,
+                'categories': sorted(categories),
+                'anatomic_regions': sorted(anatomic_regions),
+                'model_names': sorted(model_names)
             })
             
-            if form.is_valid():
-                # Fetch API data for structure selection
-                system_config = SystemConfiguration.objects.first()
-                if not system_config or not system_config.draw_base_url:
-                    messages.error(request, 'System configuration not found. Please contact administrator.')
-                    return render(request, 'dicom_handler/edit_template.html', {'form': form, 'template': template})
-                
-                try:
-                    api_url = f"{system_config.draw_base_url.rstrip('/')}/api/models/"
-                    headers = {}
-                    if system_config.draw_api_credentials:
-                        headers['Authorization'] = f"Bearer {system_config.draw_api_credentials}"
-                    
-                    response = requests.get(api_url, headers=headers, timeout=30)
-                    response.raise_for_status()
-                    
-                    api_data = response.json()
-                    
-                    # Flatten all structures from all models for pagination and search
-                    all_structures = []
-                    for model in api_data:
-                        if 'modelmap' in model and model['modelmap']:
-                            for structure in model['modelmap']:
-                                structure_data = {
-                                    'id': structure.get('id'),
-                                    'mapid': structure.get('mapid'),
-                                    'map_tg263_primary_name': structure.get('map_tg263_primary_name'),
-                                    'Major_Category': structure.get('Major_Category'),
-                                    'Anatomic_Group': structure.get('Anatomic_Group'),
-                                    'Description': structure.get('Description'),
-                                    'median_dice_score': structure.get('median_dice_score'),
-                                    'model_id': model.get('model_id'),
-                                    'model_name': model.get('model_name'),
-                                    'model_config': model.get('model_config'),
-                                    'model_trainer_name': model.get('model_trainer_name'),
-                                    'model_postprocess': model.get('model_postprocess')
-                                }
-                                all_structures.append(structure_data)
-                    
-                    # Handle search
-                    search_query = request.GET.get('search', '').strip()
-                    if search_query:
-                        filtered_structures = []
-                        for structure in all_structures:
-                            if (search_query.lower() in str(structure.get('map_tg263_primary_name', '')).lower() or
-                                search_query.lower() in str(structure.get('Major_Category', '')).lower() or
-                                search_query.lower() in str(structure.get('Anatomic_Group', '')).lower() or
-                                search_query.lower() in str(structure.get('Description', '')).lower() or
-                                search_query.lower() in str(structure.get('model_name', '')).lower()):
-                                filtered_structures.append(structure)
-                        all_structures = filtered_structures
-                    
-                    # Handle pagination
-                    from django.core.paginator import Paginator
-                    page_number = request.GET.get('page', 1)
-                    paginator = Paginator(all_structures, 25)
-                    page_obj = paginator.get_page(page_number)
-                    
-                    return render(request, 'dicom_handler/edit_template.html', {
-                        'form': form,
-                        'template': template,
-                        'page_obj': page_obj,
-                        'search_query': search_query,
-                        'selected_structures': current_structures,
-                        'system_config': system_config,
-                        'is_editing': True
-                    })
-                    
-                except requests.RequestException as e:
-                    messages.error(request, f'Error fetching models from API: {str(e)}')
-                    return render(request, 'dicom_handler/edit_template.html', {'form': form, 'template': template})
-        else:
-            form = TemplateCreationForm(initial={
-                'template_name': template.template_name,
-                'template_description': template.template_description
-            })
-        
-        return render(request, 'dicom_handler/edit_template.html', {
-            'form': form,
-            'template': template
-        })
+        except requests.RequestException as e:
+            messages.error(request, f'Error fetching models from API: {str(e)}')
+            return redirect('dicom_handler:template_detail', template_id=template_id)
         
     except AutosegmentationTemplate.DoesNotExist:
         messages.error(request, 'Template not found.')
         return redirect('dicom_handler:template_list')
+
+@login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
+def update_template_info(request, template_id):
+    """
+    Update template name and description via AJAX
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'})
+    
+    try:
+        template = AutosegmentationTemplate.objects.get(id=template_id)
+        
+        template_name = request.POST.get('template_name', '').strip()
+        template_description = request.POST.get('template_description', '').strip()
+        
+        if not template_name:
+            return JsonResponse({'success': False, 'error': 'Template name is required'})
+        
+        template.template_name = template_name
+        template.template_description = template_description
+        template.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Template information updated successfully!'
+        })
+        
+    except AutosegmentationTemplate.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Template not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 
 @login_required
 @permission_required('dicom_handler.delete_autosegmentationtemplate', raise_exception=True)

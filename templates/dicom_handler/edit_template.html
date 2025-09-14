@@ -3,356 +3,346 @@
 {% block title %}Edit Template - {{ template.template_name }}{% endblock %}
 
 {% block content %}
-<div class="min-h-screen bg-gray-50 py-8">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="bg-white shadow rounded-lg">
-            <div class="px-6 py-4 border-b border-gray-200">
-                <h1 class="text-2xl font-bold text-gray-900">Edit Template: {{ template.template_name }}</h1>
-                <p class="mt-2 text-sm text-gray-600">Modify the template name, description, and selected structures.</p>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Edit Template: {{ template.template_name }}</h1>
+        <p class="text-gray-600">Modify the template name, description, and selected structures.</p>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <!-- Template Info Section -->
+        <div class="mb-8 p-6 bg-gray-50 rounded-lg">
+            <h2 class="text-lg font-medium text-gray-900 mb-4">Template Information</h2>
+            <form method="post" action="{% url 'dicom_handler:update_template_info' template.id %}" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% csrf_token %}
+                <div>
+                    <label for="template_name" class="block text-sm font-medium text-gray-700 mb-1">Template Name</label>
+                    <input type="text" id="template_name" name="template_name" value="{{ template.template_name }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label for="template_description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <input type="text" id="template_description" name="template_description" value="{{ template.template_description }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <div class="md:col-span-2">
+                    <button type="submit" class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+                        Update Template Info
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Search and Filter Section -->
+        <div class="mb-6 space-y-4">
+            <!-- Search Bar -->
+            <div class="flex items-center space-x-4">
+                <div class="flex-1">
+                    <input type="text" id="search-input" placeholder="Search structures..." 
+                           value="{{ search_query }}"
+                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <button type="button" id="search-btn" class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+                    Search
+                </button>
             </div>
 
-            {% if not is_editing %}
-                <!-- Template Info Form -->
-                <div class="px-6 py-6">
-                    <form method="post" class="space-y-6">
-                        {% csrf_token %}
-                        
-                        {% if form.errors %}
-                            <div class="bg-red-50 border border-red-200 rounded-md p-4">
-                                <div class="text-red-800 text-sm">
-                                    Please correct the following errors:
-                                    <ul class="mt-2 list-disc list-inside">
-                                        {% for field, errors in form.errors.items %}
-                                            {% for error in errors %}
-                                                <li>{{ field|title }}: {{ error }}</li>
-                                            {% endfor %}
-                                        {% endfor %}
-                                    </ul>
-                                </div>
-                            </div>
-                        {% endif %}
-
-                        <div class="grid grid-cols-1 gap-6">
-                            <div>
-                                <label for="{{ form.template_name.id_for_label }}" class="block text-sm font-medium text-gray-700">
-                                    Template Name
-                                </label>
-                                <div class="mt-1">
-                                    {{ form.template_name }}
-                                </div>
-                            </div>
-
-                            <div>
-                                <label for="{{ form.template_description.id_for_label }}" class="block text-sm font-medium text-gray-700">
-                                    Template Description
-                                </label>
-                                <div class="mt-1">
-                                    {{ form.template_description }}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex justify-between">
-                            <a href="{% url 'dicom_handler:template_detail' template.id %}" 
-                               class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-                                Cancel
-                            </a>
-                            <button type="submit" 
-                                    class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
-                                Continue to Structure Selection
-                            </button>
-                        </div>
-                    </form>
+            <!-- Filter Dropdowns -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label for="category-filter" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select id="category-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Categories</option>
+                        {% for category in categories %}
+                            <option value="{{ category }}">{{ category }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-            {% else %}
-                <!-- Structure Selection Interface -->
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 class="text-lg font-medium text-gray-900">Select Structures</h2>
-                            <p class="text-sm text-gray-600">Choose the structures to include in this template.</p>
-                        </div>
-                        <!-- Selection Summary -->
-                        <div class="flex items-center space-x-4">
-                            <div id="selection-summary" class="text-sm text-gray-600">
-                                <span id="selected-count">0</span> structures selected
-                            </div>
-                            <button id="clear-selections" class="text-sm text-red-600 hover:text-red-800 hidden">
-                                Clear All Selections
-                            </button>
-                        </div>
-                    </div>
+                <div>
+                    <label for="anatomic-filter" class="block text-sm font-medium text-gray-700 mb-1">Anatomic Region</label>
+                    <select id="anatomic-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Regions</option>
+                        {% for region in anatomic_regions %}
+                            <option value="{{ region }}">{{ region }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-
-                <!-- Search Bar -->
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <form method="GET" class="flex items-center space-x-4">
-                        <div class="flex-1">
-                            <input type="text" 
-                                   name="search" 
-                                   value="{{ search_query }}" 
-                                   placeholder="Search structures, categories, anatomic regions, descriptions, or model names..."
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500">
-                        </div>
-                        <button type="submit" 
-                                class="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-                            Search
-                        </button>
-                        {% if search_query %}
-                            <a href="{% url 'dicom_handler:edit_template' template.id %}" 
-                               class="px-4 py-2 bg-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-400">
-                                Clear
-                            </a>
-                        {% endif %}
-                    </form>
+                <div>
+                    <label for="model-filter" class="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                    <select id="model-filter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                        <option value="">All Models</option>
+                        {% for model in model_names %}
+                            <option value="{{ model }}">{{ model }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
+            </div>
+        </div>
 
-                {% if page_obj %}
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Structure Name</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anatomic Region</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model Name</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dice Similarity Coefficient</th>
-                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for structure in page_obj %}
-                                    <tr class="hover:bg-gray-50" data-structure-id="{{ structure.id }}">
-                                        <td class="px-4 py-3 whitespace-nowrap">
-                                            <input type="checkbox" 
-                                                   id="structure-{{ structure.id }}" 
-                                                   class="structure-checkbox w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 focus:ring-2" 
-                                                   data-structure-id="{{ structure.id }}"
-                                                   data-mapid="{{ structure.mapid }}"
-                                                   data-structure-name="{{ structure.map_tg263_primary_name }}"
-                                                   data-model-id="{{ structure.model_id }}"
-                                                   data-model-name="{{ structure.model_name }}"
-                                                   data-model-config="{{ structure.model_config }}"
-                                                   data-model-trainer="{{ structure.model_trainer_name }}"
-                                                   data-model-postprocess="{{ structure.model_postprocess }}"
-                                                   {% for selected in selected_structures %}
-                                                       {% if selected.id == structure.id %}checked{% endif %}
-                                                   {% endfor %}>
-                                        </td>
-                                        <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ structure.map_tg263_primary_name }}</td>
-                                        <td class="px-4 py-3 text-sm text-gray-600">{{ structure.Major_Category }}</td>
-                                        <td class="px-4 py-3 text-sm text-gray-600">{{ structure.Anatomic_Group }}</td>
-                                        <td class="px-4 py-3 text-sm text-gray-600">{{ structure.Description }}</td>
-                                        <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ structure.model_name }}</td>
-                                        <td class="px-4 py-3 text-sm text-gray-600">
-                                            {% if structure.median_dice_score %}
-                                                {{ structure.median_dice_score|floatformat:3 }}
-                                            {% else %}
-                                                N/A
-                                            {% endif %}
-                                        </td>
-                                        <td class="px-4 py-3 whitespace-nowrap">
-                                            <a href="{{ system_config.draw_base_url }}/models/{{ structure.id }}" 
-                                               target="_blank" 
-                                               class="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-primary-700 bg-primary-100 hover:bg-primary-200 transition-colors">
-                                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-                                                </svg>
-                                                View Model
-                                            </a>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
+        <!-- Selection Summary -->
+        <div class="mb-4 flex justify-between items-center">
+            <div class="text-sm text-gray-600">
+                <span id="selected-count">0</span> structures selected
+            </div>
+            <button type="button" id="clear-selections" class="text-sm text-red-600 hover:text-red-800 hidden" onclick="clearSelections()">
+                Clear All Selections
+            </button>
+        </div>
 
-                    <!-- Pagination -->
-                    {% if page_obj.has_other_pages %}
-                        <div class="px-6 py-4 border-t border-gray-200">
-                            <div class="flex items-center justify-between">
-                                <div class="text-sm text-gray-700">
-                                    Showing {{ page_obj.start_index }} to {{ page_obj.end_index }} of {{ page_obj.paginator.count }} structures
-                                </div>
-                                <div class="flex items-center space-x-2">
-                                    {% if page_obj.has_previous %}
-                                        <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}" 
-                                           class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-                                            First
-                                        </a>
-                                        <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" 
-                                           class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-                                            Previous
-                                        </a>
-                                    {% endif %}
+        <!-- Structures Table -->
+        <div id="structures-container">
+            {% include 'dicom_handler/structures_table.html' %}
+        </div>
 
-                                    <span class="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md">
-                                        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
-                                    </span>
-
-                                    {% if page_obj.has_next %}
-                                        <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" 
-                                           class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-                                            Next
-                                        </a>
-                                        <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}" 
-                                           class="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-                                            Last
-                                        </a>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                    {% endif %}
-                {% else %}
-                    <div class="text-center py-12">
-                        <div class="text-gray-500 text-lg">No structures found{% if search_query %} for "{{ search_query }}"{% endif %}.</div>
-                        {% if search_query %}
-                            <a href="{% url 'dicom_handler:edit_template' template.id %}" 
-                               class="mt-4 inline-block text-primary-600 hover:text-primary-800">
-                                Clear search and view all structures
-                            </a>
-                        {% endif %}
-                    </div>
-                {% endif %}
-
-                <div class="px-6 py-4 border-t border-gray-200">
-                    <div class="flex justify-between items-center">
-                        <a href="{% url 'dicom_handler:template_detail' template.id %}" 
-                           class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-                            Cancel
-                        </a>
-                        <div class="flex space-x-4">
-                            <div id="bottom-selection-summary" class="text-sm text-gray-600 py-2">
-                                <span id="bottom-selected-count">0</span> structures selected
-                            </div>
-                            <button type="button" id="save-template-btn" 
-                                    class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed" 
-                                    disabled>
-                                Update Template
-                            </button>
-                        </div>
-                    </div>
+        <!-- Bottom Actions -->
+        <div class="mt-8 flex justify-between items-center">
+            <div class="flex space-x-4">
+                <a href="{% url 'dicom_handler:template_detail' template.id %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                    ← Back to Template
+                </a>
+            </div>
+            <div class="flex space-x-4">
+                <div id="bottom-selection-summary" class="text-sm text-gray-600 py-2">
+                    <span id="bottom-selected-count">0</span> structures selected
                 </div>
-            {% endif %}
+                <button type="button" id="save-template-btn" class="px-6 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed" disabled onclick="updateTemplate()">
+                    Update Template
+                </button>
+            </div>
         </div>
     </div>
 </div>
 
-{% if is_editing %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const structureCheckboxes = document.querySelectorAll('.structure-checkbox');
-    const saveBtn = document.getElementById('save-template-btn');
-    const selectedCountTop = document.getElementById('selected-count');
-    const selectedCountBottom = document.getElementById('bottom-selected-count');
-    const clearSelectionsBtn = document.getElementById('clear-selections');
-    
-    // Initialize UI
-    updateSelectionSummary();
-    
-    // Handle structure checkbox changes
-    structureCheckboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', function() {
-            updateSelectionSummary();
-            updateSessionSelections();
+let selectedStructures = new Set();
+let currentSearchQuery = '{{ search_query|default:"" }}';
+let currentCategoryFilter = '';
+let currentAnatomicFilter = '';
+let currentModelFilter = '';
+
+// Load existing selections from template
+try {
+    const existingSelections = {{ selected_structures|safe }};
+    if (Array.isArray(existingSelections)) {
+        existingSelections.forEach(structure => {
+            selectedStructures.add(structure.id.toString());
         });
-    });
+    }
+} catch (e) {
+    console.warn('Could not parse existing selections:', e);
+}
+
+// Update selection count and button state
+function updateSelectionCount() {
+    const count = selectedStructures.size;
     
-    // Clear selections button
-    clearSelectionsBtn.addEventListener('click', function() {
-        structureCheckboxes.forEach(checkbox => {
-            checkbox.checked = false;
-        });
-        updateSelectionSummary();
-        updateSessionSelections();
-    });
+    // Update count displays
+    document.getElementById('selected-count').textContent = count;
+    document.getElementById('bottom-selected-count').textContent = count;
     
-    function updateSelectionSummary() {
-        const checkedBoxes = document.querySelectorAll('.structure-checkbox:checked');
-        const count = checkedBoxes.length;
-        
-        selectedCountTop.textContent = count;
-        selectedCountBottom.textContent = count;
-        
-        if (count === 0) {
-            saveBtn.disabled = true;
-            clearSelectionsBtn.classList.add('hidden');
-        } else {
-            saveBtn.disabled = false;
-            clearSelectionsBtn.classList.remove('hidden');
+    // Update clear button visibility
+    const clearButton = document.getElementById('clear-selections');
+    if (count > 0) {
+        clearButton.classList.remove('hidden');
+    } else {
+        clearButton.classList.add('hidden');
+    }
+    
+    // Update save button state
+    const saveButton = document.getElementById('save-template-btn');
+    if (count > 0) {
+        saveButton.disabled = false;
+        saveButton.className = 'px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors';
+    } else {
+        saveButton.disabled = true;
+        saveButton.className = 'px-6 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed';
+    }
+}
+
+// Sync checkboxes with selected structures
+function syncCheckboxes() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        const structureId = checkbox.getAttribute('data-id');
+        checkbox.checked = selectedStructures.has(structureId);
+    });
+}
+
+// Handle checkbox changes
+function handleCheckboxChange(checkbox) {
+    const structureId = checkbox.getAttribute('data-id');
+    const structureData = {
+        id: checkbox.getAttribute('data-id'),
+        mapid: checkbox.getAttribute('data-mapid'),
+        map_tg263_primary_name: checkbox.getAttribute('data-map-tg263-primary-name'),
+        model_id: checkbox.getAttribute('data-model-id'),
+        model_name: checkbox.getAttribute('data-model-name'),
+        model_config: checkbox.getAttribute('data-model-config'),
+        model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
+        model_postprocess: checkbox.getAttribute('data-model-postprocess')
+    };
+    
+    if (checkbox.checked) {
+        selectedStructures.add(structureId);
+        // Store full structure data for later use
+        window.structureData = window.structureData || {};
+        window.structureData[structureId] = structureData;
+    } else {
+        selectedStructures.delete(structureId);
+        if (window.structureData) {
+            delete window.structureData[structureId];
         }
     }
+    updateSelectionCount();
+}
+
+// Load page function for pagination
+function loadPage(pageNumber = 1) {
+    const params = new URLSearchParams({
+        page: pageNumber,
+        search: currentSearchQuery,
+        category: currentCategoryFilter,
+        anatomic_region: currentAnatomicFilter,
+        model_name: currentModelFilter
+    });
     
-    function updateSessionSelections() {
-        const selectedData = [];
-        const checkedBoxes = document.querySelectorAll('.structure-checkbox:checked');
-        
-        checkedBoxes.forEach(checkbox => {
-            const structureData = {
-                id: checkbox.dataset.structureId,
-                mapid: checkbox.dataset.mapid,
-                map_tg263_primary_name: checkbox.dataset.structureName,
-                model_id: checkbox.dataset.modelId,
-                model_name: checkbox.dataset.modelName,
-                model_config: checkbox.dataset.modelConfig,
-                model_trainer_name: checkbox.dataset.modelTrainer,
-                model_postprocess: checkbox.dataset.modelPostprocess
-            };
-            selectedData.push(structureData);
-        });
-        
-        // Update session via AJAX
-        fetch('{% url "dicom_handler:update_selections" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            },
-            body: JSON.stringify({
-                selected_structures: selectedData
-            })
-        }).catch(error => {
-            console.error('Error updating selections:', error);
-        });
-    }
-    
-    // Handle save button click
-    saveBtn.addEventListener('click', function() {
-        const templateName = '{{ template.template_name|escapejs }}';
-        const templateDescription = '{{ template.template_description|escapejs }}';
-        
-        // Update existing template
-        fetch('{% url "dicom_handler:update_template" template.id %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            },
-            body: JSON.stringify({
-                template_name: templateName,
-                template_description: templateDescription
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('Template updated successfully!');
-                window.location.href = '/dicom/templates/{{ template.id }}/';
-            } else {
-                alert('Error updating template: ' + data.error);
+    fetch('{% url "dicom_handler:edit_template" template.id %}?' + params.toString())
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const newTable = doc.querySelector('#structures-container');
+            if (newTable) {
+                document.getElementById('structures-container').innerHTML = newTable.innerHTML;
+                syncCheckboxes();
+                attachEventListeners();
             }
-        })
-        .catch(error => {
-            console.error('Error updating template:', error);
-            alert('Error updating template. Please try again.');
+        });
+}
+
+// Perform search with current filters
+function performSearch() {
+    currentSearchQuery = document.getElementById('search-input').value;
+    currentCategoryFilter = document.getElementById('category-filter').value;
+    currentAnatomicFilter = document.getElementById('anatomic-filter').value;
+    currentModelFilter = document.getElementById('model-filter').value;
+    loadPage(1);
+}
+
+// Attach event listeners to checkboxes
+function attachEventListeners() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            handleCheckboxChange(this);
         });
     });
+}
+
+// Clear all selections
+function clearSelections() {
+    selectedStructures.clear();
+    window.structureData = {};
+    syncCheckboxes();
+    updateSelectionCount();
+}
+
+// Update template
+function updateTemplate() {
+    if (selectedStructures.size === 0) {
+        showNotification('Please select at least one structure before updating the template.', 'error');
+        return;
+    }
+    
+    // Get template name and description from form
+    const templateName = document.getElementById('template_name').value.trim();
+    const templateDescription = document.getElementById('template_description').value.trim();
+    
+    if (!templateName) {
+        showNotification('Template name is required.', 'error');
+        return;
+    }
+    
+    // Collect selected structure data
+    const structuresArray = Array.from(selectedStructures).map(structureId => {
+        if (window.structureData && window.structureData[structureId]) {
+            return window.structureData[structureId];
+        }
+        return { id: structureId }; // fallback to just ID
+    });
+    
+    fetch('{% url "dicom_handler:update_template" template.id %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            template_name: templateName,
+            template_description: templateDescription,
+            selected_structures: structuresArray
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Template updated successfully!', 'success');
+            setTimeout(() => {
+                window.location.href = '{% url "dicom_handler:template_detail" template.id %}';
+            }, 1500);
+        } else {
+            showNotification('Error: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('Error updating template', 'error');
+    });
+}
+
+// Show notification instead of alert
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+        type === 'error' ? 'bg-red-500 text-white' : 
+        type === 'success' ? 'bg-green-500 text-white' : 
+        'bg-blue-500 text-white'
+    }`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    syncCheckboxes();
+    updateSelectionCount();
+    attachEventListeners();
+    
+    // Search button event
+    document.getElementById('search-btn').addEventListener('click', performSearch);
+    
+    // Enter key in search input
+    document.getElementById('search-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+    
+    // Filter change events
+    document.getElementById('category-filter').addEventListener('change', performSearch);
+    document.getElementById('anatomic-filter').addEventListener('change', performSearch);
+    document.getElementById('model-filter').addEventListener('change', performSearch);
 });
+
+// Global functions for template use
+window.loadPage = loadPage;
+window.clearSelections = clearSelections;
+window.updateTemplate = updateTemplate;
 </script>
-{% endif %}
 
 {% csrf_token %}
 {% endblock %}
