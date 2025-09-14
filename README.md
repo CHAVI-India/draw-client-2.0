@@ -8,6 +8,7 @@ This is a revamped version of the DRAW Client with the following enhancements:
 5. A more integrated view of the DICOM data processing in the system by integrating the deidentification system with the original system so that a holistic view of the process can be seen.
 6. This also has a secondary benefit of reducing the celery task chain
 7. Better logging with integrating masking of identifiers.
+8. Parallel processing of DICOM files to speed up the process.
 
 # Technology Stack 
 1. Django
