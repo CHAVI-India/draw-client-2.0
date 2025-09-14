@@ -879,6 +879,330 @@ Location: `/seed_data/dicom_dictionary.csv`
 ```csv
 "id","tag_id","tag_name","tag_description","value_representation"
 1,"(4010,1070)","AITDeviceType","AIT Device Type","CS"
+```
+
+---
+
+# Advanced RuleSet Features Implementation
+
+## Overview
+This section documents the advanced features added to the RuleSet management system, including VR (Value Representation) validation, Select2 integration for DICOM tag selection, and dynamic formset management.
+
+## VR Validation System
+
+### VR Validators Module (`vr_validators.py`)
+```python
+import re
+from django.core.exceptions import ValidationError
+
+def validate_vr_value(vr_type, value, operator=None):
+    """
+    Validate a DICOM value against its Value Representation (VR) type
+    """
+    if not value:
+        return True, "Value is empty"
+    
+    # VR validation patterns
+    vr_patterns = {
+        'CS': r'^[A-Za-z0-9_ ]{1,16}$',  # Code String - allows uppercase, lowercase, digits, spaces, underscores
+        'SH': r'^.{1,16}$',              # Short String
+        'LO': r'^.{1,64}$',              # Long String
+        'US': r'^\d+$',                  # Unsigned Short
+        'FD': r'^-?\d+(\.\d+)?$',        # Floating Point Double
+        'DA': r'^\d{8}$',                # Date (YYYYMMDD)
+        'TM': r'^\d{6}(\.\d{1,6})?$',    # Time (HHMMSS.FFFFFF)
+        'UI': r'^[\d\.]+$',              # Unique Identifier
+        'PN': r'^[^\\^=]*(\^[^\\^=]*){0,4}$',  # Person Name
+    }
+    
+    pattern = vr_patterns.get(vr_type)
+    if not pattern:
+        return True, f"No validation pattern for VR type: {vr_type}"
+    
+    if not re.match(pattern, value):
+        return False, f"Value '{value}' is not valid for VR type {vr_type}"
+    
+    return True, "Valid"
+
+def get_compatible_operators(vr_type):
+    """
+    Get operators compatible with a specific VR type
+    """
+    string_vrs = ['CS', 'SH', 'LO', 'PN', 'UI']
+    numeric_vrs = ['US', 'FD', 'IS', 'DS']
+    date_time_vrs = ['DA', 'TM', 'DT']
+    
+    string_operators = [
+        'CASE_SENSITIVE_STRING_CONTAINS',
+        'CASE_INSENSITIVE_STRING_CONTAINS',
+        'CASE_SENSITIVE_STRING_DOES_NOT_CONTAIN',
+        'CASE_INSENSITIVE_STRING_DOES_NOT_CONTAIN',
+        'CASE_SENSITIVE_STRING_EXACT_MATCH',
+        'CASE_INSENSITIVE_STRING_EXACT_MATCH',
+        'EQUALS',
+        'NOT_EQUALS'
+    ]
+    
+    numeric_operators = [
+        'EQUALS',
+        'NOT_EQUALS',
+        'GREATER_THAN',
+        'LESS_THAN',
+        'GREATER_THAN_OR_EQUAL_TO',
+        'LESS_THAN_OR_EQUAL_TO'
+    ]
+    
+    if vr_type in string_vrs:
+        return string_operators
+    elif vr_type in numeric_vrs:
+        return numeric_operators
+    elif vr_type in date_time_vrs:
+        return numeric_operators  # Date/time can use comparison operators
+    else:
+        return string_operators  # Default to string operators
+```
+
+### AJAX Endpoints for VR Guidance
+
+#### `get_vr_guidance` View
+```python
+@login_required
+def get_vr_guidance(request, tag_uuid):
+    """
+    Get VR guidance for a specific DICOM tag
+    """
+    try:
+        tag = DICOMTagType.objects.get(id=tag_uuid)
+        vr_type = tag.value_representation
+        
+        compatible_operators = get_compatible_operators(vr_type)
+        
+        return JsonResponse({
+            'success': True,
+            'vr_type': vr_type,
+            'compatible_operators': compatible_operators,
+            'tag_name': tag.tag_name,
+            'tag_description': tag.tag_description
+        })
+    except DICOMTagType.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'DICOM tag not found'
+        })
+```
+
+#### `validate_vr_value` View
+```python
+@login_required
+@csrf_exempt
+def validate_vr_value(request):
+    """
+    Validate a value against VR rules
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'})
+    
+    try:
+        data = json.loads(request.body)
+        tag_uuid = data.get('tag_uuid')
+        operator = data.get('operator')
+        value = data.get('value')
+        
+        if not tag_uuid:
+            return JsonResponse({'success': False, 'error': 'Tag UUID is required'})
+        
+        tag = DICOMTagType.objects.get(id=tag_uuid)
+        vr_type = tag.value_representation
+        
+        is_valid, message = validate_vr_value(vr_type, value, operator)
+        
+        return JsonResponse({
+            'success': True,
+            'is_valid': is_valid,
+            'message': message,
+            'vr_type': vr_type
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+```
+
+#### `search_dicom_tags` View
+```python
+@login_required
+def search_dicom_tags(request):
+    """
+    Search DICOM tags for Select2 autocomplete
+    """
+    search_term = request.GET.get('q', '').strip()
+    
+    if len(search_term) < 2:
+        return JsonResponse({'results': []})
+    
+    tags = DICOMTagType.objects.filter(
+        Q(tag_name__icontains=search_term) |
+        Q(tag_description__icontains=search_term) |
+        Q(tag_id__icontains=search_term)
+    )[:20]  # Limit to 20 results
+    
+    results = []
+    for tag in tags:
+        results.append({
+            'id': str(tag.id),
+            'text': f"{tag.tag_name} ({tag.tag_id}) - {tag.tag_description or 'No description'}",
+            'vr_type': tag.value_representation
+        })
+    
+    return JsonResponse({'results': results})
+```
+
+## Enhanced Templates
+
+### `ruleset_create.html` Features
+1. **Select2 Integration**: Advanced DICOM tag selection with search
+2. **Dynamic Formset Management**: Add/remove rules with proper form indexing
+3. **VR Validation**: Real-time validation based on DICOM VR types
+4. **Operator Filtering**: Dynamic operator options based on selected tag's VR
+5. **Tailwind CSS Styling**: Modern, responsive design
+
+### Key JavaScript Functions
+
+#### Dynamic Form Management
+```javascript
+function addRule() {
+    const emptyFormTemplate = document.querySelector('.rule-form').cloneNode(true);
+    const formCount = document.querySelectorAll('.rule-form').length;
+    
+    // Update form indices and field names
+    const formRegex = /rule_set-\d+-/g;
+    emptyFormTemplate.innerHTML = emptyFormTemplate.innerHTML.replace(formRegex, `rule_set-${formCount}-`);
+    
+    // Clear form values and reset validation
+    emptyFormTemplate.querySelectorAll('input, select, textarea').forEach(function(field) {
+        if (field.type !== 'hidden') {
+            field.value = '';
+        } else if (field.name.includes('id')) {
+            field.value = '';  // Clear ID for new forms
+        } else if (field.name.includes('DELETE')) {
+            field.checked = false;  // Uncheck DELETE for new forms
+        }
+    });
+    
+    // Update management form
+    const totalFormsField = document.querySelector('#id_rule_set-TOTAL_FORMS');
+    totalFormsField.value = formCount + 1;
+    
+    // Append new form and initialize Select2
+    document.querySelector('#rules-container').appendChild(emptyFormTemplate);
+    initializeSelect2(emptyFormTemplate);
+    attachFormEvents(emptyFormTemplate);
+}
+```
+
+#### VR-Based Validation
+```javascript
+function handleTagChange(selectElement) {
+    const ruleForm = selectElement.closest('.rule-form');
+    const operatorSelect = ruleForm.querySelector('select[name$="-operator_type"]');
+    const valueInput = ruleForm.querySelector('input[name$="-tag_value_to_evaluate"]');
+    const tagUuid = selectElement.value;
+    
+    if (!tagUuid) return;
+    
+    // Fetch VR guidance
+    fetch(`/dicom_handler/get_vr_guidance/${tagUuid}/`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateOperatorOptions(operatorSelect, data.compatible_operators);
+                showVRGuidance(ruleForm, data.vr_type, data.tag_description);
+            }
+        })
+        .catch(error => console.error('Error fetching VR guidance:', error));
+}
+
+function validateValue(valueInput) {
+    const ruleForm = valueInput.closest('.rule-form');
+    const tagSelect = ruleForm.querySelector('select[name$="-dicom_tag_type"]');
+    const operatorSelect = ruleForm.querySelector('select[name$="-operator_type"]');
+    
+    if (!tagSelect.value || !valueInput.value.trim()) return;
+    
+    // Real-time VR validation
+    fetch('/dicom_handler/validate_vr_value/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            tag_uuid: tagSelect.value,
+            operator: operatorSelect.value,
+            value: valueInput.value.trim()
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showValidationResult(ruleForm, data.is_valid, data.message);
+        }
+    });
+}
+```
+
+### `ruleset_edit.html` Features
+Similar to create template but with additional features:
+1. **Pre-populated Forms**: Existing rules loaded with proper formset management
+2. **Delete Handling**: Proper handling of DELETE checkboxes for existing rules
+3. **Update Logic**: Maintains form integrity during edits
+
+## URL Patterns Update
+```python
+# VR and validation endpoints
+path('get_vr_guidance/<uuid:tag_uuid>/', views.get_vr_guidance, name='get_vr_guidance'),
+path('validate_vr_value/', views.validate_vr_value, name='validate_vr_value'),
+path('search_dicom_tags/', views.search_dicom_tags, name='search_dicom_tags'),
+```
+
+## Key Improvements Made
+
+### 1. Form Field Naming Fix
+- **Issue**: JavaScript was using incorrect prefix `rules-` instead of `rule_set-`
+- **Solution**: Updated all JavaScript form cloning to use correct `rule_set-` prefix
+- **Impact**: Dynamic forms now save correctly
+
+### 2. Management Form Updates
+- **Issue**: TOTAL_FORMS field ID was incorrect (`#id_rules-TOTAL_FORMS`)
+- **Solution**: Updated to correct ID (`#id_rule_set-TOTAL_FORMS`)
+- **Impact**: Formset validation now works properly
+
+### 3. VR Validation Enhancement
+- **Issue**: CS (Code String) validation was too strict
+- **Solution**: Updated regex to allow lowercase letters and spaces
+- **Impact**: Values like 'Head Neck' now validate correctly
+
+### 4. URL Resolution Fix
+- **Issue**: Django reverse URL resolution failing in JavaScript
+- **Solution**: Use dynamic URL construction in JavaScript
+- **Impact**: AJAX calls now work reliably
+
+### 5. Hidden Field Management
+- **Issue**: Cloned forms retained stale ID and DELETE values
+- **Solution**: Proper clearing of hidden fields in new forms
+- **Impact**: No conflicts with existing form data
+
+## Testing and Debugging
+
+### Debug Features Added
+1. **Server-side logging**: POST data and formset errors logged
+2. **Client-side validation**: Real-time feedback on form errors
+3. **VR guidance display**: Visual indicators for VR requirements
+4. **Form state tracking**: Clear indication of form validation status
+
+### Common Issues Resolved
+1. **Formset not saving**: Fixed field naming and management form updates
+2. **VR validation failures**: Updated validation patterns for real-world data
+3. **AJAX URL errors**: Implemented dynamic URL construction
+4. **Form cloning issues**: Proper handling of hidden fields and indices
 
 ---
 
@@ -1384,17 +1708,3 @@ class RuleForm(forms.ModelForm):
         self.fields['dicom_tag_type'].queryset = DICOMTagType.objects.all().order_by('tag_name')
 ```
 
-## Future Enhancements
-
-### Potential Improvements
-1. **Search Functionality**: Add DICOM tag search by name, ID, or description
-2. **Categorization**: Group tags by DICOM modules or categories
-3. **Validation Rules**: Add tag-specific validation based on value representation
-4. **Import Updates**: Support incremental updates to DICOM dictionary
-5. **Export Functionality**: Allow exporting custom tag subsets
-
-### Maintenance Considerations
-- **DICOM Standard Updates**: Plan for periodic updates to the dictionary
-- **Data Integrity**: Maintain referential integrity with existing rules
-- **Performance Monitoring**: Monitor query performance as rule count grows
-- **Backup Strategy**: Ensure seed data is included in backup procedures
