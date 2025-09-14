@@ -452,6 +452,17 @@ def ruleset_create(request):
     """
     View to create a new ruleset with inline rules
     """
+    # Get template_id from URL parameter if provided
+    template_id = request.GET.get('template')
+    initial_data = {}
+    
+    if template_id:
+        try:
+            template = AutosegmentationTemplate.objects.get(id=template_id)
+            initial_data['associated_autosegmentation_template'] = template
+        except AutosegmentationTemplate.DoesNotExist:
+            messages.warning(request, 'The specified template was not found.')
+    
     if request.method == 'POST':
         form = RuleSetForm(request.POST)
         formset = RuleFormSet(request.POST)
@@ -478,7 +489,7 @@ def ruleset_create(request):
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
-        form = RuleSetForm()
+        form = RuleSetForm(initial=initial_data)
         formset = RuleFormSet()
     
     # Add helper to formset for Crispy Forms
