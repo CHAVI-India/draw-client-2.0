@@ -167,6 +167,36 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_RESULT_BACKEND = 'django-db'
 
+# Celery Beat Configuration
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# Celery Beat Schedule - Periodic Tasks
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'dicom-processing-workflow': {
+        'task': 'dicom_handler.scheduled_dicom_workflow',
+        'schedule': crontab(minute='*/15'),  # Run every 15 minutes
+        'options': {
+            'expires': 60 * 10,  # Task expires after 10 minutes if not picked up
+        },
+    },
+    'dicom-processing-hourly': {
+        'task': 'dicom_handler.scheduled_dicom_workflow',
+        'schedule': crontab(minute=0),  # Run every hour at minute 0
+        'options': {
+            'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
+        },
+    },
+    'dicom-processing-daily': {
+        'task': 'dicom_handler.scheduled_dicom_workflow',
+        'schedule': crontab(hour=2, minute=0),  # Run daily at 2:00 AM
+        'options': {
+            'expires': 60 * 60 * 2,  # Task expires after 2 hours if not picked up
+        },
+    },
+}
+
 # Logging Configuration
 import os
 from pathlib import Path
