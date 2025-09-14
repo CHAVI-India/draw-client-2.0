@@ -156,15 +156,26 @@ function updateSelectionCount() {
 // Sync checkboxes with selected structures
 function syncCheckboxes() {
     const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    console.log('Syncing', checkboxes.length, 'checkboxes with', selectedStructures.size, 'selected structures');
+    console.log('Selected structure IDs:', Array.from(selectedStructures));
+    
     checkboxes.forEach(checkbox => {
-        const structureId = checkbox.getAttribute('data-id');
-        checkbox.checked = selectedStructures.has(structureId);
+        const structureId = String(checkbox.getAttribute('data-id'));
+        console.log('Checking checkbox with data-id:', structureId, 'type:', typeof structureId);
+        const isSelected = selectedStructures.has(structureId);
+        checkbox.checked = isSelected;
+        
+        if (isSelected) {
+            console.log('Checkbox for structure', structureId, 'set to checked');
+        } else {
+            console.log('Checkbox for structure', structureId, 'NOT selected');
+        }
     });
 }
 
 // Handle checkbox changes
 function handleCheckboxChange(checkbox) {
-    const structureId = checkbox.getAttribute('data-id');
+    const structureId = String(checkbox.getAttribute('data-id'));
     const structureData = {
         id: checkbox.getAttribute('data-id'),
         mapid: checkbox.getAttribute('data-mapid'),
@@ -200,6 +211,8 @@ function loadPage(pageNumber = 1) {
         model_name: currentModelFilter
     });
     
+    console.log('Loading page with selections preserved:', selectedStructures.size);
+    
     fetch('{% url "dicom_handler:edit_template" template.id %}?' + params.toString())
         .then(response => response.text())
         .then(html => {
@@ -208,9 +221,20 @@ function loadPage(pageNumber = 1) {
             const newTable = doc.querySelector('#structures-container');
             if (newTable) {
                 document.getElementById('structures-container').innerHTML = newTable.innerHTML;
+                
+                // Re-match existing structures on the new page
+                matchExistingStructuresOnPage();
+                
+                // Re-sync checkboxes with preserved selections
                 syncCheckboxes();
                 attachEventListeners();
+                updateSelectionCount();
+                
+                console.log('Page loaded, selections preserved:', selectedStructures.size);
             }
+        })
+        .catch(error => {
+            console.error('Error loading page:', error);
         });
 }
 
@@ -263,9 +287,33 @@ function updateTemplate() {
     // Collect selected structure data
     const structuresArray = Array.from(selectedStructures).map(structureId => {
         if (window.structureData && window.structureData[structureId]) {
-            return window.structureData[structureId];
+            const data = window.structureData[structureId];
+            return {
+                id: data.id || structureId,
+                mapid: data.mapid || data.id || structureId,
+                map_tg263_primary_name: data.map_tg263_primary_name || data.name || '',
+                model_id: data.model_id,
+                model_name: data.model_name,
+                model_config: data.model_config,
+                model_trainer_name: data.model_trainer_name,
+                model_postprocess: data.model_postprocess
+            };
         }
-        return { id: structureId }; // fallback to just ID
+        // Fallback: try to get data from checkbox attributes
+        const checkbox = document.querySelector(`input[data-id="${structureId}"]`);
+        if (checkbox) {
+            return {
+                id: structureId,
+                mapid: checkbox.getAttribute('data-mapid') || structureId,
+                map_tg263_primary_name: checkbox.getAttribute('data-map-tg263-primary-name') || '',
+                model_id: checkbox.getAttribute('data-model-id'),
+                model_name: checkbox.getAttribute('data-model-name'),
+                model_config: checkbox.getAttribute('data-model-config'),
+                model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
+                model_postprocess: checkbox.getAttribute('data-model-postprocess')
+            };
+        }
+        return { id: structureId, mapid: structureId }; // minimal fallback
     });
     
     fetch('{% url "dicom_handler:update_template" template.id %}', {
@@ -317,33 +365,61 @@ function showNotification(message, type = 'info') {
 function initializeSelectedStructures() {
     console.log('Initializing selected structures...');
     
-    // Get selected structure IDs from Django context
-    {% if selected_structure_ids %}
-    const selectedIds = [{% for id in selected_structure_ids %}'{{ id }}'{% if not forloop.last %},{% endif %}{% endfor %}];
-    {% else %}
-    const selectedIds = [];
-    {% endif %}
-    console.log('Selected structure IDs from Django:', selectedIds);
+    // Clear existing selections first
+    selectedStructures.clear();
     
-    // Add to selectedStructures Set
-    selectedIds.forEach(id => {
-        selectedStructures.add(id);
-    });
-    
-    // Store structure data for existing structures
+    // Store structure data for existing structures and create lookup map
     window.structureData = window.structureData || {};
+    window.existingStructures = new Map(); // Map of model_id + map_id -> API structure ID
+    
     {% for structure in selected_structures %}
-    window.structureData['{{ structure.id }}'] = {
-        id: '{{ structure.id }}',
-        mapid: '{{ structure.mapid }}',
-        name: '{{ structure.map_tg263_primary_name|escapejs }}',
-        model_id: '{{ structure.model_id }}',
-        model_name: '{{ structure.model_name|escapejs }}',
-        model_config: '{{ structure.model_config|escapejs }}',
-        model_trainer_name: '{{ structure.model_trainer_name|escapejs }}',
-        model_postprocess: '{{ structure.model_postprocess|escapejs }}'
-    };
+    (function() {
+        const dbStructure = {
+            id: '{{ structure.id }}',
+            mapid: '{{ structure.mapid }}',
+            name: '{{ structure.map_tg263_primary_name|escapejs }}',
+            model_id: '{{ structure.model_id }}',
+            model_name: '{{ structure.model_name|escapejs }}',
+            model_config: '{{ structure.model_config|escapejs }}',
+            model_trainer_name: '{{ structure.model_trainer_name|escapejs }}',
+            model_postprocess: '{{ structure.model_postprocess|escapejs }}'
+        };
+        
+        // Create lookup key using model_id and map_id
+        const lookupKey = `${dbStructure.model_id}_${dbStructure.mapid}`;
+        window.existingStructures.set(lookupKey, dbStructure);
+        console.log('Added existing structure with lookup key:', lookupKey, dbStructure);
+    })();
     {% endfor %}
+    
+    // Now find matching API structures on the current page and select them
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        const apiStructureId = checkbox.getAttribute('data-id');
+        const modelId = checkbox.getAttribute('data-model-id');
+        const mapId = checkbox.getAttribute('data-mapid');
+        
+        if (modelId && mapId) {
+            const lookupKey = `${modelId}_${mapId}`;
+            if (window.existingStructures.has(lookupKey)) {
+                selectedStructures.add(String(apiStructureId));
+                
+                // Store the API structure data
+                window.structureData[apiStructureId] = {
+                    id: apiStructureId,
+                    mapid: mapId,
+                    map_tg263_primary_name: checkbox.getAttribute('data-map-tg263-primary-name'),
+                    model_id: modelId,
+                    model_name: checkbox.getAttribute('data-model-name'),
+                    model_config: checkbox.getAttribute('data-model-config'),
+                    model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
+                    model_postprocess: checkbox.getAttribute('data-model-postprocess')
+                };
+                
+                console.log('Matched existing structure:', lookupKey, 'to API ID:', apiStructureId);
+            }
+        }
+    });
     
     // Also check for any checked checkboxes (fallback)
     const checkedBoxes = document.querySelectorAll('input[type="checkbox"].structure-checkbox:checked');
@@ -352,7 +428,7 @@ function initializeSelectedStructures() {
     checkedBoxes.forEach(checkbox => {
         const structureId = checkbox.getAttribute('data-id');
         console.log('Adding structure ID from checkbox:', structureId);
-        selectedStructures.add(structureId);
+        selectedStructures.add(String(structureId));
         
         // Store structure data
         const structureData = {
@@ -372,6 +448,41 @@ function initializeSelectedStructures() {
     
     console.log('Total selected structures:', selectedStructures.size);
     console.log('Selected structure IDs:', Array.from(selectedStructures));
+}
+
+// Function to match existing structures on the current page
+function matchExistingStructuresOnPage() {
+    if (!window.existingStructures) return;
+    
+    console.log('Matching existing structures on current page...');
+    
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
+    checkboxes.forEach(checkbox => {
+        const apiStructureId = checkbox.getAttribute('data-id');
+        const modelId = checkbox.getAttribute('data-model-id');
+        const mapId = checkbox.getAttribute('data-mapid');
+        
+        if (modelId && mapId) {
+            const lookupKey = `${modelId}_${mapId}`;
+            if (window.existingStructures.has(lookupKey)) {
+                selectedStructures.add(String(apiStructureId));
+                
+                // Store the API structure data
+                window.structureData[apiStructureId] = {
+                    id: apiStructureId,
+                    mapid: mapId,
+                    map_tg263_primary_name: checkbox.getAttribute('data-map-tg263-primary-name'),
+                    model_id: modelId,
+                    model_name: checkbox.getAttribute('data-model-name'),
+                    model_config: checkbox.getAttribute('data-model-config'),
+                    model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
+                    model_postprocess: checkbox.getAttribute('data-model-postprocess')
+                };
+                
+                console.log('Re-matched existing structure:', lookupKey, 'to API ID:', apiStructureId);
+            }
+        }
+    });
 }
 
 // Initialize on page load

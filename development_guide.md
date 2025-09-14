@@ -256,10 +256,14 @@ def template_detail(request, template_id):
 
 ## Template Update Implementation
 
-### Edit Template View (`edit_template`)
+### Edit Template View (`edit_template`) - Single Page Approach
 ```python
 @login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
 def edit_template(request, template_id):
+    """
+    View to edit an existing template - single page with structure selection
+    """
     try:
         template = AutosegmentationTemplate.objects.get(id=template_id)
         
@@ -267,10 +271,10 @@ def edit_template(request, template_id):
         current_structures = []
         models = AutosegmentationModel.objects.filter(
             autosegmentation_template_name=template
-        ).prefetch_related('autosegmentationmappedstructure_set')
+        ).prefetch_related('autosegmentationstructure_set')
         
         for model in models:
-            for structure in model.autosegmentationmappedstructure_set.all():
+            for structure in model.autosegmentationstructure_set.all():
                 current_structures.append({
                     'id': structure.map_id,
                     'mapid': structure.map_id,
@@ -282,19 +286,221 @@ def edit_template(request, template_id):
                     'model_postprocess': model.postprocess
                 })
         
-        # Store current data in session for editing
-        request.session['selected_structures'] = current_structures
-        request.session['editing_template_id'] = str(template_id)
-        request.session['template_name'] = template.template_name
-        request.session['template_description'] = template.template_description
-        request.session.modified = True
-        
-        # Redirect to selection page for editing
-        return redirect('dicom_handler:select_models')
+        # Fetch models from DRAW API for structure selection
+        try:
+            system_config = SystemConfiguration.objects.first()
+            api_url = f"{system_config.draw_base_url}/models"
+            
+            headers = {}
+            if system_config.draw_api_credentials:
+                headers['Authorization'] = f"Bearer {system_config.draw_api_credentials}"
+            
+            response = requests.get(api_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            api_data = response.json()
+            
+            # Flatten all structures from all models for pagination and search
+            all_structures = []
+            categories = set()
+            anatomic_regions = set()
+            model_names = set()
+            
+            for model in api_data:
+                if 'modelmap' in model and model['modelmap']:
+                    for structure in model['modelmap']:
+                        structure_data = {
+                            'id': structure.get('id'),
+                            'mapid': structure.get('mapid'),
+                            'map_tg263_primary_name': structure.get('map_tg263_primary_name'),
+                            'Major_Category': structure.get('Major_Category'),
+                            'Anatomic_Group': structure.get('Anatomic_Group'),
+                            'Description': structure.get('Description'),
+                            'median_dice_score': structure.get('median_dice_score'),
+                            'model_id': model.get('model_id'),
+                            'model_name': model.get('model_name'),
+                            'model_config': model.get('model_config'),
+                            'model_trainer_name': model.get('model_trainer_name'),
+                            'model_postprocess': model.get('model_postprocess')
+                        }
+                        all_structures.append(structure_data)
+                        
+                        # Collect filter options
+                        if structure.get('Major_Category'):
+                            categories.add(structure.get('Major_Category'))
+                        if structure.get('Anatomic_Group'):
+                            anatomic_regions.add(structure.get('Anatomic_Group'))
+                        if model.get('model_name'):
+                            model_names.add(model.get('model_name'))
+            
+            # Handle search and filters
+            search_query = request.GET.get('search', '').strip()
+            category_filter = request.GET.get('category', '').strip()
+            anatomic_filter = request.GET.get('anatomic_region', '').strip()
+            model_filter = request.GET.get('model_name', '').strip()
+            
+            filtered_structures = all_structures
+            
+            if search_query:
+                filtered_structures = [s for s in filtered_structures 
+                                     if search_query.lower() in s.get('map_tg263_primary_name', '').lower()]
+            
+            if category_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('Major_Category') == category_filter]
+            
+            if anatomic_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('Anatomic_Group') == anatomic_filter]
+            
+            if model_filter:
+                filtered_structures = [s for s in filtered_structures if s.get('model_name') == model_filter]
+            
+            # Handle pagination
+            page_number = request.GET.get('page', 1)
+            paginator = Paginator(filtered_structures, 25)
+            page_obj = paginator.get_page(page_number)
+            
+            # Convert current_structures to a list of IDs for the template
+            selected_structure_ids = [str(s['id']) for s in current_structures if s.get('id')]
+            
+            return render(request, 'dicom_handler/edit_template.html', {
+                'template': template,
+                'page_obj': page_obj,
+                'search_query': search_query,
+                'selected_structures': current_structures,
+                'selected_structure_ids': selected_structure_ids,
+                'system_config': system_config,
+                'categories': sorted(categories),
+                'anatomic_regions': sorted(anatomic_regions),
+                'model_names': sorted(model_names)
+            })
+            
+        except requests.RequestException as e:
+            messages.error(request, f'Error fetching models from API: {str(e)}')
+            return redirect('dicom_handler:template_detail', template_id=template_id)
         
     except AutosegmentationTemplate.DoesNotExist:
         messages.error(request, 'Template not found.')
         return redirect('dicom_handler:template_list')
+```
+
+### Update Template Handler (`update_template`)
+```python
+@login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
+def update_template(request, template_id):
+    """
+    AJAX endpoint to update an existing template
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'})
+    
+    try:
+        template = AutosegmentationTemplate.objects.get(id=template_id)
+        data = json.loads(request.body)
+        template_name = data.get('template_name')
+        template_description = data.get('template_description')
+        
+        # Get selected structures from request body (sent by JavaScript)
+        selected_structures = data.get('selected_structures', [])
+        
+        if not template_name:
+            return JsonResponse({'success': False, 'error': 'Template name is required'})
+        
+        if not selected_structures:
+            return JsonResponse({'success': False, 'error': 'No structures selected. Please select at least one structure.'})
+        
+        # Update template basic info
+        template.template_name = template_name
+        template.template_description = template_description or ''
+        template.save()
+        
+        # Delete existing models and structures
+        AutosegmentationModel.objects.filter(autosegmentation_template_name=template).delete()
+        
+        # Group structures by model
+        models_dict = {}
+        for structure in selected_structures:
+            model_id = structure.get('model_id')
+            if not model_id:
+                continue
+                
+            if model_id not in models_dict:
+                models_dict[model_id] = {
+                    'model_data': structure,
+                    'structures': []
+                }
+            models_dict[model_id]['structures'].append(structure)
+        
+        # Create new models and structures
+        for model_data in models_dict.values():
+            try:
+                model = AutosegmentationModel.objects.create(
+                    id=uuid.uuid4(),
+                    autosegmentation_template_name=template,
+                    model_id=model_data['model_data'].get('model_id'),
+                    name=model_data['model_data'].get('model_name', ''),
+                    config=model_data['model_data'].get('model_config', ''),
+                    trainer_name=model_data['model_data'].get('model_trainer_name', ''),
+                    postprocess=model_data['model_data'].get('model_postprocess', '')
+                )
+                
+                # Create structures for this model
+                for structure_data in model_data['structures']:
+                    AutosegmentationStructure.objects.create(
+                        id=uuid.uuid4(),
+                        autosegmentation_model=model,
+                        map_id=structure_data.get('mapid') or structure_data.get('id'),
+                        name=structure_data.get('map_tg263_primary_name', '')
+                    )
+                    
+            except Exception as model_error:
+                return JsonResponse({'success': False, 'error': f'Error updating model data: {str(model_error)}'})
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Template "{template_name}" updated successfully!',
+            'template_id': str(template.id)
+        })
+        
+    except AutosegmentationTemplate.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Template not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+```
+
+### Update Template Info Handler (`update_template_info`)
+```python
+@login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
+def update_template_info(request, template_id):
+    """
+    Update template name and description via AJAX
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Only POST method allowed'})
+    
+    try:
+        template = AutosegmentationTemplate.objects.get(id=template_id)
+        
+        template_name = request.POST.get('template_name', '').strip()
+        template_description = request.POST.get('template_description', '').strip()
+        
+        if not template_name:
+            return JsonResponse({'success': False, 'error': 'Template name is required'})
+        
+        template.template_name = template_name
+        template.template_description = template_description
+        template.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Template information updated successfully!'
+        })
+        
+    except AutosegmentationTemplate.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Template not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 ```
 
 ## URLs (`dicom_handler/urls.py`)
@@ -308,10 +514,175 @@ urlpatterns = [
     path('templates/', views.template_list, name='template_list'),
     path('templates/<uuid:template_id>/', views.template_detail, name='template_detail'),
     path('templates/<uuid:template_id>/edit/', views.edit_template, name='edit_template'),
+    path('templates/<uuid:template_id>/update/', views.update_template, name='update_template'),
+    path('templates/<uuid:template_id>/update-info/', views.update_template_info, name='update_template_info'),
 ]
 ```
 
+## Frontend Implementation
+
+### Edit Template JavaScript Features
+
+The `edit_template.html` template includes comprehensive JavaScript functionality for:
+
+1. **Selection Management**: 
+   - Maintains a `Set` of selected structure IDs across pagination
+   - Preserves selections when filtering or searching
+   - Syncs checkbox states with selection data
+
+2. **AJAX Pagination**:
+   - `loadPage()` function handles pagination without page reloads
+   - Maintains current search and filter state during pagination
+   - Updates URL parameters for bookmarking
+
+3. **Search and Filtering**:
+   - Real-time search by structure name
+   - Filter by category, anatomic region, and model name
+   - Combines multiple filters seamlessly
+
+4. **Template Update**:
+   - Single "Update Template" button updates both template info and structure selections
+   - Sends JSON payload with template data and selected structures
+   - Provides user feedback with success/error notifications
+
+### Key JavaScript Functions
+
+```javascript
+// Load page with AJAX pagination
+function loadPage(page) {
+    const params = new URLSearchParams({
+        page: page,
+        search: currentSearchQuery,
+        category: currentCategoryFilter,
+        anatomic_region: currentAnatomicFilter,
+        model_name: currentModelFilter
+    });
+    
+    fetch(`?${params.toString()}`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(response => response.text())
+    .then(html => {
+        // Update table content and sync selections
+        document.getElementById('structures-table').innerHTML = html;
+        syncCheckboxes();
+        updateSelectionCount();
+    });
+}
+
+// Update template via AJAX
+function updateTemplate() {
+    const templateName = document.getElementById('template_name').value.trim();
+    const templateDescription = document.getElementById('template_description').value.trim();
+    
+    if (!templateName) {
+        showNotification('Template name is required', 'error');
+        return;
+    }
+    
+    if (selectedStructures.size === 0) {
+        showNotification('Please select at least one structure', 'error');
+        return;
+    }
+    
+    const selectedStructuresArray = Array.from(selectedStructures).map(id => 
+        window.structureData[id] || { id: id }
+    );
+    
+    fetch(`/dicom-handler/templates/{{ template.id }}/update/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            template_name: templateName,
+            template_description: templateDescription,
+            selected_structures: selectedStructuresArray
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification(data.message, 'success');
+        } else {
+            showNotification(data.error, 'error');
+        }
+    });
+}
+```
+
+### Django Template Context Integration
+
+The template receives the following context variables:
+- `template`: The AutosegmentationTemplate object being edited
+- `page_obj`: Paginated structure data from the API
+- `selected_structures`: Current template structures (full objects)
+- `selected_structure_ids`: List of selected structure IDs for checkbox pre-selection
+- `search_query`: Current search term
+- `categories`, `anatomic_regions`, `model_names`: Filter options
+
+### Security Considerations
+
+1. **CSRF Protection**: All AJAX requests include CSRF tokens
+2. **Permission Checks**: Views use `@permission_required` decorators
+3. **Data Escaping**: Django template data is properly escaped using `|escapejs` filter
+4. **Input Validation**: Backend validates all user inputs before processing
+
 ## Templates
+
+## Production Considerations
+
+### Tailwind CSS Integration
+The current implementation uses Tailwind CSS via CDN for rapid development. For production deployment, consider:
+
+1. **Install Tailwind CSS locally**:
+   ```bash
+   npm install -D tailwindcss
+   npx tailwindcss init
+   ```
+
+2. **Configure PostCSS** or use **Tailwind CLI** to build optimized CSS
+3. **Purge unused CSS** to reduce bundle size
+4. **Use Django-Tailwind** package for better Django integration
+
+### Performance Optimizations
+
+1. **API Caching**: Cache DRAW API responses to reduce external API calls
+2. **Database Optimization**: Add indexes on frequently queried fields
+3. **Pagination**: Current 25 items per page is reasonable, consider user preferences
+4. **JavaScript Bundling**: Minify and bundle JavaScript for production
+
+### Error Handling Improvements
+
+1. **API Timeout Handling**: Current 30-second timeout may need adjustment
+2. **Retry Logic**: Add retry mechanisms for failed API calls  
+3. **User Feedback**: Enhanced error messages for better UX
+4. **Logging**: Comprehensive logging for debugging production issues
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No structures selected" Error**: 
+   - Ensure `selected_structures` are properly passed in request body
+   - Check JavaScript console for JSON parsing errors
+   - Verify CSRF token is included in AJAX requests
+
+2. **Pagination Not Working**:
+   - Check that `X-Requested-With: XMLHttpRequest` header is set
+   - Verify URL parameters are properly encoded
+   - Ensure `syncCheckboxes()` is called after content update
+
+3. **Selection State Lost**:
+   - Confirm `selectedStructures` Set is maintained across operations
+   - Check that `window.structureData` is properly populated
+   - Verify checkbox `data-id` attributes match structure IDs
+
+4. **API Connection Issues**:
+   - Verify `SystemConfiguration` has correct DRAW API URL
+   - Check Bearer token validity and format
+   - Ensure network connectivity to DRAW API endpoint
 
 ### `create_template.html`
 ```html

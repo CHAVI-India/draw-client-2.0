@@ -819,6 +819,11 @@ def update_template(request, template_id):
         # Get selected structures from request body (sent by JavaScript)
         selected_structures = data.get('selected_structures', [])
         
+        # Debug logging
+        print(f"DEBUG: Received {len(selected_structures)} structures for template update")
+        for i, structure in enumerate(selected_structures[:3]):  # Log first 3 structures
+            print(f"DEBUG: Structure {i}: {structure}")
+        
         if not template_name:
             return JsonResponse({'success': False, 'error': 'Template name is required'})
         
@@ -838,6 +843,7 @@ def update_template(request, template_id):
         for structure in selected_structures:
             model_id = structure.get('model_id')
             if not model_id:
+                print(f"DEBUG: Skipping structure without model_id: {structure}")
                 continue
                 
             if model_id not in models_dict:
@@ -850,6 +856,8 @@ def update_template(request, template_id):
                     'structures': []
                 }
             models_dict[model_id]['structures'].append(structure)
+        
+        print(f"DEBUG: Grouped structures into {len(models_dict)} models")
         
         # Save updated models and their structures
         for model_data in models_dict.values():
@@ -866,10 +874,22 @@ def update_template(request, template_id):
                 
                 # Save structures for this model
                 for structure_data in model_data.get('structures', []):
+                    # Ensure we have a valid map_id
+                    map_id = structure_data.get('mapid') or structure_data.get('id')
+                    if map_id:
+                        try:
+                            map_id = int(map_id)
+                        except (ValueError, TypeError):
+                            # If conversion fails, skip this structure
+                            continue
+                    else:
+                        # Skip structures without valid map_id
+                        continue
+                        
                     AutosegmentationStructure.objects.create(
                         id=uuid.uuid4(),
                         autosegmentation_model=model,
-                        map_id=structure_data.get('mapid'),
+                        map_id=map_id,
                         name=structure_data.get('map_tg263_primary_name', '')
                     )
                     
