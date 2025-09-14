@@ -28,7 +28,8 @@
                                data-model-config="{{ structure.model_config }}"
                                data-model-trainer-name="{{ structure.model_trainer_name }}"
                                data-model-postprocess="{{ structure.model_postprocess }}"
-                               {% if structure.id|stringformat:"s" in selected_structures %}checked{% endif %}>
+                               {% if structure.id|stringformat:"s" in selected_structure_ids %}checked{% endif %}
+                               onchange="handleCheckboxChange(this)">
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {{ structure.map_tg263_primary_name|default:"N/A" }}

@@ -721,11 +721,15 @@ def edit_template(request, template_id):
             paginator = Paginator(filtered_structures, 25)
             page_obj = paginator.get_page(page_number)
             
+            # Convert current_structures to a list of IDs for the template
+            selected_structure_ids = [str(s['id']) for s in current_structures if s.get('id')]
+            
             return render(request, 'dicom_handler/edit_template.html', {
                 'template': template,
                 'page_obj': page_obj,
                 'search_query': search_query,
                 'selected_structures': current_structures,
+                'selected_structure_ids': selected_structure_ids,
                 'system_config': system_config,
                 'categories': sorted(categories),
                 'anatomic_regions': sorted(anatomic_regions),
@@ -812,8 +816,8 @@ def update_template(request, template_id):
         template_name = data.get('template_name')
         template_description = data.get('template_description')
         
-        # Get selected structures from session
-        selected_structures = request.session.get('selected_structures', [])
+        # Get selected structures from request body (sent by JavaScript)
+        selected_structures = data.get('selected_structures', [])
         
         if not template_name:
             return JsonResponse({'success': False, 'error': 'Template name is required'})
