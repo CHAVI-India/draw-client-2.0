@@ -28,6 +28,9 @@ from .export_services.task4_export_series_to_api import export_series_to_api
 from .import_services.task1_poll_and_retrieve_rtstruct import poll_and_retrieve_rtstruct
 from .import_services.task2_reidentify_rtstruct import reidentify_rtstruct
 
+# Import the actual task implementations from utils
+from .utils.gather_statistics import gather_statistics
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -640,3 +643,15 @@ def force_release_chain_b_lock():
     else:
         logger.info("No Chain B lock to release")
         return False 
+
+
+# Celery Beat task for calculate statistics  using gather_statistics function in utils
+
+@shared_task(bind=True, name='dicom_handler.gather_statistics')
+def gather_statistics_celery(self):
+    try:
+        logger.info(f"Starting gather_statistics_celery (Task ID: {self.request.id})")
+        gather_statistics()
+        logger.info("Statistics gathered successfully")
+    except Exception as e:
+        logger.error(f"Error in gather_statistics_celery: {str(e)}")

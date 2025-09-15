@@ -201,6 +201,13 @@ CELERY_BEAT_SCHEDULE = {
             'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
         },
     },
+    'gather-statistics': {
+        'task': 'dicom_handler.gather_statistics',
+        'schedule': crontab(minute=0, hour='*/6'),  # Run every 6 hours
+        'options': {
+            'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
+        },
+    },
 }
 
 # Redirects after login and logout

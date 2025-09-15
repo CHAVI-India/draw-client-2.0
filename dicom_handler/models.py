@@ -486,3 +486,20 @@ class ChainExecutionLock(models.Model):
     class Meta:
         verbose_name = "Chain Execution Lock"
         verbose_name_plural = "Chain Execution Locks"
+
+class Statistics(models.Model):
+    '''
+    Model to store statistics about the DICOM processing chain
+    '''
+    id = models.AutoField(primary_key=True)
+    parameter_name = models.CharField(max_length=256, help_text="Name of the parameter")
+    parameter_value = models.CharField(max_length=256, help_text="Value of the parameter")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.parameter_name
+    
+    class Meta:
+        verbose_name = "Statistics"
+        verbose_name_plural = "Statistics"  
