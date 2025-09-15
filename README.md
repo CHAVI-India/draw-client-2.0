@@ -8,7 +8,9 @@ This is a revamped version of the DRAW Client with the following enhancements:
 5. A more integrated view of the DICOM data processing in the system by integrating the deidentification system with the original system so that a holistic view of the process can be seen.
 6. This also has a secondary benefit of reducing the celery task chain
 7. Better logging with integrating masking of identifiers.
-8. Parallel processing of DICOM files to speed up the process.
+8. Parallel processing of reading DICOM files to speed up the process.
+9. Better validation of DICOM tags by ensuring that the value representation is taken into account. 
+
 
 # Technology Stack 
 1. Django
@@ -17,3 +19,10 @@ This is a revamped version of the DRAW Client with the following enhancements:
 4. RabbitMQ server
 5. Tailwind CSS
 
+# Setup notes for dockerized installation
+When run as a docker container the following services will be needed:
+1. Nginx
+2. Postgres
+3. Celery and Celery beat
+4. RabbitMQ
+5. Memcached

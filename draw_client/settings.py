@@ -13,7 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv
 import os
-
+from pathlib import Path
 load_dotenv()
 
 
@@ -202,8 +202,7 @@ CELERY_BEAT_SCHEDULE = {
 
 
 # Logging Configuration
-import os
-from pathlib import Path
+
 
 # Create logs directory
 LOGS_DIR = BASE_DIR / 'logs'
