@@ -156,19 +156,13 @@ def evaluate_rule(rule_data, dicom_metadata):
         logger.debug(f"Evaluating rule: {tag_name} {operator} {rule_value} (DICOM value: {mask_sensitive_data(dicom_value, tag_name)})")
         
         # Evaluate based on operator type
-        if operator in [OperatorType.EQUALS, OperatorType.NOT_EQUALS, 
-                       OperatorType.GREATER_THAN, OperatorType.LESS_THAN,
+        if operator in [OperatorType.GREATER_THAN, OperatorType.LESS_THAN,
                        OperatorType.GREATER_THAN_OR_EQUAL_TO, OperatorType.LESS_THAN_OR_EQUAL_TO]:
             # Numeric operators
             try:
                 dicom_numeric = float(dicom_value)
                 rule_numeric = float(rule_value)
-                
-                if operator == OperatorType.EQUALS:
-                    return dicom_numeric == rule_numeric
-                elif operator == OperatorType.NOT_EQUALS:
-                    return dicom_numeric != rule_numeric
-                elif operator == OperatorType.GREATER_THAN:
+                if operator == OperatorType.GREATER_THAN:
                     return dicom_numeric > rule_numeric
                 elif operator == OperatorType.LESS_THAN:
                     return dicom_numeric < rule_numeric
@@ -181,6 +175,12 @@ def evaluate_rule(rule_data, dicom_metadata):
                 logger.warning(f"Cannot convert values to numeric for comparison: DICOM='{dicom_value}', Rule='{rule_value}'")
                 return False
         
+        elif operator in [OperatorType.EQUALS, OperatorType.NOT_EQUALS]:
+            # Sring match equal
+            if operator == OperatorType.EQUALS:
+                return str(dicom_value) == str(rule_value)
+            else: # String match not equals
+                return str(dicom_value) != str(rule_value)
         elif operator in [OperatorType.CASE_SENSITIVE_STRING_EXACT_MATCH, OperatorType.CASE_INSENSITIVE_STRING_EXACT_MATCH]:
             # String exact match operators
             if operator == OperatorType.CASE_SENSITIVE_STRING_EXACT_MATCH:

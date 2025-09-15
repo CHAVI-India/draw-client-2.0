@@ -1499,6 +1499,8 @@ def ruleset_delete(request, ruleset_id):
 
 ### Operator-Value Validation Rules
 1. **String Operators** (allow text values):
+   - Equals
+   - Not Equals
    - Case Sensitive String Contains
    - Case Insensitive String Contains
    - Case Sensitive String Does Not Contain
@@ -1507,8 +1509,7 @@ def ruleset_delete(request, ruleset_id):
    - Case Insensitive String Exact Match
 
 2. **Numeric-Only Operators** (require numeric values):
-   - Equals
-   - Not Equals
+ 
    - Greater Than
    - Less Than
    - Greater Than or Equal To
