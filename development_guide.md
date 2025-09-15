@@ -302,8 +302,8 @@ def edit_template(request, template_id):
             api_url = f"{system_config.draw_base_url}/models"
             
             headers = {}
-            if system_config.draw_api_credentials:
-                headers['Authorization'] = f"Bearer {system_config.draw_api_credentials}"
+            if system_config.draw_bearer_token:
+                headers['Authorization'] = f"Bearer {system_config.draw_bearer_token}"
             
             response = requests.get(api_url, headers=headers, timeout=30)
             response.raise_for_status()

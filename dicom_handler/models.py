@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import timedelta
 import uuid
-
+from encrypted_model_fields.fields import EncryptedCharField
 # Create your models here.
 
 class SystemConfiguration(models.Model):
@@ -18,8 +18,8 @@ class SystemConfiguration(models.Model):
     draw_status_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Status endpoint of the DRAW API server where status of segmentation is to be polled. The task_id is returned by the DRAW API server.", default="/api/upload/{task_id}/status/")
     draw_download_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Download endpoint of the DRAW API server where the RTStructureSet file is to be downloaded.", default="/api/rtstruct/{task_id}/")
     draw_notify_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Notification endpoint of the DRAW API server where notification is sent after completion of RTStructure Download.", default="/api/rtstruct/{task_id}/confirm/")
-    draw_bearer_token = models.CharField(max_length=256,null=True,blank=True,help_text="Bearer token from the DRAW API server")
-    draw_refresh_token = models.CharField(max_length=256,null=True,blank=True,help_text="Refresh token from the DRAW API server")
+    draw_bearer_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Bearer token from the DRAW API server")
+    draw_refresh_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Refresh token from the DRAW API server")
     draw_bearer_token_validaty = models.DateTimeField(null=True,blank=True,help_text="Bearer token validity for the DRAW API server")
     folder_configuration = models.CharField(max_length=256,null=True,blank=True,help_text="Full path of the DICOM folder from which DICOM data will be read and RT Structure file will be exported to")
     data_pull_start_datetime = models.DateTimeField(null=True,blank=True,help_text="Data pull start datetime for the DRAW API server")

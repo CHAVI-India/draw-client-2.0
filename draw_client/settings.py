@@ -28,6 +28,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-qv0-srbz)^5iuf8j7&625gbs+nd^hti-^8@y*5oibpti2(o1p0")
 
+# Field Encryption Key 
+FIELD_ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', '')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", True)
 
@@ -49,6 +52,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'django_celery_results',
     'django_celery_beat',
+    'encrypted_model_fields',
     'crispy_forms',
     'crispy_tailwind',
     'user',
