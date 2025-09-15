@@ -24,6 +24,10 @@ from .export_services.task2_match_autosegmentation_template import match_autoseg
 from .export_services.task3_deidentify_series import deidentify_series
 from .export_services.task4_export_series_to_api import export_series_to_api
 
+# Import the actual task implementations from import_services
+from .import_services.task1_poll_and_retrieve_rtstruct import poll_and_retrieve_rtstruct
+from .import_services.task2_reidentify_rtstruct import reidentify_rtstruct
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,9 @@ logger = logging.getLogger(__name__)
 CHAIN_A_LOCK_KEY = "dicom_handler:chain_a_lock"
 LOCK_EXPIRE = 60 * 60 * 4  # 4 hours - should be longer than expected chain duration
 LOCK_TIMEOUT = 10  # 10 seconds to wait for lock acquisition
+
+# Lock configuration for Chain B serialization
+CHAIN_B_LOCK_KEY = "dicom_handler:chain_b_lock"
 
 def acquire_lock(lock_key, lock_expire=LOCK_EXPIRE, lock_timeout=LOCK_TIMEOUT):
     """
@@ -453,4 +460,183 @@ def cleanup_backend(self):
         }
 
 
-#
+# ============================================================================
+# CHAIN B: DICOM Import Tasks (Retrieving Data from API Server)
+# ============================================================================
+
+@shared_task(bind=True, name='dicom_handler.task1_poll_and_retrieve_rtstruct')
+def task1_poll_and_retrieve_rtstruct_celery(self):
+    """
+    Celery task wrapper for Task 1: Poll and Retrieve RTStructure Files
+    
+    This task polls the DRAW API server for completed segmentations and downloads
+    RTStructure files when ready. It validates checksums, file integrity, and
+    creates RTStructureFileImport records.
+    
+    Returns:
+        dict: JSON-serializable dictionary containing downloaded RTStructure files
+              for the next task in the chain
+    """
+    try:
+        logger.info(f"Starting Task 1 - Poll and Retrieve RTStructure (Task ID: {self.request.id})")
+        
+        # Call the actual implementation
+        result = poll_and_retrieve_rtstruct()
+        
+        # Log summary
+        downloaded_count = len(result.get('downloaded_rtstruct_files', []))
+        logger.info(f"Task 1 completed. Downloaded {downloaded_count} RTStructure files")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Critical error in Task 1 celery wrapper: {str(e)}")
+        return {"downloaded_rtstruct_files": [], "error": f"Celery task error: {str(e)}"}
+
+
+@shared_task(bind=True, name='dicom_handler.task2_reidentify_rtstruct')
+def task2_reidentify_rtstruct_celery(self, task1_output):
+    """
+    Celery task wrapper for Task 2: Reidentify RTStructure Files
+    
+    This task reidentifies RTStructure files by replacing deidentified UIDs
+    with original values and exports them to original series folders.
+    
+    Args:
+        task1_output (dict): Output from Task 1 containing downloaded RTStructure files
+        
+    Returns:
+        dict: JSON-serializable dictionary containing reidentification results
+    """
+    try:
+        logger.info(f"Starting Task 2 - Reidentify RTStructure (Task ID: {self.request.id})")
+        
+        # Validate input from previous task
+        if not task1_output or task1_output.get('error'):
+            logger.warning(f"Task 2 received invalid input: {task1_output}")
+            return {"reidentified_files": [], "processed_count": 0, "failed_count": 0, "error": "Invalid input from Task 1"}
+        
+        # Call the actual implementation
+        result = reidentify_rtstruct(task1_output)
+        
+        # Log summary
+        processed = result.get('processed_count', 0)
+        failed = result.get('failed_count', 0)
+        logger.info(f"Task 2 completed. Processed: {processed}, Failed: {failed}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Critical error in Task 2 celery wrapper: {str(e)}")
+        return {"reidentified_files": [], "processed_count": 0, "failed_count": 0, "error": f"Celery task error: {str(e)}"}
+
+
+@shared_task(bind=True, name='dicom_handler.run_chain_b_pipeline')
+def run_chain_b_pipeline(self):
+    """
+    Orchestrate Chain B: DICOM Import Pipeline
+    
+    This task coordinates the execution of the DICOM import chain:
+    1. Poll and retrieve RTStructure files from DRAW API
+    2. Reidentify and export RTStructure files to original locations
+    
+    The chain uses distributed locking to prevent concurrent executions.
+    
+    Returns:
+        dict: Comprehensive results from the entire Chain B pipeline
+    """
+    try:
+        logger.info(f"Starting Chain B - DICOM Import Pipeline (Task ID: {self.request.id})")
+        
+        # Try to acquire the Chain B lock
+        if not acquire_lock(CHAIN_B_LOCK_KEY):
+            logger.warning("Chain B is already running. Skipping this execution.")
+            return {
+                "status": "skipped",
+                "message": "Chain B pipeline is already running",
+                "task_id": self.request.id
+            }
+        
+        try:
+            logger.info("Lock acquired successfully - proceeding with Chain B execution")
+            
+            # Create and execute the task chain asynchronously
+            logger.info("Executing Chain B task sequence asynchronously...")
+            chain_result = chain(
+                task1_poll_and_retrieve_rtstruct_celery.s(),
+                task2_reidentify_rtstruct_celery.s()
+            ).apply_async()
+            
+            # Return immediately with chain information (don't wait for completion)
+            logger.info(f"Chain B pipeline initiated successfully. Chain ID: {chain_result.id}")
+            
+            return {
+                "status": "initiated",
+                "task_id": self.request.id,
+                "chain_id": chain_result.id,
+                "message": "Chain B pipeline started successfully",
+                "execution_time": timezone.now().isoformat()
+            }
+            
+        finally:
+            # Always release the lock
+            release_lock(CHAIN_B_LOCK_KEY)
+            
+    except Exception as e:
+        logger.error(f"Critical error in Chain B pipeline: {str(e)}")
+        # Ensure lock is released on error
+        release_lock(CHAIN_B_LOCK_KEY)
+        
+        return {
+            "status": "error",
+            "message": f"Chain B pipeline error: {str(e)}",
+            "task_id": self.request.id
+        }
+
+
+def get_chain_b_status():
+    """
+    Get the current status of Chain B pipeline.
+    
+    Returns:
+        dict: Status information about running/pending Chain B tasks
+    """
+    # Check if Chain B is currently running by checking the lock
+    is_running = cache.get(CHAIN_B_LOCK_KEY) is not None
+    
+    return {
+        "chain_name": "Chain B - DICOM Import Pipeline",
+        "is_running": is_running,
+        "lock_key": CHAIN_B_LOCK_KEY,
+        "lock_expire_seconds": LOCK_EXPIRE,
+        "tasks": [
+            "task1_poll_and_retrieve_rtstruct",
+            "task2_reidentify_rtstruct"
+        ],
+        "description": "Polls API server for RTStructure files, downloads, reidentifies, and exports to original folders"
+    }
+
+def is_chain_b_running():
+    """
+    Check if Chain B pipeline is currently running.
+    
+    Returns:
+        bool: True if Chain B is running, False otherwise
+    """
+    return cache.get(CHAIN_B_LOCK_KEY) is not None
+
+def force_release_chain_b_lock():
+    """
+    Force release the Chain B lock (use with caution).
+    This should only be used if a task crashed and left a stale lock.
+    
+    Returns:
+        bool: True if lock was released, False if no lock existed
+    """
+    if cache.get(CHAIN_B_LOCK_KEY) is not None:
+        release_lock(CHAIN_B_LOCK_KEY)
+        logger.warning("Chain B lock forcibly released")
+        return True
+    else:
+        logger.info("No Chain B lock to release")
+        return False 
