@@ -199,22 +199,37 @@
                         <span class="text-gray-500">Description:</span>
                         <span class="text-gray-900 font-medium ml-1">{{ series.study_description|truncatechars:20 }}</span>
                     </div>
-                </div>
-
-
-                <!-- Matching Info - Compact -->
-                {% if series.matched_rulesets != 'None' or series.matched_templates != 'None' %}
-                <div class="mt-1 pt-1 border-t border-gray-100 text-xs">
+                    {% if series.export_info %}
+                    <div>
+                        <span class="text-gray-500">Seg Status:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.export_info.server_segmentation_status|default:'N/A' }}</span>
+                    </div>
+                    {% if series.export_info.task_id != 'N/A' %}
+                    <div>
+                        <span class="text-gray-500">Task ID:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.export_info.task_id|truncatechars:12 }}</span>
+                    </div>
+                    {% endif %}
+                    {% if series.export_info.server_segmentation_updated %}
+                    <div>
+                        <span class="text-gray-500">Seg Updated:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.export_info.server_segmentation_updated|date:"m/d/y H:i" }}</span>
+                    </div>
+                    {% endif %}
+                    {% endif %}
                     {% if series.matched_rulesets != 'None' %}
-                    <span class="text-gray-500">Ruleset:</span>
-                    <span class="text-gray-900">{{ series.matched_rulesets }}</span>
+                    <div>
+                        <span class="text-gray-500">Rule Set:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.matched_rulesets|truncatechars:15 }}</span>
+                    </div>
                     {% endif %}
                     {% if series.matched_templates != 'None' %}
-                    <span class="text-gray-500 {% if series.matched_rulesets != 'None' %}ml-3{% endif %}">Template:</span>
-                    <span class="text-gray-900">{{ series.matched_templates }}</span>
+                    <div>
+                        <span class="text-gray-500">Template:</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.matched_templates|truncatechars:15 }}</span>
+                    </div>
                     {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
         {% empty %}

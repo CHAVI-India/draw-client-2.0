@@ -1060,12 +1060,13 @@ def series_processing_status(request):
     """
     View to display DICOM series processing status with filtering, search, and pagination
     """
-    # Get all series with related data
+    # Get all series with related data including DICOMFileExport
     series_queryset = DICOMSeries.objects.select_related(
-        'study__patient'
+        'study__patient',
     ).prefetch_related(
         'matched_rule_sets',
-        'matched_templates'
+        'matched_templates',
+        'dicomfileexport_set'  # Add prefetch for DICOMFileExport
     ).order_by('-updated_at')
     
     # Handle search
@@ -1133,6 +1134,16 @@ def series_processing_status(request):
         matched_rulesets = list(series.matched_rule_sets.values_list('ruleset_name', flat=True))
         matched_templates = list(series.matched_templates.values_list('template_name', flat=True))
         
+        # Get the most recent DICOMFileExport for this series if it exists
+        export_info = None
+        if hasattr(series, 'dicomfileexport_set') and series.dicomfileexport_set.exists():
+            latest_export = series.dicomfileexport_set.latest('updated_at')
+            export_info = {
+                'server_segmentation_status': latest_export.server_segmentation_status or 'N/A',
+                'task_id': latest_export.task_id or 'N/A',
+                'server_segmentation_updated': latest_export.server_segmentation_updated_datetime
+            }
+        
         series_info = {
             'id': series.id,
             'patient_id': series.study.patient.patient_id or 'N/A',
@@ -1147,6 +1158,7 @@ def series_processing_status(request):
             'matched_templates': ', '.join(matched_templates) if matched_templates else 'None',
             'processing_status': series.get_series_processsing_status_display(),
             'updated_at': series.updated_at,
+            'export_info': export_info
         }
         series_data.append(series_info)
     
