@@ -353,6 +353,7 @@ class ProcessingStatus(models.TextChoices):
     PENDING_TRANSFER_TO_DRAW_SERVER = "PENDING_TRANSFER_TO_DRAW_SERVER", "Pending Transfer to Draw Server"
     SENT_TO_DRAW_SERVER = "SENT_TO_DRAW_SERVER", "Sent to Draw Server"
     FAILED_TRANSFER_TO_DRAW_SERVER = "FAILED_TRANSFER_TO_DRAW_SERVER", "Failed Transfer to Draw Server"
+    INVALID_RTSTRUCTURE_RECEIVED = "INVALID_RTSTRUCTURE_RECEIVED", "Invalid RT Structure Received"
     RTSTRUCTURE_RECEIVED = "RTSTRUCTURE_RECEIVED", "RT Structure Received"
     RTSTRUCTURE_EXPORTED  = "RTSTRUCTURE_EXPORTED", "RT Structure Exported"
     RTSTRUCTURE_EXPORT_FAILED = "RTSTRUCTURE_EXPORT_FAILED", "RT Structure Export Failed"    
@@ -411,6 +412,9 @@ class DICOMFileTransferStatus(models.TextChoices):
     IN_PROGRESS = "IN_PROGRESS", "In Progress"
     COMPLETED = "COMPLETED", "Completed"
     FAILED = "FAILED", "Failed"
+    CHECKSUM_MATCH_FAILED = 'CHEKSUM_MATCH_FAILED',"Checksum match failed"
+    INVALID_RTSTRUCT_FILE = 'INVALID_RT_STRUCT_FILE',"Invalid RTStructureSet FIle Received"
+    RTSTRUCT_RECEIVED = "RTSTRUCT_RECEIVED", "RTStructureSet File Received"
 
 class DICOMFileExport(models.Model):
     '''
