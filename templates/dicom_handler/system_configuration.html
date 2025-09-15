@@ -1,0 +1,348 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}System Configuration - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-8">
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">System Configuration</h1>
+            <p class="text-gray-600">Configure the DRAW API server settings and system parameters.</p>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="mb-6 p-4 rounded-lg {% if message.tags == 'error' %}bg-red-50 border border-red-200 text-red-700{% else %}bg-green-50 border border-green-200 text-green-700{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        {% if not can_edit %}
+            <div class="mb-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-700">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                    </svg>
+                    You have read-only access to system configuration. Contact an administrator to make changes.
+                </div>
+            </div>
+        {% endif %}
+
+        <form method="post" class="space-y-6" {% if not can_edit %}style="pointer-events: none; opacity: 0.7;"{% endif %}>
+            {% csrf_token %}
+            
+            <!-- DRAW API Configuration -->
+            <div class="bg-gray-50 rounded-lg p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">DRAW API Configuration</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label for="{{ form.draw_base_url.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.draw_base_url.label }}
+                        </label>
+                        {{ form.draw_base_url }}
+                        {% if form.draw_base_url.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.draw_base_url.errors.0 }}
+                            </div>
+                        {% endif %}
+                        {% if form.draw_base_url.help_text %}
+                            <p class="mt-1 text-sm text-gray-500">{{ form.draw_base_url.help_text }}</p>
+                        {% endif %}
+                    </div>
+                    
+                    <div>
+                        <label for="{{ form.client_id.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.client_id.label }}
+                        </label>
+                        {{ form.client_id }}
+                        {% if form.client_id.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.client_id.errors.0 }}
+                            </div>
+                        {% endif %}
+                        {% if form.client_id.help_text %}
+                            <p class="mt-1 text-sm text-gray-500">{{ form.client_id.help_text }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Endpoints (Collapsible) -->
+            <div class="bg-gray-50 rounded-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-900">API Endpoints</h2>
+                    <button type="button" 
+                            class="flex items-center text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                            onclick="toggleFieldset('endpoints-fieldset')"
+                            id="endpoints-toggle">
+                        <span class="mr-2">Show Default Values</span>
+                        <svg class="w-4 h-4 transform transition-transform" id="endpoints-icon">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div id="endpoints-fieldset" class="hidden space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="{{ form.draw_upload_endpoint.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ form.draw_upload_endpoint.label }}
+                            </label>
+                            {{ form.draw_upload_endpoint }}
+                            {% if form.draw_upload_endpoint.errors %}
+                                <div class="mt-1 text-sm text-red-600">
+                                    {{ form.draw_upload_endpoint.errors.0 }}
+                                </div>
+                            {% endif %}
+                            {% if form.draw_upload_endpoint.help_text %}
+                                <p class="mt-1 text-sm text-gray-500">{{ form.draw_upload_endpoint.help_text }}</p>
+                            {% endif %}
+                        </div>
+                        
+                        <div>
+                            <label for="{{ form.draw_status_endpoint.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ form.draw_status_endpoint.label }}
+                            </label>
+                            {{ form.draw_status_endpoint }}
+                            {% if form.draw_status_endpoint.errors %}
+                                <div class="mt-1 text-sm text-red-600">
+                                    {{ form.draw_status_endpoint.errors.0 }}
+                                </div>
+                            {% endif %}
+                            {% if form.draw_status_endpoint.help_text %}
+                                <p class="mt-1 text-sm text-gray-500">{{ form.draw_status_endpoint.help_text }}</p>
+                            {% endif %}
+                        </div>
+                        
+                        <div>
+                            <label for="{{ form.draw_download_endpoint.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ form.draw_download_endpoint.label }}
+                            </label>
+                            {{ form.draw_download_endpoint }}
+                            {% if form.draw_download_endpoint.errors %}
+                                <div class="mt-1 text-sm text-red-600">
+                                    {{ form.draw_download_endpoint.errors.0 }}
+                                </div>
+                            {% endif %}
+                            {% if form.draw_download_endpoint.help_text %}
+                                <p class="mt-1 text-sm text-gray-500">{{ form.draw_download_endpoint.help_text }}</p>
+                            {% endif %}
+                        </div>
+                        
+                        <div>
+                            <label for="{{ form.draw_notify_endpoint.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                {{ form.draw_notify_endpoint.label }}
+                            </label>
+                            {{ form.draw_notify_endpoint }}
+                            {% if form.draw_notify_endpoint.errors %}
+                                <div class="mt-1 text-sm text-red-600">
+                                    {{ form.draw_notify_endpoint.errors.0 }}
+                                </div>
+                            {% endif %}
+                            {% if form.draw_notify_endpoint.help_text %}
+                                <p class="mt-1 text-sm text-gray-500">{{ form.draw_notify_endpoint.help_text }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Authentication -->
+            <div class="bg-gray-50 rounded-lg p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">Authentication</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="{{ form.draw_bearer_token.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                                {{ form.draw_bearer_token.label }}
+                            </label>
+                            {% if config.draw_bearer_token %}
+                                <span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                                    ✓ Token Set
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="relative">
+                            {{ form.draw_bearer_token }}
+                            <button type="button" 
+                                    class="absolute inset-y-0 right-0 pr-3 flex items-center text-sm text-gray-400 hover:text-gray-600"
+                                    onclick="togglePasswordVisibility('{{ form.draw_bearer_token.id_for_label }}')"
+                                    id="toggle-{{ form.draw_bearer_token.id_for_label }}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        {% if form.draw_bearer_token.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.draw_bearer_token.errors.0 }}
+                            </div>
+                        {% endif %}
+                        <p class="mt-1 text-sm text-gray-500">
+                            {% if config.draw_bearer_token %}
+                                Token is securely stored. Leave blank to keep existing token.
+                            {% else %}
+                                Enter your DRAW API bearer token
+                            {% endif %}
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label for="{{ form.draw_refresh_token.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                                {{ form.draw_refresh_token.label }}
+                            </label>
+                            {% if config.draw_refresh_token %}
+                                <span class="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                                    ✓ Token Set
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="relative">
+                            {{ form.draw_refresh_token }}
+                            <button type="button" 
+                                    class="absolute inset-y-0 right-0 pr-3 flex items-center text-sm text-gray-400 hover:text-gray-600"
+                                    onclick="togglePasswordVisibility('{{ form.draw_refresh_token.id_for_label }}')"
+                                    id="toggle-{{ form.draw_refresh_token.id_for_label }}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        {% if form.draw_refresh_token.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.draw_refresh_token.errors.0 }}
+                            </div>
+                        {% endif %}
+                        <p class="mt-1 text-sm text-gray-500">
+                            {% if config.draw_refresh_token %}
+                                Token is securely stored. Leave blank to keep existing token.
+                            {% else %}
+                                Enter your DRAW API refresh token
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="mt-6">
+                    <label for="{{ form.draw_bearer_token_validaty.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ form.draw_bearer_token_validaty.label }}
+                    </label>
+                    {{ form.draw_bearer_token_validaty }}
+                    {% if form.draw_bearer_token_validaty.errors %}
+                        <div class="mt-1 text-sm text-red-600">
+                            {{ form.draw_bearer_token_validaty.errors.0 }}
+                        </div>
+                    {% endif %}
+                    {% if form.draw_bearer_token_validaty.help_text %}
+                        <p class="mt-1 text-sm text-gray-500">{{ form.draw_bearer_token_validaty.help_text }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- System Configuration -->
+            <div class="bg-gray-50 rounded-lg p-6">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">System Configuration</h2>
+                <div class="space-y-6">
+                    <div>
+                        <label for="{{ form.folder_configuration.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.folder_configuration.label }}
+                        </label>
+                        {{ form.folder_configuration }}
+                        {% if form.folder_configuration.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.folder_configuration.errors.0 }}
+                            </div>
+                        {% endif %}
+                        {% if form.folder_configuration.help_text %}
+                            <p class="mt-1 text-sm text-gray-500">{{ form.folder_configuration.help_text }}</p>
+                        {% endif %}
+                    </div>
+                    
+                    <div>
+                        <label for="{{ form.data_pull_start_datetime.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.data_pull_start_datetime.label }}
+                        </label>
+                        {{ form.data_pull_start_datetime }}
+                        {% if form.data_pull_start_datetime.errors %}
+                            <div class="mt-1 text-sm text-red-600">
+                                {{ form.data_pull_start_datetime.errors.0 }}
+                            </div>
+                        {% endif %}
+                        {% if form.data_pull_start_datetime.help_text %}
+                            <p class="mt-1 text-sm text-gray-500">{{ form.data_pull_start_datetime.help_text }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% if can_edit %}
+                <div class="flex justify-end space-x-4">
+                    <a href="{% url 'home' %}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </a>
+                    <button type="submit" class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+                        Save Configuration
+                    </button>
+                </div>
+            {% endif %}
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleFieldset(fieldsetId) {
+    const fieldset = document.getElementById(fieldsetId);
+    const toggle = document.getElementById(fieldsetId.replace('-fieldset', '-toggle'));
+    const icon = document.getElementById(fieldsetId.replace('-fieldset', '-icon'));
+    
+    if (fieldset.classList.contains('hidden')) {
+        fieldset.classList.remove('hidden');
+        toggle.querySelector('span').textContent = 'Hide Default Values';
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        fieldset.classList.add('hidden');
+        toggle.querySelector('span').textContent = 'Show Default Values';
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
+function togglePasswordVisibility(fieldId) {
+    const field = document.getElementById(fieldId);
+    const toggleButton = document.getElementById('toggle-' + fieldId);
+    
+    if (field.type === 'password') {
+        field.type = 'text';
+        toggleButton.innerHTML = `
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"></path>
+            </svg>
+        `;
+    } else {
+        field.type = 'password';
+        toggleButton.innerHTML = `
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+            </svg>
+        `;
+    }
+}
+
+// Add SVG content for the chevron icon
+document.addEventListener('DOMContentLoaded', function() {
+    const icon = document.getElementById('endpoints-icon');
+    if (icon) {
+        icon.innerHTML = '<path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('viewBox', '0 0 24 24');
+    }
+});
+</script>
+{% endblock %}

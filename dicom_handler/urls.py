@@ -32,4 +32,7 @@ urlpatterns = [
     
     # DICOM Series Processing Status
     path('series-status/', views.series_processing_status, name='series_processing_status'),
+    
+    # System Configuration
+    path('system-config/', views.system_configuration, name='system_configuration'),
 ]

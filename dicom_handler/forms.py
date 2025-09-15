@@ -2,7 +2,7 @@ from django import forms
 from django.forms import inlineformset_factory
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Submit, Row, Column, Fieldset, Div, HTML
-from .models import RuleSet, Rule, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, OperatorType
+from .models import RuleSet, Rule, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, OperatorType, SystemConfiguration
 import uuid
 
 class TemplateCreationForm(forms.Form):
@@ -216,3 +216,123 @@ RuleFormSet = inlineformset_factory(
     min_num=1,  # Require at least 1 rule
     validate_min=True
 )
+
+class SystemConfigurationForm(forms.ModelForm):
+    class Meta:
+        model = SystemConfiguration
+        fields = [
+            'draw_base_url', 'client_id', 'draw_upload_endpoint', 'draw_status_endpoint',
+            'draw_download_endpoint', 'draw_notify_endpoint', 'draw_bearer_token',
+            'draw_refresh_token', 'draw_bearer_token_validaty', 'folder_configuration',
+            'data_pull_start_datetime'
+        ]
+        widgets = {
+            'draw_base_url': forms.URLInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'https://draw.chavi.ai'
+            }),
+            'client_id': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter client ID from DRAW API server'
+            }),
+            'draw_upload_endpoint': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/api/upload/'
+            }),
+            'draw_status_endpoint': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/api/upload/{task_id}/status/'
+            }),
+            'draw_download_endpoint': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/api/rtstruct/{task_id}/'
+            }),
+            'draw_notify_endpoint': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/api/rtstruct/{task_id}/confirm/'
+            }),
+            'draw_bearer_token': forms.PasswordInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter bearer token (leave blank to keep existing)'
+            }, render_value=False),
+            'draw_refresh_token': forms.PasswordInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter refresh token (leave blank to keep existing)'
+            }, render_value=False),
+            'draw_bearer_token_validaty': forms.DateTimeInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'type': 'datetime-local'
+            }),
+            'folder_configuration': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/path/to/dicom/folder'
+            }),
+            'data_pull_start_datetime': forms.DateTimeInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'type': 'datetime-local'
+            })
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.layout = Layout(
+            Fieldset(
+                'DRAW API Configuration',
+                Row(
+                    Column('draw_base_url', css_class='form-group col-md-6 mb-0'),
+                    Column('client_id', css_class='form-group col-md-6 mb-0'),
+                    css_class='form-row'
+                ),
+                css_class='mb-4'
+            ),
+            Fieldset(
+                'API Endpoints (Default Values)',
+                Row(
+                    Column('draw_upload_endpoint', css_class='form-group col-md-6 mb-0'),
+                    Column('draw_status_endpoint', css_class='form-group col-md-6 mb-0'),
+                    css_class='form-row'
+                ),
+                Row(
+                    Column('draw_download_endpoint', css_class='form-group col-md-6 mb-0'),
+                    Column('draw_notify_endpoint', css_class='form-group col-md-6 mb-0'),
+                    css_class='form-row'
+                ),
+                css_class='mb-4 collapse-fieldset',
+                css_id='endpoints-fieldset'
+            ),
+            Fieldset(
+                'Authentication',
+                Row(
+                    Column('draw_bearer_token', css_class='form-group col-md-6 mb-0'),
+                    Column('draw_refresh_token', css_class='form-group col-md-6 mb-0'),
+                    css_class='form-row'
+                ),
+                'draw_bearer_token_validaty',
+                css_class='mb-4'
+            ),
+            Fieldset(
+                'System Configuration',
+                'folder_configuration',
+                'data_pull_start_datetime',
+                css_class='mb-4'
+            ),
+            Submit('submit', 'Save Configuration', css_class='btn btn-primary')
+        )
+
+    def clean_draw_bearer_token(self):
+        """Only update bearer token if a new value is provided"""
+        token = self.cleaned_data.get('draw_bearer_token')
+        if not token and self.instance and self.instance.pk:
+            # Keep existing token if no new value provided
+            return self.instance.draw_bearer_token
+        return token
+
+    def clean_draw_refresh_token(self):
+        """Only update refresh token if a new value is provided"""
+        token = self.cleaned_data.get('draw_refresh_token')
+        if not token and self.instance and self.instance.pk:
+            # Keep existing token if no new value provided
+            return self.instance.draw_refresh_token
+        return token

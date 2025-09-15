@@ -5,7 +5,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db import models
-from .forms import TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper
+from .forms import TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm
 from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus
 from .vr_validators import VRValidator
 import requests
@@ -1169,3 +1169,35 @@ def series_processing_status(request):
     }
     
     return render(request, 'dicom_handler/series_processing_status.html', context)
+
+# System Configuration Views
+
+@login_required
+@permission_required('dicom_handler.view_systemconfiguration', raise_exception=True)
+def system_configuration(request):
+    """
+    View to display and edit system configuration (singleton)
+    """
+    config = SystemConfiguration.load()  # This will create one if it doesn't exist
+    
+    if request.method == 'POST':
+        # Check if user has change permission
+        if not request.user.has_perm('dicom_handler.change_systemconfiguration'):
+            messages.error(request, 'You do not have permission to modify system configuration.')
+            return redirect('dicom_handler:system_configuration')
+        
+        form = SystemConfigurationForm(request.POST, instance=config)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'System configuration updated successfully!')
+            return redirect('dicom_handler:system_configuration')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = SystemConfigurationForm(instance=config)
+    
+    return render(request, 'dicom_handler/system_configuration.html', {
+        'form': form,
+        'config': config,
+        'can_edit': request.user.has_perm('dicom_handler.change_systemconfiguration')
+    })
