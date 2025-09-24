@@ -1146,6 +1146,7 @@ def series_processing_status(request):
         
         series_info = {
             'id': series.id,
+            'series_instance_uid': series.series_instance_uid,  # Add the missing field
             'patient_id': series.study.patient.patient_id or 'N/A',
             'patient_name': series.study.patient.patient_name or 'N/A',
             'gender': series.study.patient.patient_gender or 'N/A',
@@ -1213,3 +1214,73 @@ def system_configuration(request):
         'config': config,
         'can_edit': request.user.has_perm('dicom_handler.change_systemconfiguration')
     })
+
+
+@login_required
+def manual_processing_status(request):
+    """
+    View for displaying manual processing status
+    """
+    from .utils.manual_autosegmentation import get_manual_processing_status
+    from django.db.models import Q
+    
+    # Get all series that have been manually processed (have matched templates)
+    manually_processed_series = DICOMSeries.objects.filter(
+        matched_templates__isnull=False
+    ).select_related('study__patient').prefetch_related('matched_templates', 'dicomfileexport_set')
+    
+    # Get series UIDs for status checking
+    series_uids = list(manually_processed_series.values_list('series_instance_uid', flat=True))
+    
+    # Get detailed status information
+    status_result = get_manual_processing_status(series_uids) if series_uids else {'status': 'success', 'series_status': []}
+    
+    # Calculate summary statistics
+    total_processing = manually_processed_series.count()
+    in_progress = manually_processed_series.filter(
+        series_processsing_status__in=[
+            ProcessingStatus.RULE_MATCHED,
+            ProcessingStatus.PENDING_TRANSFER_TO_DRAW_SERVER
+        ]
+    ).count()
+    completed = manually_processed_series.filter(
+        series_processsing_status__in=[
+            ProcessingStatus.SENT_TO_DRAW_SERVER,
+            ProcessingStatus.RTSTRUCTURE_RECEIVED,
+            ProcessingStatus.RTSTRUCTURE_EXPORTED
+        ]
+    ).count()
+    failed = manually_processed_series.filter(
+        series_processsing_status__in=[
+            ProcessingStatus.DEIDENTIFICATION_FAILED,
+            ProcessingStatus.FAILED_TRANSFER_TO_DRAW_SERVER
+        ]
+    ).count()
+    
+    # Prepare series status data
+    series_status = []
+    if status_result['status'] == 'success':
+        for series_info in status_result.get('series_status', []):
+            # Get the series object for additional information
+            try:
+                series = manually_processed_series.get(series_instance_uid=series_info['series_instance_uid'])
+                series_info['matched_templates'] = series.matched_templates.all()
+                series_info['export_info'] = series.dicomfileexport_set.first()
+                series_info['last_updated'] = series.updated_at
+            except DICOMSeries.DoesNotExist:
+                pass
+            series_status.append(series_info)
+    
+    context = {
+        'total_processing': total_processing,
+        'in_progress': in_progress,
+        'completed': completed,
+        'failed': failed,
+        'series_status': series_status,
+    }
+    
+    # Handle AJAX requests for status updates
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return render(request, 'dicom_handler/manual_processing_status.html', context)
+    
+    return render(request, 'dicom_handler/manual_processing_status.html', context)

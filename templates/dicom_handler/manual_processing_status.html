@@ -1,0 +1,447 @@
+{% extends 'base.html' %}
+
+{% block title %}Manual Processing Status - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-full mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Manual Processing Status</h1>
+                <p class="text-gray-600">Monitor the status of manually processed autosegmentation series.</p>
+            </div>
+            <div class="flex space-x-3">
+                <button type="button" id="refresh-status" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                    <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Refresh Status
+                </button>
+                <a href="{% url 'dicom_handler:series_processing_status' %}" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                    Back to Series List
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white overflow-hidden shadow rounded-lg">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Total Processing</dt>
+                            <dd class="text-lg font-medium text-gray-900" id="total-processing">{{ total_processing|default:0 }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white overflow-hidden shadow rounded-lg">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">In Progress</dt>
+                            <dd class="text-lg font-medium text-gray-900" id="in-progress">{{ in_progress|default:0 }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white overflow-hidden shadow rounded-lg">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Completed</dt>
+                            <dd class="text-lg font-medium text-gray-900" id="completed">{{ completed|default:0 }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white overflow-hidden shadow rounded-lg">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="ml-5 w-0 flex-1">
+                        <dl>
+                            <dt class="text-sm font-medium text-gray-500 truncate">Failed</dt>
+                            <dd class="text-lg font-medium text-gray-900" id="failed">{{ failed|default:0 }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Processing Status List -->
+    <div class="bg-white shadow overflow-hidden sm:rounded-md">
+        <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Processing Details</h3>
+            <p class="mt-1 max-w-2xl text-sm text-gray-500">Detailed status for each manually processed series</p>
+        </div>
+        
+        <div id="processing-list">
+            {% if series_status %}
+                <ul class="divide-y divide-gray-200">
+                    {% for series in series_status %}
+                    <li class="px-4 py-4 sm:px-6 processing-item" data-series-uid="{{ series.series_instance_uid }}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center min-w-0 flex-1">
+                                <div class="flex-shrink-0">
+                                    <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                        </svg>
+                                    </div>
+                                </div>
+                                <div class="ml-4 min-w-0 flex-1">
+                                    <div class="flex items-center">
+                                        <p class="text-sm font-medium text-gray-900 truncate">{{ series.patient_name }}</p>
+                                        <span class="ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                                            {% if series.processing_status == 'DEIDENTIFIED_SUCCESSFULLY' %}bg-green-100 text-green-800
+                                            {% elif series.processing_status == 'SENT_TO_DRAW_SERVER' %}bg-blue-100 text-blue-800
+                                            {% elif series.processing_status == 'DEIDENTIFICATION_FAILED' or series.processing_status == 'FAILED_TRANSFER_TO_DRAW_SERVER' %}bg-red-100 text-red-800
+                                            {% elif series.processing_status == 'PENDING_TRANSFER_TO_DRAW_SERVER' %}bg-yellow-100 text-yellow-800
+                                            {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                            {{ series.processing_status|title|cut:'_' }}
+                                        </span>
+                                    </div>
+                                    <div class="mt-1 flex items-center text-sm text-gray-500">
+                                        <span>Series UID: {{ series.series_instance_uid|truncatechars:20 }}...</span>
+                                        {% if series.matched_templates %}
+                                            <span class="ml-4">Template: 
+                                                {% for template in series.matched_templates %}
+                                                    <span class="font-medium">{{ template.template_name }}</span>{% if not forloop.last %}, {% endif %}
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                {% if series.export_info %}
+                                    {% if series.export_info.task_id %}
+                                        <div class="text-xs text-gray-500">
+                                            <span class="block">Task ID:</span>
+                                            <code class="bg-gray-100 px-1 rounded">{{ series.export_info.task_id|truncatechars:12 }}</code>
+                                        </div>
+                                    {% endif %}
+                                    {% if series.export_info.transfer_datetime %}
+                                        <div class="text-xs text-gray-500">
+                                            <span class="block">Transferred:</span>
+                                            <span>{{ series.export_info.transfer_datetime|date:"M d, H:i" }}</span>
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                                <div class="text-xs text-gray-500">
+                                    <span class="block">Updated:</span>
+                                    <span>{{ series.last_updated|date:"M d, H:i" }}</span>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <button type="button" class="text-blue-600 hover:text-blue-900 text-sm font-medium view-details-btn" data-series-uid="{{ series.series_instance_uid }}">
+                                        View Details
+                                    </button>
+                                    {% if series.processing_status == 'DEIDENTIFICATION_FAILED' or series.processing_status == 'FAILED_TRANSFER_TO_DRAW_SERVER' %}
+                                        <button type="button" class="text-red-600 hover:text-red-900 text-sm font-medium retry-btn" data-series-uid="{{ series.series_instance_uid }}">
+                                            Retry
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Expandable Details -->
+                        <div class="series-details hidden mt-4 pl-14">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <h4 class="font-medium text-gray-900 mb-2">Processing Information</h4>
+                                        <dl class="space-y-1">
+                                            <div class="flex justify-between">
+                                                <dt class="text-gray-500">Status:</dt>
+                                                <dd class="text-gray-900">{{ series.processing_status|title|cut:'_' }}</dd>
+                                            </div>
+                                            <div class="flex justify-between">
+                                                <dt class="text-gray-500">Last Updated:</dt>
+                                                <dd class="text-gray-900">{{ series.last_updated|date:"M d, Y H:i:s" }}</dd>
+                                            </div>
+                                            {% if series.matched_templates %}
+                                                <div class="flex justify-between">
+                                                    <dt class="text-gray-500">Templates:</dt>
+                                                    <dd class="text-gray-900">
+                                                        {% for template in series.matched_templates %}
+                                                            {{ template.template_name }}{% if not forloop.last %}, {% endif %}
+                                                        {% endfor %}
+                                                    </dd>
+                                                </div>
+                                            {% endif %}
+                                        </dl>
+                                    </div>
+                                    {% if series.export_info %}
+                                        <div>
+                                            <h4 class="font-medium text-gray-900 mb-2">Export Information</h4>
+                                            <dl class="space-y-1">
+                                                {% if series.export_info.zip_file_path %}
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-gray-500">ZIP File:</dt>
+                                                        <dd class="text-gray-900 truncate">{{ series.export_info.zip_file_path|truncatechars:30 }}</dd>
+                                                    </div>
+                                                {% endif %}
+                                                {% if series.export_info.transfer_status %}
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-gray-500">Transfer Status:</dt>
+                                                        <dd class="text-gray-900">{{ series.export_info.transfer_status|title|cut:'_' }}</dd>
+                                                    </div>
+                                                {% endif %}
+                                                {% if series.export_info.task_id %}
+                                                    <div class="flex justify-between">
+                                                        <dt class="text-gray-500">Task ID:</dt>
+                                                        <dd class="text-gray-900"><code class="bg-gray-100 px-1 rounded text-xs">{{ series.export_info.task_id }}</code></dd>
+                                                    </div>
+                                                {% endif %}
+                                            </dl>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <div class="text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No manual processing found</h3>
+                    <p class="mt-1 text-sm text-gray-500">No series have been manually processed yet.</p>
+                    <div class="mt-6">
+                        <a href="{% url 'dicom_handler:series_processing_status' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                            </svg>
+                            Start Manual Processing
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Auto-refresh toggle -->
+<div class="fixed bottom-4 right-4">
+    <div class="bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+        <div class="flex items-center space-x-3">
+            <label class="flex items-center">
+                <input type="checkbox" id="auto-refresh" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <span class="ml-2 text-sm text-gray-700">Auto-refresh</span>
+            </label>
+            <select id="refresh-interval" class="text-sm border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500" disabled>
+                <option value="5000">5s</option>
+                <option value="10000" selected>10s</option>
+                <option value="30000">30s</option>
+                <option value="60000">1m</option>
+            </select>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-refresh functionality
+    let refreshInterval = null;
+    const autoRefreshCheckbox = document.getElementById('auto-refresh');
+    const refreshIntervalSelect = document.getElementById('refresh-interval');
+    const refreshButton = document.getElementById('refresh-status');
+    
+    autoRefreshCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            startAutoRefresh();
+            refreshIntervalSelect.disabled = false;
+        } else {
+            stopAutoRefresh();
+            refreshIntervalSelect.disabled = true;
+        }
+    });
+    
+    refreshIntervalSelect.addEventListener('change', function() {
+        if (autoRefreshCheckbox.checked) {
+            stopAutoRefresh();
+            startAutoRefresh();
+        }
+    });
+    
+    function startAutoRefresh() {
+        const interval = parseInt(refreshIntervalSelect.value);
+        refreshInterval = setInterval(refreshStatus, interval);
+    }
+    
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+    }
+    
+    // Manual refresh
+    refreshButton.addEventListener('click', refreshStatus);
+    
+    async function refreshStatus() {
+        try {
+            const response = await fetch(window.location.href, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            
+            if (response.ok) {
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Update summary cards
+                document.getElementById('total-processing').textContent = doc.getElementById('total-processing').textContent;
+                document.getElementById('in-progress').textContent = doc.getElementById('in-progress').textContent;
+                document.getElementById('completed').textContent = doc.getElementById('completed').textContent;
+                document.getElementById('failed').textContent = doc.getElementById('failed').textContent;
+                
+                // Update processing list
+                const newProcessingList = doc.getElementById('processing-list');
+                document.getElementById('processing-list').innerHTML = newProcessingList.innerHTML;
+                
+                // Re-attach event listeners
+                attachEventListeners();
+                
+                // Show refresh indicator
+                showRefreshIndicator();
+            }
+        } catch (error) {
+            console.error('Error refreshing status:', error);
+        }
+    }
+    
+    function showRefreshIndicator() {
+        const indicator = document.createElement('div');
+        indicator.className = 'fixed top-4 right-4 bg-green-500 text-white px-3 py-1 rounded text-sm';
+        indicator.textContent = 'Status updated';
+        document.body.appendChild(indicator);
+        
+        setTimeout(() => {
+            indicator.remove();
+        }, 2000);
+    }
+    
+    // View details functionality
+    function attachEventListeners() {
+        document.querySelectorAll('.view-details-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const seriesUid = this.getAttribute('data-series-uid');
+                const detailsEl = document.querySelector(`[data-series-uid="${seriesUid}"] .series-details`);
+                
+                if (detailsEl.classList.contains('hidden')) {
+                    detailsEl.classList.remove('hidden');
+                    this.textContent = 'Hide Details';
+                } else {
+                    detailsEl.classList.add('hidden');
+                    this.textContent = 'View Details';
+                }
+            });
+        });
+        
+        // Retry functionality
+        document.querySelectorAll('.retry-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const seriesUid = this.getAttribute('data-series-uid');
+                retryProcessing(seriesUid);
+            });
+        });
+    }
+    
+    async function retryProcessing(seriesUid) {
+        if (!confirm('Are you sure you want to retry processing for this series?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/dicom/api/manual-autosegmentation/retry/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCSRFToken()
+                },
+                body: JSON.stringify({
+                    series_uid: seriesUid
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.status === 'success') {
+                    alert('Retry initiated successfully');
+                    refreshStatus();
+                } else {
+                    alert('Retry failed: ' + (data.message || 'Unknown error'));
+                }
+            } else {
+                alert('Retry failed: HTTP ' + response.status);
+            }
+        } catch (error) {
+            console.error('Error retrying processing:', error);
+            alert('Retry failed: ' + error.message);
+        }
+    }
+    
+    function getCSRFToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
+    
+    // Initial event listener attachment
+    attachEventListeners();
+});
+</script>
+{% endblock %}

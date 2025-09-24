@@ -1,6 +1,16 @@
 from django.urls import path
 from . import views
 from .search_views import search_structures
+from .manual_autosegmentation_views import (
+    ManualAutosegmentationSeriesInfoView,
+    ManualAutosegmentationValidateView,
+    ManualAutosegmentationStartProcessingView,
+    ManualAutosegmentationStatusView,
+    ManualAutosegmentationRetryView,
+    ManualAutosegmentationCancelView,
+    get_available_templates_view,
+    test_api_endpoint
+)
 
 app_name = 'dicom_handler'
 
@@ -32,7 +42,18 @@ urlpatterns = [
     
     # DICOM Series Processing Status
     path('series-status/', views.series_processing_status, name='series_processing_status'),
+    path('manual-processing-status/', views.manual_processing_status, name='manual_processing_status'),
     
     # System Configuration
     path('system-config/', views.system_configuration, name='system_configuration'),
+    
+    # Manual Autosegmentation API URLs
+    path('api/manual-autosegmentation/series-info/', ManualAutosegmentationSeriesInfoView.as_view(), name='manual_autosegmentation_series_info'),
+    path('api/manual-autosegmentation/validate/', ManualAutosegmentationValidateView.as_view(), name='manual_autosegmentation_validate'),
+    path('api/manual-autosegmentation/start-processing/', ManualAutosegmentationStartProcessingView.as_view(), name='manual_autosegmentation_start_processing'),
+    path('api/manual-autosegmentation/status/', ManualAutosegmentationStatusView.as_view(), name='manual_autosegmentation_status'),
+    path('api/manual-autosegmentation/retry/', ManualAutosegmentationRetryView.as_view(), name='manual_autosegmentation_retry'),
+    path('api/manual-autosegmentation/cancel/', ManualAutosegmentationCancelView.as_view(), name='manual_autosegmentation_cancel'),
+    path('api/manual-autosegmentation/templates/', get_available_templates_view, name='manual_autosegmentation_templates'),
+    path('api/test/', test_api_endpoint, name='test_api_endpoint'),
 ]

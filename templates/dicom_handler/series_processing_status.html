@@ -114,7 +114,10 @@
             </div>
             <div class="flex space-x-2">
                 <button type="button" id="bulk-action-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
-                    Run Manual Action
+                    <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Manual Autosegmentation
                 </button>
                 <button type="button" id="clear-selection-btn" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
                     Clear Selection
@@ -152,7 +155,7 @@
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center space-x-2">
                         <input type="checkbox" class="series-checkbox rounded border-gray-300 text-primary-600 focus:ring-primary-500" 
-                               value="{{ series.id }}" data-series-id="{{ series.id }}">
+                               value="{{ series.series_instance_uid }}" data-series-uid="{{ series.series_instance_uid }}" data-series-id="{{ series.id }}">
                         <div>
                             <h3 class="text-base font-semibold text-gray-900">{{ series.patient_name }} <span class="text-sm font-normal text-gray-600">({{ series.patient_id }})</span></h3>
                         </div>
@@ -362,20 +365,7 @@ document.addEventListener('DOMContentLoaded', function() {
         updateSelectedCount();
     });
 
-    // Bulk action button (placeholder for future implementation)
-    bulkActionBtn.addEventListener('click', function() {
-        const selectedIds = Array.from(seriesCheckboxes)
-            .filter(checkbox => checkbox.checked)
-            .map(checkbox => checkbox.value);
-        
-        if (selectedIds.length === 0) {
-            alert('Please select at least one series.');
-            return;
-        }
-        
-        // Placeholder for bulk action implementation
-        alert(`Selected ${selectedIds.length} series for manual action. This feature will be implemented in the future.`);
-    });
+    // Bulk action button is now handled by the manual autosegmentation JavaScript
 
     // Auto-submit form on filter changes
     const filterSelects = document.querySelectorAll('#gender, #modality, #protocol, #status');
@@ -425,4 +415,11 @@ document.addEventListener('DOMContentLoaded', function() {
     updateSelectedCount();
 });
 </script>
+
+<!-- Include Manual Autosegmentation Modal -->
+{% include 'dicom_handler/manual_autosegmentation_modal.html' %}
+
+<!-- Include Manual Autosegmentation JavaScript -->
+{% include 'dicom_handler/manual_autosegmentation_js.html' %}
+
 {% endblock %}

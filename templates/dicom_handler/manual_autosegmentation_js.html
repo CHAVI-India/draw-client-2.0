@@ -1,0 +1,501 @@
+<!-- Manual Autosegmentation JavaScript -->
+<script>
+class ManualAutosegmentationModal {
+    constructor() {
+        this.modal = document.getElementById('manual-autosegmentation-modal');
+        this.confirmModal = document.getElementById('processing-confirmation-modal');
+        this.statusModal = document.getElementById('processing-status-modal');
+        this.selectedSeriesUids = [];
+        this.seriesData = [];
+        this.availableTemplates = [];
+        this.templateAssociations = [];
+        
+        this.initializeEventListeners();
+    }
+    
+    initializeEventListeners() {
+        // Modal close buttons
+        document.getElementById('close-modal').addEventListener('click', () => this.closeModal());
+        document.getElementById('cancel-modal').addEventListener('click', () => this.closeModal());
+        
+        // Processing buttons
+        document.getElementById('validate-selections').addEventListener('click', () => this.validateSelections());
+        document.getElementById('start-processing').addEventListener('click', () => this.showConfirmationModal());
+        
+        // Confirmation modal
+        document.getElementById('cancel-processing').addEventListener('click', () => this.closeConfirmationModal());
+        document.getElementById('confirm-processing').addEventListener('click', () => this.startProcessing());
+        
+        // Status modal
+        document.getElementById('close-status-modal').addEventListener('click', () => this.closeStatusModal());
+        document.getElementById('close-status-modal-btn').addEventListener('click', () => this.closeStatusModal());
+        
+        // Close modals when clicking outside
+        window.addEventListener('click', (event) => {
+            if (event.target === this.modal) {
+                this.closeModal();
+            }
+            if (event.target === this.confirmModal) {
+                this.closeConfirmationModal();
+            }
+            if (event.target === this.statusModal) {
+                this.closeStatusModal();
+            }
+        });
+    }
+    
+    async openModal(selectedSeriesUids) {
+        this.selectedSeriesUids = selectedSeriesUids;
+        this.modal.classList.remove('hidden');
+        
+        // Show loading state
+        this.showLoading();
+        
+        try {
+            // Fetch series data and templates
+            await this.loadSeriesData();
+            this.renderSeriesItems();
+            this.showContent();
+        } catch (error) {
+            console.error('Error loading series data:', error);
+            this.showError('Failed to load series information. Please try again.');
+        }
+    }
+    
+    async loadSeriesData() {
+        console.log('Loading series data for UIDs:', this.selectedSeriesUids);
+        console.log('CSRF Token:', this.getCSRFToken());
+        
+        const response = await fetch('/dicom/api/manual-autosegmentation/series-info/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': this.getCSRFToken()
+            },
+            body: JSON.stringify({
+                series_uids: this.selectedSeriesUids
+            })
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Response error text:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Response data:', data);
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to load series data');
+        }
+        
+        this.seriesData = data.series_data;
+        this.availableTemplates = data.available_templates;
+    }
+    
+    renderSeriesItems() {
+        const seriesList = document.getElementById('series-list');
+        const template = document.getElementById('series-item-template');
+        
+        // Clear existing items
+        seriesList.innerHTML = '';
+        
+        // Update counts
+        document.getElementById('series-count').textContent = this.seriesData.length;
+        document.getElementById('total-series').textContent = this.seriesData.length;
+        document.getElementById('assigned-count').textContent = '0';
+        
+        // Create series items
+        this.seriesData.forEach(series => {
+            const clone = template.content.cloneNode(true);
+            const seriesItem = clone.querySelector('.series-item');
+            
+            // Set series data attributes
+            seriesItem.setAttribute('data-series-uid', series.series_instance_uid);
+            
+            // Populate series information
+            clone.querySelector('.series-patient-name').textContent = series.patient_name;
+            clone.querySelector('.series-patient-id').textContent = series.patient_id;
+            clone.querySelector('.series-study-date').textContent = series.study_date;
+            clone.querySelector('.series-modality').textContent = series.modality;
+            clone.querySelector('.series-instance-count').textContent = series.instance_count;
+            clone.querySelector('.series-study-description').textContent = series.study_description;
+            
+            // Populate template dropdown
+            const templateSelect = clone.querySelector('.template-select');
+            this.availableTemplates.forEach(template => {
+                const option = document.createElement('option');
+                option.value = template.id;
+                option.textContent = `${template.template_name} - ${template.template_description}`;
+                templateSelect.appendChild(option);
+            });
+            
+            // Add change event listener
+            templateSelect.addEventListener('change', () => this.onTemplateSelectionChange());
+            
+            seriesList.appendChild(clone);
+        });
+    }
+    
+    onTemplateSelectionChange() {
+        this.updateAssignedCount();
+        this.validateSelections();
+    }
+    
+    updateAssignedCount() {
+        const templateSelects = document.querySelectorAll('.template-select');
+        let assignedCount = 0;
+        
+        templateSelects.forEach(select => {
+            if (select.value) {
+                assignedCount++;
+            }
+        });
+        
+        document.getElementById('assigned-count').textContent = assignedCount;
+    }
+    
+    validateSelections() {
+        const templateSelects = document.querySelectorAll('.template-select');
+        const validationStatus = document.getElementById('validation-status');
+        const startButton = document.getElementById('start-processing');
+        
+        let isValid = true;
+        let validationErrors = [];
+        
+        // Clear previous validation states
+        document.querySelectorAll('.template-validation').forEach(el => el.classList.add('hidden'));
+        
+        templateSelects.forEach((select, index) => {
+            const validationEl = select.parentElement.querySelector('.template-validation');
+            
+            if (!select.value) {
+                isValid = false;
+                validationEl.classList.remove('hidden');
+                validationErrors.push(`Series ${index + 1}: No template selected`);
+            }
+        });
+        
+        // Update validation status
+        if (isValid) {
+            validationStatus.textContent = 'All selections valid ✓';
+            validationStatus.className = 'text-sm text-green-600';
+            startButton.disabled = false;
+        } else {
+            validationStatus.textContent = `${validationErrors.length} validation error(s)`;
+            validationStatus.className = 'text-sm text-red-600';
+            startButton.disabled = true;
+        }
+        
+        return isValid;
+    }
+    
+    collectTemplateAssociations() {
+        const associations = [];
+        const seriesItems = document.querySelectorAll('.series-item');
+        
+        seriesItems.forEach(item => {
+            const seriesUid = item.getAttribute('data-series-uid');
+            const templateSelect = item.querySelector('.template-select');
+            const templateId = templateSelect.value;
+            
+            if (seriesUid && templateId) {
+                associations.push({
+                    series_uid: seriesUid,
+                    template_id: templateId
+                });
+            }
+        });
+        
+        return associations;
+    }
+    
+    showConfirmationModal() {
+        if (!this.validateSelections()) {
+            return;
+        }
+        
+        this.templateAssociations = this.collectTemplateAssociations();
+        document.getElementById('confirm-series-count').textContent = this.templateAssociations.length;
+        this.confirmModal.classList.remove('hidden');
+    }
+    
+    async startProcessing() {
+        this.closeConfirmationModal();
+        
+        try {
+            const response = await fetch('/dicom/api/manual-autosegmentation/start-processing/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.getCSRFToken()
+                },
+                body: JSON.stringify({
+                    template_associations: this.templateAssociations,
+                    async_processing: true
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.status === 'initiated' || data.status === 'success') {
+                this.showProcessingSuccess(data);
+            } else {
+                this.showProcessingError(data.message || 'Processing failed');
+            }
+            
+        } catch (error) {
+            console.error('Error starting processing:', error);
+            this.showProcessingError('Failed to start processing. Please try again.');
+        }
+    }
+    
+    showProcessingSuccess(data) {
+        document.getElementById('processing-success-message').textContent = data.message || 'Processing started successfully';
+        
+        if (data.chain_id) {
+            document.getElementById('chain-id').textContent = data.chain_id;
+        } else {
+            document.getElementById('chain-id').parentElement.style.display = 'none';
+        }
+        
+        document.getElementById('processing-success').classList.remove('hidden');
+        document.getElementById('processing-error').classList.add('hidden');
+        this.statusModal.classList.remove('hidden');
+    }
+    
+    showProcessingError(message) {
+        document.getElementById('processing-error-message').textContent = message;
+        document.getElementById('processing-error').classList.remove('hidden');
+        document.getElementById('processing-success').classList.add('hidden');
+        this.statusModal.classList.remove('hidden');
+    }
+    
+    showLoading() {
+        document.getElementById('modal-loading').classList.remove('hidden');
+        document.getElementById('modal-content').classList.add('hidden');
+        document.getElementById('modal-error').classList.add('hidden');
+    }
+    
+    showContent() {
+        document.getElementById('modal-loading').classList.add('hidden');
+        document.getElementById('modal-content').classList.remove('hidden');
+        document.getElementById('modal-error').classList.add('hidden');
+    }
+    
+    showError(message) {
+        document.getElementById('modal-error-message').textContent = message;
+        document.getElementById('modal-loading').classList.add('hidden');
+        document.getElementById('modal-content').classList.add('hidden');
+        document.getElementById('modal-error').classList.remove('hidden');
+    }
+    
+    closeModal() {
+        this.modal.classList.add('hidden');
+        this.resetModal();
+    }
+    
+    closeConfirmationModal() {
+        this.confirmModal.classList.add('hidden');
+    }
+    
+    closeStatusModal() {
+        this.statusModal.classList.add('hidden');
+        // Refresh the page to show updated status
+        if (document.getElementById('processing-success').classList.contains('hidden') === false) {
+            window.location.reload();
+        }
+    }
+    
+    resetModal() {
+        this.selectedSeriesUids = [];
+        this.seriesData = [];
+        this.availableTemplates = [];
+        this.templateAssociations = [];
+        
+        // Reset UI state
+        document.getElementById('series-list').innerHTML = '';
+        document.getElementById('validation-status').textContent = '';
+        document.getElementById('start-processing').disabled = true;
+        
+        // Hide all states
+        document.getElementById('modal-loading').classList.add('hidden');
+        document.getElementById('modal-content').classList.add('hidden');
+        document.getElementById('modal-error').classList.add('hidden');
+        document.getElementById('processing-success').classList.add('hidden');
+        document.getElementById('processing-error').classList.add('hidden');
+    }
+    
+    getCSRFToken() {
+        // Try to get CSRF token from cookies first
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        
+        // Try to get CSRF token from meta tag
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (csrfMeta) {
+            return csrfMeta.getAttribute('content');
+        }
+        
+        // Try to get CSRF token from hidden input
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (csrfInput) {
+            return csrfInput.value;
+        }
+        
+        console.warn('CSRF token not found');
+        return '';
+    }
+}
+
+// Initialize the modal when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    window.manualAutosegmentationModal = new ManualAutosegmentationModal();
+    
+    // Update the bulk action button to trigger manual processing
+    const bulkActionBtn = document.getElementById('bulk-action-btn');
+    if (bulkActionBtn) {
+        bulkActionBtn.textContent = 'Manual Autosegmentation';
+        bulkActionBtn.addEventListener('click', function() {
+            const selectedCheckboxes = document.querySelectorAll('.series-checkbox:checked');
+            console.log('Selected checkboxes:', selectedCheckboxes);
+            
+            const selectedSeriesUids = Array.from(selectedCheckboxes).map(cb => {
+                const uid = cb.getAttribute('data-series-uid');
+                console.log('Checkbox UID:', uid, 'Value:', cb.value);
+                return uid;
+            });
+            
+            console.log('Selected series UIDs:', selectedSeriesUids);
+            
+            if (selectedSeriesUids.length === 0) {
+                alert('Please select at least one series for manual processing.');
+                return;
+            }
+            
+            window.manualAutosegmentationModal.openModal(selectedSeriesUids);
+        });
+    }
+});
+
+// Processing Status Checker
+class ProcessingStatusChecker {
+    constructor() {
+        this.checkInterval = null;
+        this.isChecking = false;
+    }
+    
+    startChecking(seriesUids, intervalMs = 5000) {
+        if (this.isChecking) {
+            return;
+        }
+        
+        this.isChecking = true;
+        this.checkInterval = setInterval(() => {
+            this.checkStatus(seriesUids);
+        }, intervalMs);
+        
+        // Initial check
+        this.checkStatus(seriesUids);
+    }
+    
+    stopChecking() {
+        if (this.checkInterval) {
+            clearInterval(this.checkInterval);
+            this.checkInterval = null;
+        }
+        this.isChecking = false;
+    }
+    
+    async checkStatus(seriesUids) {
+        try {
+            const response = await fetch('/dicom/api/manual-autosegmentation/status/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.getCSRFToken()
+                },
+                body: JSON.stringify({
+                    series_uids: seriesUids
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                this.updateStatusDisplay(data);
+            }
+        } catch (error) {
+            console.error('Error checking processing status:', error);
+        }
+    }
+    
+    updateStatusDisplay(data) {
+        // Update status indicators on the page
+        if (data.status === 'success' && data.series_status) {
+            data.series_status.forEach(series => {
+                const seriesCard = document.querySelector(`[data-series-id="${series.series_instance_uid}"]`);
+                if (seriesCard) {
+                    // Update processing status badge
+                    const statusBadge = seriesCard.closest('.bg-white').querySelector('.inline-flex');
+                    if (statusBadge && series.processing_status) {
+                        statusBadge.textContent = series.processing_status;
+                        // Update badge color based on status
+                        this.updateStatusBadgeColor(statusBadge, series.processing_status);
+                    }
+                }
+            });
+        }
+    }
+    
+    updateStatusBadgeColor(badge, status) {
+        // Remove existing color classes
+        badge.className = badge.className.replace(/bg-\w+-\d+/g, '').replace(/text-\w+-\d+/g, '');
+        
+        // Add appropriate color based on status
+        switch (status) {
+            case 'DEIDENTIFIED_SUCCESSFULLY':
+                badge.classList.add('bg-green-100', 'text-green-800');
+                break;
+            case 'SENT_TO_DRAW_SERVER':
+                badge.classList.add('bg-blue-100', 'text-blue-800');
+                break;
+            case 'DEIDENTIFICATION_FAILED':
+            case 'FAILED_TRANSFER_TO_DRAW_SERVER':
+                badge.classList.add('bg-red-100', 'text-red-800');
+                break;
+            case 'PENDING_TRANSFER_TO_DRAW_SERVER':
+                badge.classList.add('bg-yellow-100', 'text-yellow-800');
+                break;
+            default:
+                badge.classList.add('bg-gray-100', 'text-gray-800');
+        }
+    }
+    
+    getCSRFToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
+}
+
+// Initialize status checker
+window.processingStatusChecker = new ProcessingStatusChecker();
+</script>
