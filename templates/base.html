@@ -23,13 +23,22 @@
         }
     </script>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen flex flex-col">
     {% include 'cotton/navbar/index.html' %}
     
-    <main class="container mx-auto px-4 py-8">
+    <main class="container mx-auto px-4 py-8 flex-grow">
         {% block content %}
         {% endblock %}
     </main>
+    
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="container mx-auto px-4 py-6 text-center">
+            <p class="text-gray-600">
+                Copyright {% now "Y" %} : All Rights Reserved by the DRAW development team.
+            </p>
+        </div>
+    </footer>
     
     {% block extra_js %}
     {% endblock %}
