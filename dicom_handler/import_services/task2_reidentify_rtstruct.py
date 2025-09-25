@@ -236,6 +236,10 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         ds.ReferringPhysicianName = "DRAW"
         ds.AccessionNumber = "202514789"
         
+        # Replace the series description
+        if series.series_description:
+            ds.SeriesDescription = series.series_description
+
         # Replace series information
         if series.series_instance_uid:
             # Update Series Instance UID using DICOM tag (0020,000E)

@@ -100,6 +100,7 @@ def process_single_file(file_info):
                 'study_date': getattr(dicom_data, 'StudyDate', None),
                 'study_description': getattr(dicom_data, 'StudyDescription', ''),
                 'study_protocol': getattr(dicom_data, 'ProtocolName', ''),
+                'series_description': getattr(dicom_data, 'SeriesDescription', ''),
                 'modality': modality,
                 'series_instance_uid': getattr(dicom_data, 'SeriesInstanceUID', ''),
                 'series_date': getattr(dicom_data, 'SeriesDate', None),
@@ -108,7 +109,6 @@ def process_single_file(file_info):
                 'file_path': file_path,
                 'series_root_path': series_root_path
             }
-            
             return {"status": "success", "metadata": dicom_metadata}
             
         except Exception as e:
@@ -185,9 +185,13 @@ def bulk_create_database_records(processed_files):
                 'series_instance_uid': metadata['series_instance_uid'],
                 'series_root_path': metadata['series_root_path'],
                 'frame_of_reference_uid': metadata['frame_of_reference_uid'],
+                'series_description': metadata['series_description'],
                 'series_date': series_date,
                 'instance_count': 0
             }
+        # If a description is found later, update it
+        elif not series_to_create[series_key]['series_description'] and metadata['series_description']:
+            series_to_create[series_key]['series_description'] = metadata['series_description']
         
         # Count instances per series
         series_to_create[series_key]['instance_count'] += 1
@@ -244,12 +248,14 @@ def bulk_create_database_records(processed_files):
                     'frame_of_reference_uid': series_data['frame_of_reference_uid'],
                     'series_date': series_data['series_date'],
                     'instance_count': series_data['instance_count'],
+                    'series_description': series_data['series_description'],
                     'series_processsing_status': ProcessingStatus.UNPROCESSED
                 }
             )
             if not created and series.instance_count != series_data['instance_count']:
-                series.instance_count = series_data['instance_count']
-                series.save()
+                    series.instance_count = series_data['instance_count']
+                    series.series_description = series_data['series_description']
+                    series.save()
             
             series_objects[series_key] = series
             
@@ -324,6 +330,7 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
             study_date = getattr(dicom_data, 'StudyDate', None)
             study_description = getattr(dicom_data, 'StudyDescription', '')
             study_protocol = getattr(dicom_data, 'ProtocolName', '')
+            series_description = getattr(dicom_data, 'SeriesDescription', '')
             modality = getattr(dicom_data, 'Modality', '')
             
             # Convert study date
@@ -367,13 +374,19 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
                 defaults={
                     'series_root_path': series_root_path,
                     'frame_of_reference_uid': frame_of_reference_uid,
+                    'series_description': series_description,
                     'series_date': series_date,
                     'series_processsing_status': ProcessingStatus.UNPROCESSED
                 }
             )
             
             if created:
-                logger.info(f"Created new series: {mask_sensitive_data(series_instance_uid, 'series_instance_uid')}")
+                logger.info(f"Created new series: {mask_sensitive_data(series_instance_uid, 'series_uid')}")
+            else:
+                # If series already exists, check if description needs updating
+                if series.series_description != series_description:
+                    series.series_description = series_description
+                    series.save()
             
             # Extract instance information
             sop_instance_uid = getattr(dicom_data, 'SOPInstanceUID', '')
