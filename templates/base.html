@@ -34,9 +34,17 @@
     <!-- Footer -->
     <footer class="bg-white border-t border-gray-200 mt-auto">
         <div class="container mx-auto px-4 py-6 text-center">
-            <p class="text-gray-600">
-                Copyright {% now "Y" %} : All Rights Reserved by the DRAW development team.
-            </p>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <p class="text-gray-600">
+                    Copyright {% now "Y" %} : All Rights Reserved by the DRAW development team.
+                </p>
+                <a href="https://draw.chavi.ai" target="_blank" rel="noopener noreferrer" class="inline-flex items-center px-4 py-2 bg-primary-600 text-white hover:bg-primary-700 rounded-md text-sm font-medium transition-colors">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>
+                    View DRAW Website
+                </a>
+            </div>
         </div>
     </footer>
     
