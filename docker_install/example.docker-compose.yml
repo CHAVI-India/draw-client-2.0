@@ -26,7 +26,7 @@ services:
       - RABBITMQ_DEFAULT_PASS=guest
 
   django-web:
-    build: .
+    image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
     container_name: draw-client-django-docker
     depends_on:
       db:
@@ -50,7 +50,7 @@ services:
         hard: 65536
 
   celery:
-    build: .
+    image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
     container_name: draw-client-celery-docker
     command: ["./entrypoint.docker.sh", "celery"]
     volumes:
@@ -76,7 +76,7 @@ services:
         hard: 65536
 
   celery-beat:
-    build: .
+    image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
     container_name: draw-client-celery-beat-docker
     command: ["./entrypoint.docker.sh", "celery-beat"]
     volumes:
@@ -101,8 +101,8 @@ services:
         soft: 65536
         hard: 65536
   memcached:
-    container_name: 'draw-client-memcached-docker'
     image: 'memcached:latest'
+    container_name: 'draw-client-memcached-docker'    
     volumes:
       - app_data:/app
       - ./logs:/app/logs
