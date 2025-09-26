@@ -1,6 +1,6 @@
-  name: Build and Push to ECR Public
+name: Build and Push to ECR Public
 
-'on':
+on:
   push:
     branches: [ main, develop ]
 
