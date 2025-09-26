@@ -34,9 +34,6 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 # Set the working directory
 WORKDIR /app
  
-# Copy static files first
-COPY --chown=appuser:appuser static/ /app/static/
-
 # Copy remaining application code
 COPY --chown=appuser:appuser . .
 
