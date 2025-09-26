@@ -1,0 +1,145 @@
+services:
+  db:
+    image: postgres:17
+    container_name: draw-client-postgres-docker
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env.docker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: draw-client-rabbitmq-docker
+    restart: unless-stopped
+    ports:
+      - "5675:5672"
+      - "15675:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+
+  django-web:
+    build: .
+    container_name: draw-client-django-docker
+    depends_on:
+      db:
+        condition: service_healthy
+      memcached:
+        condition: service_started
+    env_file:
+      - .env.docker      
+    volumes:
+      - app_data:/app
+      - ./logs:/app/logs
+      - "dicomdata:/app/datastore"
+      - ./certs:/usr/local/share/ca-certificates:ro
+    command: ["./entrypoint.docker.sh"]
+    restart: unless-stopped
+    environment:
+      - DOCKER_CONTAINER=true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  celery:
+    build: .
+    container_name: draw-client-celery-docker
+    command: ["./entrypoint.docker.sh", "celery"]
+    volumes:
+      - app_data:/app
+      - ./logs:/app/logs
+      - "dicomdata:/app/datastore"
+      - ./certs:/usr/local/share/ca-certificates:ro
+    env_file:
+      - .env.docker
+    environment:
+      - DOCKER_CONTAINER=true
+    restart: unless-stopped      
+    depends_on:
+      db:
+        condition: service_healthy
+      django-web:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  celery-beat:
+    build: .
+    container_name: draw-client-celery-beat-docker
+    command: ["./entrypoint.docker.sh", "celery-beat"]
+    volumes:
+      - app_data:/app
+      - ./logs:/app/logs
+      - "dicomdata:/app/datastore"
+      - ./certs:/usr/local/share/ca-certificates:ro
+    env_file:
+      - .env.docker
+    environment:
+      - DOCKER_CONTAINER=true
+    depends_on:
+      db:
+        condition: service_healthy
+      django-web:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+    restart: unless-stopped    
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+  memcached:
+    container_name: 'draw-client-memcached-docker'
+    image: 'memcached:latest'
+    volumes:
+      - app_data:/app
+      - ./logs:/app/logs
+      - "dicomdata:/app/datastore"
+      - ./certs:/usr/local/share/ca-certificates:ro    
+    restart: unless-stopped    
+    ports:
+      - "11212:11211"
+  frontend-proxy:
+    image: nginx:latest
+    container_name: draw-client-nginx-docker
+    restart: unless-stopped
+    ports:
+      - "8002:80" # Application will be available on port 8002 on the host.
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./staticfiles:/staticfiles:ro
+    depends_on:
+      - django-web
+
+# Use this section if you are using shared network storage
+# volumes:
+#   postgres_data:
+#   app_data:
+#   dicomdata:
+#     driver_opts:
+#       type: cifs
+#       o: "username=${NETWORK_USER},domain=${NETWORK_DOMAIN},password=${NETWORK_PASSWORD},rw,uid=1000,gid=1000,file_mode=0660,dir_mode=0770"
+#       device: ${NETWORK_PATH}  
+
+# Use this section if you are using local storage. In the example below the D:/dicomdata is the path to the datastore on the local computer.
+# volumes:
+#   postgres_data:
+#   app_data:
+#   dicomdata:
+#     driver: local
+#     driver_opts:
+#       o: bind
+#       type: none
+#       device: "D:/dicomdata"    
