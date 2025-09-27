@@ -36,6 +36,26 @@ DEBUG = os.getenv("DJANGO_DEBUG", True)
 
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
 
+# CSRF Protection Settings
+CSRF_COOKIE_SECURE = os.getenv("CSRF_COOKIE_SECURE", "False").lower() == "true"
+CSRF_COOKIE_HTTPONLY = os.getenv("CSRF_COOKIE_HTTPONLY", "False").lower() == "true"
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_AGE = int(os.getenv("CSRF_COOKIE_AGE", "31449600"))  # 1 year default
+CSRF_USE_SESSIONS = os.getenv("CSRF_USE_SESSIONS", "False").lower() == "true"
+CSRF_COOKIE_NAME = os.getenv("CSRF_COOKIE_NAME", "csrftoken")
+CSRF_HEADER_NAME = os.getenv("CSRF_HEADER_NAME", "HTTP_X_CSRFTOKEN")
+CSRF_COOKIE_PATH = os.getenv("CSRF_COOKIE_PATH", "/")
+
+# CSRF Trusted Origins (for production)
+csrf_trusted_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+if csrf_trusted_origins:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_trusted_origins.split(",")]
+
+# CSRF Failure View (optional custom view)
+csrf_failure_view = os.getenv("CSRF_FAILURE_VIEW", "")
+if csrf_failure_view:
+    CSRF_FAILURE_VIEW = csrf_failure_view
+
 
 # Application definition
 
