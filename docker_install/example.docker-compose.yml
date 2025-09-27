@@ -3,11 +3,11 @@ services:
     image: postgres:17
     container_name: draw-client-postgres-docker
     ports:
-      - "5433:5432"
+      - "5433:5432" # External port for postgres may need to be changed.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     env_file:
-      - .env.docker
+      - .env
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -19,8 +19,8 @@ services:
     container_name: draw-client-rabbitmq-docker
     restart: unless-stopped
     ports:
-      - "5675:5672"
-      - "15675:15672"
+      - "5675:5672" # External port for rabbitmq may need to be changed.
+      - "15675:15672" # External port for rabbitmq management may need to be changed.
     environment:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
@@ -34,7 +34,7 @@ services:
       memcached:
         condition: service_started
     env_file:
-      - .env.docker      
+      - .env    
     volumes:
       - app_data:/app
       - ./logs:/app/logs
@@ -59,7 +59,7 @@ services:
       - "dicomdata:/app/datastore"
       - ./certs:/usr/local/share/ca-certificates:ro
     env_file:
-      - .env.docker
+      - .env
     environment:
       - DOCKER_CONTAINER=true
     restart: unless-stopped      
@@ -85,7 +85,7 @@ services:
       - "dicomdata:/app/datastore"
       - ./certs:/usr/local/share/ca-certificates:ro
     env_file:
-      - .env.docker
+      - .env
     environment:
       - DOCKER_CONTAINER=true
     depends_on:
@@ -110,7 +110,7 @@ services:
       - ./certs:/usr/local/share/ca-certificates:ro    
     restart: unless-stopped    
     ports:
-      - "11212:11211"
+      - "11212:11211" # External port for memcached may need to be changed.
   frontend-proxy:
     image: nginx:latest
     container_name: draw-client-nginx-docker
@@ -123,6 +123,8 @@ services:
     depends_on:
       - django-web
 
+
+# Uncomment one of the two following sections and fill in the parameters
 # Use this section if you are using shared network storage
 # volumes:
 #   postgres_data:
