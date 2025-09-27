@@ -128,14 +128,19 @@ def generate_random_integer(length):
     max_val = 10**length - 1
     return random.randint(min_val, max_val)
 
-def generate_deidentified_uids(original_study_uid, series_count=1):
+def generate_deidentified_study_uid():
     """
-    Generate deidentified UIDs following the specified pattern
-    Returns: Dictionary with generated UIDs
+    Generate a new deidentified Study Instance UID
+    Returns: Study UID string
     """
     # Generate Study Instance UID: <organization_prefix>.<random_integer(3)>.<random_integer(2)>.<random_integer(3)>
-    study_uid = f"{ORGANIZATION_PREFIX}.{generate_random_integer(3)}.{generate_random_integer(2)}.{generate_random_integer(3)}"
-    
+    return f"{ORGANIZATION_PREFIX}.{generate_random_integer(3)}.{generate_random_integer(2)}.{generate_random_integer(3)}"
+
+def generate_deidentified_series_uids(study_uid, series_count=1):
+    """
+    Generate deidentified Series and Frame of Reference UIDs based on existing Study UID
+    Returns: Dictionary with generated UIDs
+    """
     # Generate Series Instance UID: <deidentified_study_instance_uid>.<count>
     series_uid = f"{study_uid}.{series_count}"
     
@@ -323,7 +328,7 @@ def create_zip_file(source_dir, zip_path):
         logger.error(f"Error creating ZIP file {zip_path}: {str(e)}")
         return False
 
-def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappings, instance_mappings):
+def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappings, instance_mappings, zip_path=None):
     """
     Update database with deidentified UIDs and dates
     """
@@ -356,9 +361,11 @@ def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappin
             # Update series with deidentified data
             if 'series_instance_uid' in uid_mappings:
                 series.deidentified_series_instance_uid = uid_mappings['series_instance_uid']
+                logger.debug(f"Saving deidentified series UID: {mask_sensitive_data(uid_mappings['series_instance_uid'], 'series_uid')}")
             
             if 'frame_of_reference_uid' in uid_mappings:
                 series.deidentified_frame_of_reference_uid = uid_mappings['frame_of_reference_uid']
+                logger.debug(f"Saving deidentified frame of reference UID: {mask_sensitive_data(uid_mappings['frame_of_reference_uid'], 'frame_uid')}")
             
             if 'SeriesDate' in date_mappings:
                 series.deidentified_series_date = date_mappings['SeriesDate']
@@ -373,6 +380,25 @@ def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappin
                     instance.save()
                 except DICOMInstance.DoesNotExist:
                     logger.warning(f"Instance not found for SOP UID: {mask_sensitive_data(original_sop_uid, 'sop_uid')}")
+            
+            # Update series processing status in the same transaction
+            series.series_processsing_status = ProcessingStatus.DEIDENTIFIED_SUCCESSFULLY
+            series.save()  # Save again with the status update
+            
+            # Create or update DICOMFileExport record if zip_path is provided
+            if zip_path:
+                file_export, created = DICOMFileExport.objects.get_or_create(
+                    deidentified_series_instance_uid=series,
+                    defaults={
+                        'deidentified_zip_file_path': zip_path,
+                        'deidentified_zip_file_transfer_status': DICOMFileTransferStatus.PENDING
+                    }
+                )
+                
+                if not created:
+                    file_export.deidentified_zip_file_path = zip_path
+                    file_export.deidentified_zip_file_transfer_status = DICOMFileTransferStatus.PENDING
+                    file_export.save()
             
             logger.info(f"Updated database with deidentified data for series: {mask_sensitive_data(series_uid, 'series_uid')}")
             return True
@@ -430,7 +456,11 @@ def deidentify_series(task2_output):
                 
                 # Generate or reuse study UID mappings for consistency
                 if original_study_uid not in study_uid_mappings:
-                    study_uid_mappings[original_study_uid] = generate_deidentified_uids(original_study_uid)
+                    # Generate new study UID only once per study
+                    deidentified_study_uid = generate_deidentified_study_uid()
+                    study_uid_mappings[original_study_uid] = {
+                        'study_instance_uid': deidentified_study_uid
+                    }
                     series_counters[original_study_uid] = 0
                     
                     # Generate consistent date mappings for this study
@@ -447,9 +477,12 @@ def deidentify_series(task2_output):
                 series_counters[original_study_uid] += 1
                 current_series_count = series_counters[original_study_uid]
                 
-                # Generate UIDs for this series
-                uid_mappings = generate_deidentified_uids(original_study_uid, current_series_count)
+                # Generate UIDs for this series using the existing study UID
+                existing_study_uid = study_uid_mappings[original_study_uid]['study_instance_uid']
+                uid_mappings = generate_deidentified_series_uids(existing_study_uid, current_series_count)
                 uid_mappings['patient_id'] = str(uuid.uuid4())
+                
+                logger.debug(f"Generated UIDs for series {current_series_count}: Study={mask_sensitive_data(uid_mappings['study_instance_uid'], 'study_uid')}, Series={mask_sensitive_data(uid_mappings['series_instance_uid'], 'series_uid')}, Frame={mask_sensitive_data(uid_mappings['frame_of_reference_uid'], 'frame_uid')}")
                 
                 # Use consistent date mappings for this study
                 date_mappings = study_date_mappings[original_study_uid]
@@ -506,27 +539,8 @@ def deidentify_series(task2_output):
                 zip_path = os.path.join(base_output_dir, zip_filename)
                 
                 if create_zip_file(series_output_dir, zip_path):
-                    # Update database with deidentified data
-                    if update_database_with_deidentified_data(series_uid, uid_mappings, date_mappings, instance_mappings):
-                        
-                        # Update series processing status
-                        with transaction.atomic():
-                            series.series_processsing_status = ProcessingStatus.DEIDENTIFIED_SUCCESSFULLY
-                            series.save()
-                            
-                            # Create or update DICOMFileExport record
-                            file_export, created = DICOMFileExport.objects.get_or_create(
-                                deidentified_series_instance_uid=series,
-                                defaults={
-                                    'deidentified_zip_file_path': zip_path,
-                                    'deidentified_zip_file_transfer_status': DICOMFileTransferStatus.PENDING
-                                }
-                            )
-                            
-                            if not created:
-                                file_export.deidentified_zip_file_path = zip_path
-                                file_export.deidentified_zip_file_transfer_status = DICOMFileTransferStatus.PENDING
-                                file_export.save()
+                    # Update database with deidentified data, status, and export record in single transaction
+                    if update_database_with_deidentified_data(series_uid, uid_mappings, date_mappings, instance_mappings, zip_path):
                         
                         # Add to results for next task
                         deidentified_results.append({

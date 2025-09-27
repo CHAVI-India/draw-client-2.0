@@ -213,6 +213,20 @@ CELERY_BEAT_SCHEDULE = {
             'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
         },
     },
+    'dicom-export': {
+        'task': 'dicom_handler.run_chain_a_export_pipeline',
+        'schedule': crontab(minute='*/5'), # Run every 5 minutes
+        'options': {
+            'expires': 60 * 30, # Task expiry after 30 min if not picked up
+        },   
+    },
+    'dicom-import': {
+        'task': 'dicom_handler.run_chain_b_pipeline',
+        'schedule': crontab(minute='*/3'), # Run every 3 minutes
+        'options': {
+            'expires': 60 * 30, # Task expiry after 30 min if not picked up
+        },
+    },
 }
 
 # Redirects after login and logout

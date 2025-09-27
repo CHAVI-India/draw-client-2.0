@@ -458,7 +458,7 @@ class RTStructureFileImport(models.Model):
     updated_at = models.DateTimeField(auto_now=True)    
     
     def __str__(self):
-        return self.rt_structure_file_path  
+        return self.deidentified_rt_structure_file_path or self.reidentified_rt_structure_file_path or f"RTStruct Import {self.id}"  
 
     class Meta:
         verbose_name = "RT Structure File Import"

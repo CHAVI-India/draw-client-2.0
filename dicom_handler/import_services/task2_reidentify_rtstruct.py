@@ -22,6 +22,7 @@
 import os
 import logging
 import shutil
+import re
 from datetime import datetime
 from typing import Dict, Any, List
 from django.db import transaction
@@ -35,6 +36,24 @@ from ..models import (
 )
 
 logger = logging.getLogger(__name__)
+
+def _sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename by replacing special characters with underscores.
+    
+    Args:
+        filename: Original filename string
+        
+    Returns:
+        Sanitized filename safe for filesystem use
+    """
+    # Replace any character that is not alphanumeric, dash, or underscore with underscore
+    sanitized = re.sub(r'[^\w\-]', '_', filename)
+    # Remove multiple consecutive underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip('_')
+    return sanitized
 
 def reidentify_rtstruct(task_input: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -217,6 +236,7 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         # Replace patient information
         if patient.patient_id:
             ds.PatientID = patient.patient_id
+
         if patient.patient_name:
             ds.PatientName = patient.patient_name
         if patient.patient_date_of_birth:
@@ -231,34 +251,41 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
             ds.StudyDescription = study.study_description
         if study.study_date:
             ds.StudyDate = study.study_date.strftime('%Y%m%d')
-        
+
+        logger.debug(f"Reidentified Patient ID, Name, DOB, Gender, Study ID, Description, Study Date fields. Proceeding with other tags")
+
         # Set fixed values as specified
         ds.ReferringPhysicianName = "DRAW"
         ds.AccessionNumber = "202514789"
         
+        logger.debug(f"Reidentified Referring Physician Name, Accession Number fields. Proceeding with other tags")
         # Replace the series description
         if series.series_description:
             ds.SeriesDescription = series.series_description
 
-        # Replace series information
-        if series.series_instance_uid:
-            # Update Series Instance UID using DICOM tag (0020,000E)
-            ds[0x0020, 0x000E].value = series.series_instance_uid
+        # Note: RTStructure's own Series Instance UID (0020,000E) should remain unchanged
+        # Only the Referenced Series Instance UID in sequences needs to be updated
         
+        logger.debug(f"Skipping RTStructure's own Series Instance UID - keeping original. Proceeding with other tags")
         # Replace Frame of Reference UIDs
         if series.frame_of_reference_uid:
             # Frame of Reference UID using DICOM tag (0020,0052)
-            ds[0x0020, 0x0052].value = series.frame_of_reference_uid
+            if (0x0020, 0x0052) in ds:
+                ds[0x0020, 0x0052].value = series.frame_of_reference_uid
+            logger.debug(f"Reidentified Frame of Reference UID field. Proceeding with other tags")    
             
             # Referenced Frame of Reference UID using DICOM tag (3006,0024) if present
             if (0x3006, 0x0024) in ds:
                 ds[0x3006, 0x0024].value = series.frame_of_reference_uid
+            logger.debug(f"Reidentified Referenced Frame of Reference UID field. Proceeding with other tags")    
             
             # Also update in ReferencedFrameOfReferenceSequence if present
             if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence:
                 for ref_frame in ds.ReferencedFrameOfReferenceSequence:
                     ref_frame.FrameOfReferenceUID = series.frame_of_reference_uid
+            logger.debug(f"Reidentified Referenced Frame of Reference Sequence field. Proceeding with other tags")    
         
+        logger.debug(f"Reidentified Frame of Reference UID field. Proceeding with other tags")
         # Update Referenced Series Instance UID in RTReferencedSeriesSequence
         if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence:
             for ref_frame in ds.ReferencedFrameOfReferenceSequence:
@@ -267,8 +294,10 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
                         # Update Series Instance UID using tag (0020,000E) in RTReferencedSeriesSequence
                         if (0x0020, 0x000E) in rt_ref_series:
                             rt_ref_series[0x0020, 0x000E].value = series.series_instance_uid
+                            logger.debug(f"Reidentified Series Instance UID field. Proceeding with other tags")
                         else:
                             rt_ref_series.SeriesInstanceUID = series.series_instance_uid
+                            logger.debug(f"Reidentified Series Instance UID field. Proceeding with other tags")
                         
                         # Update Referenced SOP Instance UIDs if present
                         if hasattr(rt_ref_series, 'ContourImageSequence') and rt_ref_series.ContourImageSequence:
@@ -282,6 +311,7 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
                                         if (instance.deidentified_sop_instance_uid == current_sop_uid and 
                                             instance.sop_instance_uid):
                                             contour_image[0x0008, 0x1155].value = instance.sop_instance_uid
+                                            logger.debug(f"Reidentified SOP Instance UID field. Proceeding with other tags")
                                             break
         
         logger.info(f"Successfully reidentified DICOM tags for patient: ***{patient.patient_id}***")
@@ -316,7 +346,11 @@ def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], 
         # Generate filename: <PATIENT_ID>_DRAW_<DATETIME>_RTSTRUCT.dcm
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         patient_id = patient.patient_id or "UNKNOWN"
-        filename = f"{patient_id}_DRAW_{timestamp}_RTSTRUCT.dcm"
+        # Sanitize patient ID to make it filesystem-safe
+        safe_patient_id = _sanitize_filename(patient_id)
+        if safe_patient_id != patient_id:
+            logger.info(f"Sanitized patient ID for filename: '{patient_id}' -> '{safe_patient_id}'")
+        filename = f"{safe_patient_id}_DRAW_{timestamp}_RTSTRUCT.dcm"
         output_path = os.path.join(output_dir, filename)
         
         # Save the reidentified file

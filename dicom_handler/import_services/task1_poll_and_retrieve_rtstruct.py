@@ -104,13 +104,22 @@ def poll_and_retrieve_rtstruct() -> Dict[str, Any]:
                     # Poll server status
                     status_updated = _poll_server_status(session, system_config, export)
                     
+                    # Log the current status for debugging
+                    logger.info(f"Current server_segmentation_status for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: '{export.server_segmentation_status}'")
+                    
                     # If status shows segmentation completed, download the file
-                    if export.server_segmentation_status == "Segmentation Completed":
+                    if export.server_segmentation_status == "SEGMENTATION COMPLETED":
+                        logger.info(f"Status matches 'SEGMENTATION COMPLETED', starting download for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
                         downloaded_file = _download_and_validate_rtstruct(
                             session, system_config, export
                         )
                         if downloaded_file:
                             downloaded_files.append(downloaded_file)
+                            logger.info(f"Successfully processed and added file for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
+                        else:
+                            logger.warning(f"Download/validation failed for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
+                    else:
+                        logger.info(f"Status '{export.server_segmentation_status}' does not match 'SEGMENTATION COMPLETED', skipping download for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
                             
                 except Exception as e:
                     logger.error(f"Error processing export {export.id}: {str(e)}")
@@ -179,6 +188,9 @@ def _poll_server_status(
         status_data = response.json()
         server_status = status_data.get('status', '')
         
+        logger.info(f"Server response for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {status_data}")
+        logger.info(f"Extracted server_status: '{server_status}'")
+        
         # Update server segmentation status
         export.server_segmentation_status = server_status
         export.server_segmentation_updated_datetime = timezone.now()
@@ -213,6 +225,7 @@ def _download_and_validate_rtstruct(
     Returns:
         Dict containing file information for next task, or None if failed
     """
+    logger.info(f"_download_and_validate_rtstruct called for task_id: ***{export.task_id[:4]}...{export.task_id[-4:]}***")
     try:
         # Construct download URL
         download_url = system_config.draw_base_url + system_config.draw_download_endpoint.format(
@@ -236,34 +249,58 @@ def _download_and_validate_rtstruct(
             logger.warning(f"No checksum provided by server for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
         
         # Create download directory
-        download_dir = os.path.join(os.path.dirname(export.deidentified_zip_file_path or ''), 'downloaded_rtstruct')
+        base_dir = os.path.dirname(export.deidentified_zip_file_path or '')
+        download_dir = os.path.join(base_dir, 'downloaded_rtstruct')
+        logger.info(f"Creating download directory: {download_dir}")
         os.makedirs(download_dir, exist_ok=True)
+        logger.info(f"Download directory created/exists: {download_dir}")
         
         # Generate filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"rtstruct_{export.task_id}_{timestamp}.dcm"
         file_path = os.path.join(download_dir, filename)
+        logger.info(f"Generated file path: {file_path}")
+        
+        # Log response details
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response content length: {len(response.content)} bytes")
+        logger.info(f"Response headers: {dict(response.headers)}")
         
         # Write file to disk
+        logger.info(f"Writing {len(response.content)} bytes to file: {file_path}")
         with open(file_path, 'wb') as f:
             f.write(response.content)
+        
+        # Verify file was written
+        if os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+            logger.info(f"File successfully written: {file_path} (size: {file_size} bytes)")
+        else:
+            logger.error(f"File was not created: {file_path}")
         
         # Calculate and verify checksum
         calculated_checksum = _calculate_file_checksum(file_path)
         
         if server_checksum and calculated_checksum != server_checksum:
-            logger.error(f"Checksum mismatch for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***")
+            logger.error(f"Checksum mismatch for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: server={server_checksum}, calculated={calculated_checksum}")
+            logger.info(f"Deleting file due to checksum mismatch: {file_path}")
             os.remove(file_path)
             _update_failed_status(export, DICOMFileTransferStatus.CHECKSUM_MATCH_FAILED)
             return None
+        else:
+            logger.info(f"Checksum validation passed for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {calculated_checksum}")
         
         # Validate DICOM file and modality
+        logger.info(f"Starting DICOM validation for file: {file_path}")
         validation_result = _validate_rtstruct_file(file_path, export)
         if not validation_result['valid']:
             logger.error(f"RTStructure validation failed: {validation_result['error']}")
+            logger.info(f"Deleting file due to validation failure: {file_path}")
             os.remove(file_path)
             _update_failed_status(export, DICOMFileTransferStatus.INVALID_RTSTRUCT_FILE)
             return None
+        else:
+            logger.info(f"DICOM validation passed for file: {file_path}")
         
         # Create RTStructureFileImport record
         rt_import = _create_rtstruct_import_record(
@@ -292,6 +329,7 @@ def _download_and_validate_rtstruct(
     except Exception as e:
         logger.error(f"Error downloading RTStructure for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {str(e)}")
         if 'file_path' in locals() and os.path.exists(file_path):
+            logger.info(f"Deleting file due to exception: {file_path}")
             os.remove(file_path)
         _update_failed_status(export, DICOMFileTransferStatus.FAILED)
         return None
@@ -334,22 +372,72 @@ def _validate_rtstruct_file(file_path: str, export: DICOMFileExport) -> Dict[str
                 'error': f'Invalid modality: {modality}, expected RTSTRUCT'
             }
         
-        # Check Referenced Series Instance UID using DICOM tag (0020,000E) directly
+        # Check Referenced Series Instance UID from Referenced Frame of Reference Sequence
+        # In RTStructure files, referenced series info is in (3006,0010) -> (3006,0012) -> (3006,0014) -> (0020,000E)
+        ref_series_uid = None
         try:
-            ref_series_uid = ds[0x0020, 0x000E].value if (0x0020, 0x000E) in ds else None
+            # Look for Referenced Frame of Reference Sequence (3006,0010)
+            if (0x3006, 0x0010) in ds:
+                ref_frame_seq_element = ds[0x3006, 0x0010]
+                # Check if it's a sequence and get its value
+                if hasattr(ref_frame_seq_element, 'value') and ref_frame_seq_element.value:
+                    ref_frame_seq = ref_frame_seq_element.value
+                    logger.info(f"Found Referenced Frame of Reference Sequence with {len(ref_frame_seq)} items")
+                    
+                    for frame_item in ref_frame_seq:
+                        # Look for RT Referenced Study Sequence (3006,0012) within each frame
+                        if (0x3006, 0x0012) in frame_item:
+                            rt_ref_study_seq_element = frame_item[0x3006, 0x0012]
+                            # Check if it's a sequence and get its value
+                            if hasattr(rt_ref_study_seq_element, 'value') and rt_ref_study_seq_element.value:
+                                rt_ref_study_seq = rt_ref_study_seq_element.value
+                                logger.info(f"Found RT Referenced Study Sequence with {len(rt_ref_study_seq)} items")
+                                
+                                for study_item in rt_ref_study_seq:
+                                    # Look for RT Referenced Series Sequence (3006,0014) within each study
+                                    if (0x3006, 0x0014) in study_item:
+                                        rt_ref_series_seq_element = study_item[0x3006, 0x0014]
+                                        # Check if it's a sequence and get its value
+                                        if hasattr(rt_ref_series_seq_element, 'value') and rt_ref_series_seq_element.value:
+                                            rt_ref_series_seq = rt_ref_series_seq_element.value
+                                            logger.info(f"Found RT Referenced Series Sequence with {len(rt_ref_series_seq)} items")
+                                            
+                                            for series_item in rt_ref_series_seq:
+                                                # Get Series Instance UID (0020,000E) from the referenced series
+                                                if (0x0020, 0x000E) in series_item:
+                                                    ref_series_uid = series_item[0x0020, 0x000E].value
+                                                    logger.info(f"Found Referenced Series UID: {ref_series_uid}")
+                                                    break
+                                            
+                                            if ref_series_uid:
+                                                break
+                                    
+                                    if ref_series_uid:
+                                        break
+                        
+                        if ref_series_uid:
+                            break
+                else:
+                    logger.warning(f"Referenced Frame of Reference Sequence (3006,0010) exists but has no value in RTStructure file {file_path}")
+            else:
+                logger.warning(f"No Referenced Frame of Reference Sequence (3006,0010) found in RTStructure file {file_path}")
+                
         except Exception as e:
-            logger.warning(f"Error accessing Series Instance UID tag (0020,000E) in RTStructure file {file_path}: {str(e)}")
+            logger.warning(f"Error accessing Referenced Series UID in RTStructure file {file_path}: {str(e)}")
             ref_series_uid = None
         
         if ref_series_uid:
             expected_uid = export.deidentified_series_instance_uid.deidentified_series_instance_uid
+            logger.info(f"Comparing Referenced Series UID: {ref_series_uid} with expected: {expected_uid}")
             if ref_series_uid != expected_uid:
                 return {
                     'valid': False,
                     'error': f'Referenced Series UID mismatch: {ref_series_uid} != {expected_uid}'
                 }
         else:
-            logger.warning(f"No Referenced Series Instance UID (0020,000E) found in RTStructure file {file_path}")
+            logger.warning(f"No Referenced Series Instance UID found in RTStructure sequences for file {file_path}")
+            # Don't fail validation if we can't find the referenced series UID - log warning instead
+            logger.warning("Proceeding with validation despite missing Referenced Series UID")
         
         # Get SOP Instance UID
         sop_instance_uid = getattr(ds, 'SOPInstanceUID', '')
