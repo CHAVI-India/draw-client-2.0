@@ -161,33 +161,42 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
-                            {% if series.processing_status == 'Rule Matched' %}bg-green-100 text-green-800
-                            {% elif series.processing_status == 'Rule Not Matched' %}bg-red-100 text-red-800
-                            {% elif series.processing_status == 'Multiple Rules Matched' %}bg-yellow-100 text-yellow-800
-                            {% elif series.processing_status == 'Unprocessed' %}bg-gray-100 text-gray-800
-                            {% else %}bg-blue-100 text-blue-800{% endif %}">
-                            {{ series.processing_status }}
-                        </span>
+                        <div class="inline-flex items-center space-x-1">
+                            <span class="text-xs font-bold text-gray-700">Processing Status:</span>
+                            <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                                {% if series.processing_status == 'Rule Matched' or series.processing_status == 'Deidentified Successfully' or series.processing_status == 'Sent to Draw Server' or series.processing_status == 'RT Structure Received' or series.processing_status == 'RT Structure Exported' %}bg-green-100 text-green-800
+                                {% elif series.processing_status == 'Rule Not Matched' or series.processing_status == 'Deidentification Failed' or series.processing_status == 'Failed Transfer to Draw Server' or series.processing_status == 'Invalid RT Structure Received' or series.processing_status == 'RT Structure Export Failed' %}bg-red-100 text-red-800
+                                {% elif series.processing_status == 'Multiple Rules Matched' or series.processing_status == 'Pending Transfer to Draw Server' %}bg-yellow-100 text-yellow-800
+                                {% elif series.processing_status == 'Unprocessed' %}bg-gray-100 text-gray-800
+                                {% else %}bg-blue-100 text-blue-800{% endif %}">
+                                {{ series.processing_status }}
+                            </span>
+                        </div>
                         {% if series.export_info %}
                             {% if series.export_info.server_segmentation_status %}
-                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full 
-                                {% if series.export_info.server_segmentation_status == 'SUCCESS' %}bg-green-100 text-green-800
-                                {% elif series.export_info.server_segmentation_status == 'FAILED' %}bg-red-100 text-red-800
-                                {% elif series.export_info.server_segmentation_status == 'PENDING' or series.export_info.server_segmentation_status == 'PROCESSING' %}bg-yellow-100 text-yellow-800
-                                {% else %}bg-gray-100 text-gray-800{% endif %}">
-                                Seg: {{ series.export_info.server_segmentation_status }}
-                            </span>
+                            <div class="inline-flex items-center space-x-1">
+                                <span class="text-xs font-bold text-gray-700">Segmentation Status:</span>
+                                <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                                    {% if series.export_info.server_segmentation_status == 'SEGMENTATION COMPLETED' or series.export_info.server_segmentation_status == 'RTStructure Received' %}bg-green-100 text-green-800
+                                    {% elif series.export_info.server_segmentation_status == 'FAILED' %}bg-red-100 text-red-800
+                                    {% elif series.export_info.server_segmentation_status == 'PENDING' or series.export_info.server_segmentation_status == 'PROCESSING' %}bg-yellow-100 text-yellow-800
+                                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    {{ series.export_info.server_segmentation_status }}
+                                </span>
+                            </div>
                             {% endif %}
                             
                             {% if series.export_info.deidentified_zip_file_transfer_status %}
-                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full 
-                                {% if series.export_info.deidentified_zip_file_transfer_status == 'COMPLETED' %}bg-green-100 text-green-800
-                                {% elif series.export_info.deidentified_zip_file_transfer_status == 'FAILED' or series.export_info.deidentified_zip_file_transfer_status == 'CHEKSUM_MATCH_FAILED' or series.export_info.deidentified_zip_file_transfer_status == 'INVALID_RT_STRUCT_FILE' %}bg-red-100 text-red-800
-                                {% elif series.export_info.deidentified_zip_file_transfer_status == 'PENDING' or series.export_info.deidentified_zip_file_transfer_status == 'IN_PROGRESS' %}bg-yellow-100 text-yellow-800
-                                {% else %}bg-gray-100 text-gray-800{% endif %}">
-                                Transfer: {{ series.export_info.deidentified_zip_file_transfer_status|title|cut:'_' }}
-                            </span>
+                            <div class="inline-flex items-center space-x-1">
+                                <span class="text-xs font-bold text-gray-700">Transfer:</span>
+                                <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                                    {% if series.export_info.deidentified_zip_file_transfer_status == 'Completed' or series.export_info.deidentified_zip_file_transfer_status == 'RTStructureSet File Received' %}bg-green-100 text-green-800
+                                    {% elif series.export_info.deidentified_zip_file_transfer_status == 'Failed' or series.export_info.deidentified_zip_file_transfer_status == 'Checksum Match Failed' or series.export_info.deidentified_zip_file_transfer_status == 'Invalid RTStructureSet FIle Received' %}bg-red-100 text-red-800
+                                    {% elif series.export_info.deidentified_zip_file_transfer_status == 'Pending' or series.export_info.deidentified_zip_file_transfer_status == 'In Progress' %}bg-yellow-100 text-yellow-800
+                                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    {{ series.export_info.deidentified_zip_file_transfer_status|title|cut:'_' }}
+                                </span>
+                            </div>
                             {% endif %}
                         {% endif %}
                     </div>
