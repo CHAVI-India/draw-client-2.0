@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load cotton %}
 
 {% block title %}Templates{% endblock %}
 
@@ -82,16 +83,13 @@
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         <div class="flex space-x-2">
                                             {% if perms.dicom_handler.view_autosegmentationtemplate %}
-                                                <a href="{% url 'dicom_handler:template_detail' template.id %}" 
-                                                   class="text-primary-600 hover:text-primary-900">View</a>
+                                                <c-button variant="primary" size="sm" icon="eye" href="{% url 'dicom_handler:template_detail' template.id %}">View</c-button>
                                             {% endif %}
                                             {% if perms.dicom_handler.change_autosegmentationtemplate %}
-                                                <a href="{% url 'dicom_handler:edit_template' template.id %}" 
-                                                   class="text-indigo-600 hover:text-indigo-900">Edit</a>
+                                                <c-button variant="secondary" size="sm" icon="edit" href="{% url 'dicom_handler:edit_template' template.id %}">Edit</c-button>
                                             {% endif %}
                                             {% if perms.dicom_handler.delete_autosegmentationtemplate %}
-                                                <button onclick="deleteTemplate('{{ template.id }}', '{{ template.template_name|escapejs }}')" 
-                                                        class="text-red-600 hover:text-red-900">Delete</button>
+                                                <c-button variant="danger" size="sm" icon="trash" onclick="deleteTemplate('{{ template.id }}', '{{ template.template_name|escapejs }}')">Delete</c-button>
                                             {% endif %}
                                         </div>
                                     </td>

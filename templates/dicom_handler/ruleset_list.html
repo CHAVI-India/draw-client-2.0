@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load cotton %}
 
 {% block title %}RuleSets - DRAW v2.0{% endblock %}
 
@@ -105,16 +106,13 @@
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div class="flex space-x-2">
                                         {% if perms.dicom_handler.view_ruleset %}
-                                            <a href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}" 
-                                               class="text-primary-600 hover:text-primary-900">View</a>
+                                            <c-button variant="primary" size="sm" icon="eye" href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}">View</c-button>
                                         {% endif %}
                                         {% if perms.dicom_handler.change_ruleset %}
-                                            <a href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}" 
-                                               class="text-indigo-600 hover:text-indigo-900">Edit</a>
+                                            <c-button variant="secondary" size="sm" icon="edit" href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}">Edit</c-button>
                                         {% endif %}
                                         {% if perms.dicom_handler.delete_ruleset %}
-                                            <a href="{% url 'dicom_handler:ruleset_delete' ruleset.id %}" 
-                                               class="text-red-600 hover:text-red-900">Delete</a>
+                                            <c-button variant="danger" size="sm" icon="trash" href="{% url 'dicom_handler:ruleset_delete' ruleset.id %}">Delete</c-button>
                                         {% endif %}
                                     </div>
                                 </td>
