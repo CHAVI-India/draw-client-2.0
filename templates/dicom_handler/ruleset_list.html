@@ -5,17 +5,23 @@
 {% block content %}
 <div class="max-w-7xl mx-auto">
     <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-8">
-        <div class="flex justify-between items-center mb-8">
+        <!-- Header with Title and Button -->
+        <div class="flex justify-between items-start mb-6">
             <div>
                 <h1 class="text-3xl font-bold text-gray-900 mb-2">RuleSets</h1>
-                <p class="text-gray-600">Manage DICOM tag-based rules for automatic template selection.</p>
             </div>
             {% if perms.dicom_handler.add_ruleset %}
                 <a href="{% url 'dicom_handler:ruleset_create' %}" 
-                   class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+                   class="px-6 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors whitespace-nowrap">
                     Create New RuleSet
                 </a>
             {% endif %}
+        </div>
+        
+        <!-- Description Section -->
+        <div class="mb-8">
+            <p class="text-gray-600 text-sm">Rulesets are a collection of rules which ensure that the correct automatic segmentation template to be selected for each case. Each Ruleset comprises of a set of rules. Each rule in turn is a statement that evaluates a user provided value for a given DICOM tag agains the actual value in the DICOM file. For example, if the Protocol name is "Brain MRI" and the actual Protocol Name is "Brain MRI", then the rule will evaluate to true. Multiple such rules can be present in a ruleset and they can be combined using a OR or AND operator. The OR operator allows us to select a template if any one of the rules evaluate to true. The AND operator allows us to select a template only if all the rules evaluate to true.</p>
+            <p class="text-gray-600 text-sm mt-4">To create a new Ruleset click on the "Create New RuleSet" button above. View all available rulesets below.</p>
         </div>
 
         {% if messages %}
