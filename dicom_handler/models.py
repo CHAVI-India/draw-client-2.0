@@ -13,7 +13,7 @@ class SystemConfiguration(models.Model):
     '''
     id = models.IntegerField(primary_key=True, default=1, editable=False)
     draw_base_url = models.CharField(max_length=256,null=True,blank=True,help_text="Base URL of the DRAW API server", default="https://draw.chavi.ai")
-    client_id = models.CharField(max_length=256,null=True,blank=True,help_text="Client ID from the DRAW API server")
+    client_id = models.CharField(max_length=256,null=True,blank=True,help_text="Client ID from the DRAW API server. Please rember this is case sensitive and should match what is entered in the server to ensure you can see the data for your center in the server.")
     draw_upload_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Upload endpoint of the DRAW API server where the image zip file and checksum is to be uploaded.", default="/api/upload/")
     draw_status_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Status endpoint of the DRAW API server where status of segmentation is to be polled. The task_id is returned by the DRAW API server.", default="/api/upload/{task_id}/status/")
     draw_download_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Download endpoint of the DRAW API server where the RTStructureSet file is to be downloaded.", default="/api/rtstruct/{task_id}/")
@@ -21,12 +21,24 @@ class SystemConfiguration(models.Model):
     draw_bearer_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Bearer token from the DRAW API server")
     draw_refresh_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Refresh token from the DRAW API server")
     draw_bearer_token_validaty = models.DateTimeField(null=True,blank=True,help_text="Bearer token validity for the DRAW API server")
-    folder_configuration = models.CharField(max_length=256,null=True,blank=True,help_text="Full path of the DICOM folder from which DICOM data will be read and RT Structure file will be exported to", default="/app/datastore")
-    data_pull_start_datetime = models.DateTimeField(null=True,blank=True,help_text="Data pull start datetime for the DRAW API server")
+    folder_configuration = models.CharField(max_length=256,null=True,blank=True,help_text="Full path of the DICOM folder from which DICOM data will be read and RT Structure file will be exported to. Use the default value if your application has been installed using docker.", default="/app/datastore")
+    data_pull_start_datetime = models.DateTimeField(null=True,blank=True,help_text="Data pull start datetime for the DRAW API server. The system will only copy DICOM data which has been created or modified after this date and time.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def clean(self):
+        """
+        Custom validation to ensure draw_base_url has a trailing slash.
+        """
+        super().clean()
+        if self.draw_base_url and not self.draw_base_url.endswith('/'):
+            raise ValidationError({
+                'draw_base_url': 'The base URL must end with a trailing slash (/). Please add this / at the end of the URL.'
+            })
+
     def save(self, *args, **kwargs):
+        # Run validation before saving
+        self.full_clean()
         # Ensure only one instance exists
         self.pk = 1
         super(SystemConfiguration, self).save(*args, **kwargs)
