@@ -47,6 +47,9 @@ urlpatterns = [
     # System Configuration
     path('system-config/', views.system_configuration, name='system_configuration'),
     
+    # Statistics Dashboard
+    path('statistics/', views.statistics_dashboard, name='statistics_dashboard'),
+    
     # Manual Autosegmentation API URLs
     path('api/manual-autosegmentation/series-info/', ManualAutosegmentationSeriesInfoView.as_view(), name='manual_autosegmentation_series_info'),
     path('api/manual-autosegmentation/validate/', ManualAutosegmentationValidateView.as_view(), name='manual_autosegmentation_validate'),

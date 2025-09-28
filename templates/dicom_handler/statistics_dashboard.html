@@ -1,0 +1,265 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Statistics Dashboard - DRAW Client{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .stat-card {
+        transition: transform 0.2s ease-in-out;
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+    }
+    .chart-container {
+        position: relative;
+        height: 300px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">Statistics Dashboard</h1>
+        <p class="text-gray-600">Real-time insights into DICOM processing pipeline performance</p>
+        <p class="text-sm text-gray-500 mt-2">Last updated: {{ last_updated|date:"M d, Y H:i" }}</p>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <!-- Total Patients -->
+        <div class="stat-card bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+            <div class="flex items-center">
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
+                    <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Total Patients</h3>
+                    <p class="text-2xl font-bold text-blue-600">{{ summary.total_patients }}</p>
+                    <p class="text-sm text-gray-500">+{{ summary.recent_patients }} this week</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Studies -->
+        <div class="stat-card bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+            <div class="flex items-center">
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+                    <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Total Studies</h3>
+                    <p class="text-2xl font-bold text-green-600">{{ summary.total_studies }}</p>
+                    <p class="text-sm text-gray-500">+{{ summary.recent_studies }} this week</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Series -->
+        <div class="stat-card bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+            <div class="flex items-center">
+                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
+                    <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Total Series</h3>
+                    <p class="text-2xl font-bold text-purple-600">{{ summary.total_series }}</p>
+                    <p class="text-sm text-gray-500">+{{ summary.recent_series }} this week</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Latest Statistics -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <!-- Processing Statistics -->
+        <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Latest Processing Statistics</h2>
+            <div class="space-y-4">
+                {% for param_name, stat in latest_stats.items %}
+                    {% if 'since_last_run' in param_name %}
+                        <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                            <span class="text-sm font-medium text-gray-700">
+                                {% if 'unique_patients' in param_name %}
+                                    Unique Patients
+                                {% elif 'unique_dicom_studies' in param_name %}
+                                    DICOM Studies
+                                {% elif 'unique_dicom_series' in param_name %}
+                                    DICOM Series
+                                {% elif 'unique_dicom_instances' in param_name %}
+                                    DICOM Instances
+                                {% elif 'rt_struct_files_downloaded' in param_name %}
+                                    RT Structure Files
+                                {% elif 'series_with_matching_rulesets' in param_name %}
+                                    Matched Rulesets
+                                {% elif 'series_with_failed_segmentation' in param_name %}
+                                    Failed Segmentation
+                                {% elif 'series_with_failed_deidentification' in param_name %}
+                                    Failed Deidentification
+                                {% elif 'series_with_failed_export' in param_name %}
+                                    Failed Exports
+                                {% elif 'series_exported_successfully' in param_name %}
+                                    Successful Exports
+                                {% elif 'series_completing_segmentation' in param_name %}
+                                    Completed Segmentation
+                                {% else %}
+                                    {{ param_name|title }}
+                                {% endif %}
+                            </span>
+                            <span class="text-lg font-bold text-gray-900">{{ stat.value }}</span>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Processing Status Breakdown -->
+        <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Processing Status Breakdown</h2>
+            <div class="space-y-3">
+                {% for status in status_breakdown %}
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-medium text-gray-700">
+                            {{ status.series_processsing_status|default:"Unknown" }}
+                        </span>
+                        <span class="px-3 py-1 bg-gray-100 rounded-full text-sm font-semibold">
+                            {{ status.count }}
+                        </span>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Metrics -->
+    <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6 mb-8">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">Performance Metrics</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {% for param_name, stat in latest_stats.items %}
+                {% if 'average' in param_name or 'time' in param_name %}
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-sm font-medium text-gray-700 mb-1">
+                            {% if 'seconds' in param_name %}
+                                Avg Processing Time
+                            {% else %}
+                                Performance Metric
+                            {% endif %}
+                        </h3>
+                        <p class="text-2xl font-bold text-indigo-600">
+                            {% if 'seconds' in param_name %}
+                                {{ stat.value|floatformat:1 }}s
+                            {% else %}
+                                {{ stat.value }}
+                            {% endif %}
+                        </p>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Historical Charts -->
+    <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">Historical Trends (Last 24 Hours)</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Processing Volume Chart -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">Processing Volume</h3>
+                <div class="chart-container">
+                    <canvas id="processingVolumeChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Success Rate Chart -->
+            <div>
+                <h3 class="text-lg font-semibold text-gray-700 mb-3">Success Metrics</h3>
+                <div class="chart-container">
+                    <canvas id="successRateChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartData = {{ chart_data|safe }};
+    
+    // Processing Volume Chart
+    const processingCtx = document.getElementById('processingVolumeChart').getContext('2d');
+    new Chart(processingCtx, {
+        type: 'line',
+        data: {
+            labels: (chartData.unique_dicom_series_since_last_run && chartData.unique_dicom_series_since_last_run.labels) || [],
+            datasets: [{
+                label: 'New Series',
+                data: (chartData.unique_dicom_series_since_last_run && chartData.unique_dicom_series_since_last_run.data) || [],
+                borderColor: 'rgb(59, 130, 246)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                tension: 0.4
+            }, {
+                label: 'Completed',
+                data: (chartData.series_completing_segmentation_since_last_run && chartData.series_completing_segmentation_since_last_run.data) || [],
+                borderColor: 'rgb(34, 197, 94)',
+                backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+    
+    // Success Rate Chart
+    const successCtx = document.getElementById('successRateChart').getContext('2d');
+    new Chart(successCtx, {
+        type: 'line',
+        data: {
+            labels: (chartData.series_exported_successfully_since_last_run && chartData.series_exported_successfully_since_last_run.labels) || [],
+            datasets: [{
+                label: 'Successful Exports',
+                data: (chartData.series_exported_successfully_since_last_run && chartData.series_exported_successfully_since_last_run.data) || [],
+                borderColor: 'rgb(34, 197, 94)',
+                backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                tension: 0.4
+            }, {
+                label: 'Failed Exports',
+                data: (chartData.series_with_failed_export_since_last_run && chartData.series_with_failed_export_since_last_run.data) || [],
+                borderColor: 'rgb(239, 68, 68)',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

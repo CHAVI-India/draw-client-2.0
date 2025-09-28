@@ -22,6 +22,9 @@
                 {% if perms.dicom_handler.view_dicomseries %}
                     <a href="{% url 'dicom_handler:series_processing_status' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Processing Status</a>
                 {% endif %}
+                {% if user.is_authenticated %}
+                    <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Statistics</a>
+                {% endif %}
                 {% if perms.dicom_handler.view_systemconfiguration %}
                     <a href="{% url 'dicom_handler:system_configuration' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">System Config</a>
                 {% endif %}
@@ -82,6 +85,11 @@
                 {% if perms.dicom_handler.view_dicomseries %}
                     <a href="{% url 'dicom_handler:series_processing_status' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
                         Processing Status
+                    </a>
+                {% endif %}
+                {% if user.is_authenticated %}
+                    <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
+                        Statistics
                     </a>
                 {% endif %}
                 {% if perms.dicom_handler.view_systemconfiguration %}

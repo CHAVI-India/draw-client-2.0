@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db import models
 from .forms import TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm
-from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus
+from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics
 from .vr_validators import VRValidator
 import requests
 import json
@@ -1284,3 +1284,78 @@ def manual_processing_status(request):
         return render(request, 'dicom_handler/manual_processing_status.html', context)
     
     return render(request, 'dicom_handler/manual_processing_status.html', context)
+
+
+@login_required
+def statistics_dashboard(request):
+    """
+    View for displaying DICOM processing statistics dashboard
+    """
+    from django.db.models import Count, Avg
+    from django.utils import timezone
+    from datetime import timedelta
+    import json
+    
+    # Get the latest statistics (last 30 minutes)
+    latest_stats = {}
+    for stat in Statistics.objects.order_by('parameter_name', '-created_at').distinct('parameter_name'):
+        latest_stats[stat.parameter_name] = {
+            'value': stat.parameter_value,
+            'created_at': stat.created_at
+        }
+    
+    # Get historical data for charts (last 24 hours)
+    last_24_hours = timezone.now() - timedelta(hours=24)
+    historical_stats = Statistics.objects.filter(
+        created_at__gte=last_24_hours
+    ).order_by('created_at')
+    
+    # Organize data for charts
+    chart_data = {}
+    for stat in historical_stats:
+        if stat.parameter_name not in chart_data:
+            chart_data[stat.parameter_name] = {
+                'labels': [],
+                'data': []
+            }
+        chart_data[stat.parameter_name]['labels'].append(
+            stat.created_at.strftime('%H:%M')
+        )
+        try:
+            value = float(stat.parameter_value)
+        except ValueError:
+            value = 0
+        chart_data[stat.parameter_name]['data'].append(value)
+    
+    # Calculate summary statistics
+    total_patients = Patient.objects.count()
+    total_studies = DICOMStudy.objects.count()
+    total_series = DICOMSeries.objects.count()
+    
+    # Processing status breakdown
+    status_breakdown = DICOMSeries.objects.values('series_processsing_status').annotate(
+        count=Count('id')
+    ).order_by('series_processsing_status')
+    
+    # Recent activity (last 7 days)
+    last_week = timezone.now() - timedelta(days=7)
+    recent_patients = Patient.objects.filter(created_at__gte=last_week).count()
+    recent_studies = DICOMStudy.objects.filter(created_at__gte=last_week).count()
+    recent_series = DICOMSeries.objects.filter(created_at__gte=last_week).count()
+    
+    context = {
+        'latest_stats': latest_stats,
+        'chart_data': json.dumps(chart_data),
+        'summary': {
+            'total_patients': total_patients,
+            'total_studies': total_studies,
+            'total_series': total_series,
+            'recent_patients': recent_patients,
+            'recent_studies': recent_studies,
+            'recent_series': recent_series,
+        },
+        'status_breakdown': status_breakdown,
+        'last_updated': timezone.now(),
+    }
+    
+    return render(request, 'dicom_handler/statistics_dashboard.html', context)
