@@ -1217,6 +1217,7 @@ def system_configuration(request):
 
 
 @login_required
+@permission_required('dicom_handler.view_dicomseries', raise_exception=True)
 def manual_processing_status(request):
     """
     View for displaying manual processing status
