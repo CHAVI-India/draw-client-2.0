@@ -10,7 +10,14 @@ This is a revamped version of the DRAW Client with the following enhancements:
 7. Better logging with integrating masking of identifiers. This prevents information leakage in the log files.
 8. Parallel processing of reading DICOM files to speed up the process.
 
+# Technology Stack Used
 
+1. Django (https://www.djangoproject.com/)
+2. Celery (https://docs.celeryproject.org/en/stable/)
+3. RabbitMQ (https://www.rabbitmq.com/)
+4. Memcached (https://memcached.org/)
+5. PostgresSQL (https://www.postgresql.org/)
+6. Python (https://www.python.org/)
 
 # Getting Started
 
@@ -122,7 +129,7 @@ If the computer you are using will need a proxy configuration to communicate wit
 HTTP_PROXY=http://your-proxy:port
 HTTPS_PROXY=http://your-proxy:port
 NO_PROXY=localhost,127.0.0.1
-``` Better validation of DICOM tags by ensuring that the value representation is taken into account. 
+``` 
 8. Field Encryption Key: This is the key that is used to encrypt the fields in the database. It is important to store this securely. You can generate a new key using the following command:
 
 ```bash
@@ -168,6 +175,7 @@ Two celery services will need to be started. One for the worker and one for the 
 ```bash
 python celery -A draw_client worker -l INFO
 python celery -A draw_client beat -l INFO
+
 ```
 
 ## Docker based installation
@@ -176,7 +184,7 @@ Docker provides a simple way to install the DRAW client system irrespective of y
 
 For installation using Docker you will need to have docker and docker desktop installed in your local computer. We recommend following the official documentation for installation of docker and docker desktop based on your OS. 
 
-Please checkout the README provided in the docker_install folder for more information on how to install the system using Docker.
+Please checkout the README ([docker_install/README.md](docker_install/README.md)) provided in the docker_install folder for more information on how to install the system using Docker.
 
 # Post Install configuration
 
