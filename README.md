@@ -1,15 +1,15 @@
 # Welcome
 
 This is a revamped version of the DRAW Client with the following enhancements:
-1. A more robust ruleset system, which allows us to match the rules using other operators.
+1. A more robust ruleset system, which allows us to match the rules using operators other than equal to.
 2. Validation for the dicom tags in ruleset based on the allowed value representation. Thus if a tag has a VR which accepts only date then only date can be entered as a evaluable value for the rule.
 3. A refreshed autosegmentation template system which does not rely on creating YAML files but instead stores the template data on database. This allows us to update the templates without having to recreate them.
 4. A less I/O intensive DICOM flow with no extra copying of DICOM files to save space on the disc. The DICOM files are only copied when they have to be deidentified and exported. After export the dICOM files are deleted.
 5. A more integrated view of the DICOM data processing in the system by integrating the deidentification system with the original system so that a holistic view of the process can be seen.
-6. This also has a secondary benefit of reducing the celery task chain
-7. Better logging with integrating masking of identifiers.
+6. This also has a secondary benefit of reducing the complexity of the celery task chain
+7. Better logging with integrating masking of identifiers. This prevents information leakage in the log files.
 8. Parallel processing of reading DICOM files to speed up the process.
-9. Better validation of DICOM tags by ensuring that the value representation is taken into account. 
+
 
 
 # Getting Started
@@ -122,7 +122,7 @@ If the computer you are using will need a proxy configuration to communicate wit
 HTTP_PROXY=http://your-proxy:port
 HTTPS_PROXY=http://your-proxy:port
 NO_PROXY=localhost,127.0.0.1
-```
+``` Better validation of DICOM tags by ensuring that the value representation is taken into account. 
 8. Field Encryption Key: This is the key that is used to encrypt the fields in the database. It is important to store this securely. You can generate a new key using the following command:
 
 ```bash
@@ -161,10 +161,7 @@ python manage.py createsuperuser
 
 ### Start the server along with celery
 
-You can start the server using the following command:
-
-```bash
-python manage.py runserver
+You can start the server using the following command: Better validation of DICOM tags by ensuring that the value representation is taken into account. 
 ```
 Two celery services will need to be started. One for the worker and one for the beat.
 
@@ -313,7 +310,7 @@ We recommend that the senior staff role be created to allow users to create auto
 9. Dicom_Handler|Autosegmentation Mapped Structure| Can Add Autosegmentation Mapped Structure
 10. Dicom_Handler|Autosegmentation Mapped Structure| Can Change Autosegmentation Mapped Structure
 11. Dicom_Handler|Autosegmentation Mapped Structure| Can Delete Autosegmentation Mapped Structure
-12. Dicom_Handler|Autosegmentation Mapped Structure| Can View Autosegmentation Mapped Structure
+12. Dicom_Handler|Autosegmentation Mapped Structure| Can View Autosegmentation Mapped Structure Better validation of DICOM tags by ensuring that the value representation is taken into account. 
 
 
 #### DICOM Series Management
@@ -332,7 +329,7 @@ For these staff we just need to give them permission to view DICOM Series and tr
 ## Adding Users
 
 Once the groups are created, then the users can be added to the roles based on your requirements. The process to add the user for an administrative user is as follows:
-
+ Better validation of DICOM tags by ensuring that the value representation is taken into account. 
 1. Go to the admin interface and click on the Users link under Authentication and Authorization.
 2. Click on the Add user button to create a new user.
 3. Fill in the required fields and select the group that you want to assign to the user.
@@ -429,7 +426,7 @@ The following operators are available:
 | Operatore Name | Description |
 | --- | --- |
 |Equals| This will evaluate to true if the value of the DICOM Tag is equal to the value specified in the rule. |
-|Not Equals| This will evaluate to true if the value of the DICOM Tag is not equal to the value specified in the rule. |
+|Not Equals| This will evaluate to true if the value of the DICOM Tag is not equal to the value specified in the rule. | Better validation of DICOM tags by ensuring that the value representation is taken into account. 
 |Greater Than| This will evaluate to true if the value of the DICOM Tag is greater than the value specified in the rule. |
 |Less Than| This will evaluate to true if the value of the DICOM Tag is less than the value specified in the rule. |
 |Greater Than or Equal To| This will evaluate to true if the value of the DICOM Tag is greater than or equal to the value specified in the rule. |
@@ -481,4 +478,23 @@ To view and modify the task please navigate to the Django admin interface and go
 
 Note that we recommend that these tasks are modified by users with administrative privileges only. 
 
+
+# Manual Autosegmentation Template Association
+
+While the system is designed to automatically handle DICOM some or all of the files may be handled manually. This can be done for any series and thus you can use this to segment a specific series manually. 
+
+In order to trigger automatic segmentation using a template manually please go to the Processing Status page. 
+
+![Manual Segmentation](screenshots/manual_segmentation.png)
+
+Search or filter the case you wish to send for segmentation and select the case by clicking on the checkbox. After that a Button called Manual Autosegmentation will appear. Click this button which will open a modal dialog where you can setup the autosegmentation template for each case separately and click the Start Processing button to start the segmentation. 
+
+![Template Selection](screenshots/template_selection.png)
+
+
+# Segmentation Status
+
+The Segmentation status is displayed in the Processing Status page. This will be updated with information retrieved from the server. When the processing is completed, you will seee a **RT Structure Exported** as the Processing status which indicates that the segmentation is completed. 
+
+![Processing Status](screenshots/processing_status.png)
 
