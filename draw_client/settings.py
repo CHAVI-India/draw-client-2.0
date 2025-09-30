@@ -266,6 +266,14 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
+        'import_formatter': {
+            'format': '[IMPORT] {levelname} {asctime} {module}.{funcName}:{lineno} - {message}',
+            'style': '{',
+        },
+        'export_formatter': {
+            'format': '[EXPORT] {levelname} {asctime} {module}.{funcName}:{lineno} - {message}',
+            'style': '{',
+        },
         'verbose': {
             'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
@@ -284,6 +292,22 @@ LOGGING = {
         },
     },
     'handlers': {
+        'import_file': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'import_tasks.log',
+            'maxBytes': 50 * 1024 * 1024,  # 50 MB
+            'backupCount': 10,
+            'formatter': 'import_formatter',
+        },
+        'export_file': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'export_tasks.log',
+            'maxBytes': 50 * 1024 * 1024,  # 50 MB
+            'backupCount': 10,
+            'formatter': 'export_formatter',
+        },
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
@@ -356,7 +380,42 @@ LOGGING = {
             'propagate': False,
         },
         'dicom_handler.export_services': {
-            'handlers': ['dicom_file', 'console'],
+            'handlers': ['export_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.import_services': {
+            'handlers': ['import_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.export_services.task1_read_dicom_from_storage': {
+            'handlers': ['export_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.export_services.task2_match_autosegmentation_template': {
+            'handlers': ['export_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.export_services.task3_deidentify_series': {
+            'handlers': ['export_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.export_services.task4_export_series_to_api': {
+            'handlers': ['export_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.import_services.task1_poll_and_retrieve_rtstruct': {
+            'handlers': ['import_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'dicom_handler.import_services.task2_reidentify_rtstruct': {
+            'handlers': ['import_file'],
             'level': 'DEBUG',
             'propagate': False,
         },
