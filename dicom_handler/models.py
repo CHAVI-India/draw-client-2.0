@@ -512,7 +512,6 @@ class RTStructureFileVOIData(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     rt_structure_file_import = models.ForeignKey(RTStructureFileImport,on_delete=models.CASCADE,null=True,blank=True)
     volume_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the volume")
-    assessor_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the assessor who reviewed the volume")
     contour_modification = models.CharField(max_length=256,choices=ContourModificationChoices.choices,default=ContourModificationChoices.NO_MODIFICATION, null=True, blank=True,help_text="Contour modification required. If the contour was blank choose Not Segmented.")
     contour_modification_type = models.ManyToManyField(ContourModificationTypeChoices,blank=True,help_text="Type of contour modification. ")
     contour_modification_comments = models.TextField(null=True,blank=True,help_text="Comments about the contour modification.")
@@ -523,8 +522,8 @@ class RTStructureFileVOIData(models.Model):
         return self.rt_structure_file_import.deidentified_rt_structure_file_path or self.rt_structure_file_import.reidentified_rt_structure_file_path or f"RTStruct Import {self.id}"  
 
     class Meta:
-        verbose_name = "RT Structure File Void Data"
-        verbose_name_plural = "RT Structure File Void Data"
+        verbose_name = "RT Structure File VOI Data"
+        verbose_name_plural = "RT Structure File VOI Data"
 
 
 

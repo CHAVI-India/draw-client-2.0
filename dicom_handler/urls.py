@@ -50,6 +50,9 @@ urlpatterns = [
     # Statistics Dashboard
     path('statistics/', views.statistics_dashboard, name='statistics_dashboard'),
     
+    # Contour Quality Rating
+    path('rate-contour/<str:series_uid>/', views.rate_contour_quality, name='rate_contour_quality'),
+    
     # Manual Autosegmentation API URLs
     path('api/manual-autosegmentation/series-info/', ManualAutosegmentationSeriesInfoView.as_view(), name='manual_autosegmentation_series_info'),
     path('api/manual-autosegmentation/validate/', ManualAutosegmentationValidateView.as_view(), name='manual_autosegmentation_validate'),

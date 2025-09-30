@@ -1,8 +1,10 @@
 from django import forms
-from django.forms import inlineformset_factory
+from django.forms import inlineformset_factory, modelformset_factory
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Submit, Row, Column, Fieldset, Div, HTML
-from .models import RuleSet, Rule, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, OperatorType, SystemConfiguration
+from .models import (RuleSet, Rule, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, 
+                     OperatorType, SystemConfiguration, RTStructureFileImport, RTStructureFileVOIData,
+                     ContourModificationChoices, ContourModificationTypeChoices)
 import uuid
 
 class TemplateCreationForm(forms.Form):
@@ -336,3 +338,70 @@ class SystemConfigurationForm(forms.ModelForm):
             # Keep existing token if no new value provided
             return self.instance.draw_refresh_token
         return token
+
+
+class RTStructureReviewForm(forms.ModelForm):
+    """Form for reviewing RT Structure Set level data"""
+    class Meta:
+        model = RTStructureFileImport
+        fields = ['date_contour_reviewed', 'contour_modification_time_required']
+        widgets = {
+            'date_contour_reviewed': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+            }),
+            'contour_modification_time_required': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Time in minutes',
+                'min': '0'
+            })
+        }
+        labels = {
+            'date_contour_reviewed': 'Date Contour Reviewed',
+            'contour_modification_time_required': 'Total Modification Time (minutes)'
+        }
+
+
+class VOIRatingForm(forms.ModelForm):
+    """Form for rating individual VOI (Volume of Interest) quality"""
+    
+    class Meta:
+        model = RTStructureFileVOIData
+        fields = ['volume_name', 'contour_modification', 'contour_modification_type', 'contour_modification_comments']
+        widgets = {
+            'volume_name': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md',
+                'readonly': 'readonly'
+            }),
+            'contour_modification': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+            }),
+            'contour_modification_type': forms.CheckboxSelectMultiple(attrs={
+                'class': 'form-checkbox h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded'
+            }),
+            'contour_modification_comments': forms.Textarea(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'rows': 3,
+                'placeholder': 'Enter any comments about the contour modifications...'
+            })
+        }
+        labels = {
+            'volume_name': 'Structure Name',
+            'contour_modification': 'Modification Required',
+            'contour_modification_type': 'Modification Types',
+            'contour_modification_comments': 'Comments'
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make volume_name readonly
+        self.fields['volume_name'].disabled = True
+
+
+# Create formset for VOI ratings
+VOIRatingFormSet = modelformset_factory(
+    RTStructureFileVOIData,
+    form=VOIRatingForm,
+    extra=0,  # Don't show empty forms
+    can_delete=False
+)

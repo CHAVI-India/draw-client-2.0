@@ -1,0 +1,276 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Rate Contour Quality - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Rate Contour Quality</h1>
+                <p class="text-gray-600">Review and rate the quality of RT Structure segmentation</p>
+            </div>
+            <a href="{% url 'dicom_handler:series_processing_status' %}" 
+               class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Processing Status
+            </a>
+        </div>
+    </div>
+
+    <!-- Patient & Study Information Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Patient & Study Information</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+                <span class="text-sm text-gray-500">Patient Name:</span>
+                <p class="text-base font-medium text-gray-900">{{ patient.patient_name }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Patient ID:</span>
+                <p class="text-base font-medium text-gray-900">{{ patient.patient_id }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Gender:</span>
+                <p class="text-base font-medium text-gray-900">{{ patient.patient_gender }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Study Date:</span>
+                <p class="text-base font-medium text-gray-900">
+                    {% if study.study_date %}{{ study.study_date|date:"F d, Y" }}{% else %}N/A{% endif %}
+                </p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Study Description:</span>
+                <p class="text-base font-medium text-gray-900">{{ study.study_description|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Series Description:</span>
+                <p class="text-base font-medium text-gray-900">{{ series.series_description|default:"N/A" }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="mb-6">
+        {% for message in messages %}
+        <div class="rounded-md p-4 {% if message.tags == 'success' %}bg-green-50 border border-green-200{% elif message.tags == 'error' %}bg-red-50 border border-red-200{% else %}bg-blue-50 border border-blue-200{% endif %}">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    {% if message.tags == 'success' %}
+                    <svg class="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
+                    {% elif message.tags == 'error' %}
+                    <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                    </svg>
+                    {% endif %}
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm {% if message.tags == 'success' %}text-green-800{% elif message.tags == 'error' %}text-red-800{% else %}text-blue-800{% endif %}">
+                        {{ message }}
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" id="rating-form">
+        {% csrf_token %}
+        
+        <!-- RT Structure Set Level Information -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                RT Structure Set Review
+            </h2>
+            <p class="text-sm text-gray-600 mb-4">Provide overall review information for this RT Structure Set</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label for="{{ rt_form.date_contour_reviewed.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ rt_form.date_contour_reviewed.label }}
+                        <span class="text-red-500">*</span>
+                    </label>
+                    {{ rt_form.date_contour_reviewed }}
+                    {% if rt_form.date_contour_reviewed.errors %}
+                    <p class="mt-1 text-sm text-red-600">{{ rt_form.date_contour_reviewed.errors.0 }}</p>
+                    {% endif %}
+                    <p class="mt-1 text-xs text-gray-500">{{ rt_form.date_contour_reviewed.help_text }}</p>
+                </div>
+                
+                <div>
+                    <label for="{{ rt_form.contour_modification_time_required.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ rt_form.contour_modification_time_required.label }}
+                    </label>
+                    {{ rt_form.contour_modification_time_required }}
+                    {% if rt_form.contour_modification_time_required.errors %}
+                    <p class="mt-1 text-sm text-red-600">{{ rt_form.contour_modification_time_required.errors.0 }}</p>
+                    {% endif %}
+                    <p class="mt-1 text-xs text-gray-500">{{ rt_form.contour_modification_time_required.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- VOI Ratings Section -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                </svg>
+                Individual Structure Ratings
+                <span class="ml-2 text-sm font-normal text-gray-500">({{ voi_count }} structures)</span>
+            </h2>
+            <p class="text-sm text-gray-600 mb-6">Rate each segmented structure individually</p>
+
+            {{ voi_formset.management_form }}
+            
+            {% if voi_formset.non_form_errors %}
+            <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                <p class="text-sm text-red-800">{{ voi_formset.non_form_errors }}</p>
+            </div>
+            {% endif %}
+
+            <div class="space-y-6">
+                {% for form in voi_formset %}
+                <div class="border border-gray-200 rounded-lg p-5 hover:border-primary-300 transition-colors">
+                    <!-- Hidden ID field -->
+                    {{ form.id }}
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Left Column -->
+                        <div class="space-y-4">
+                            <!-- Structure Name (readonly) -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    {{ form.volume_name.label }}
+                                </label>
+                                {{ form.volume_name }}
+                            </div>
+
+                            <!-- Contour Modification -->
+                            <div>
+                                <label for="{{ form.contour_modification.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                    {{ form.contour_modification.label }}
+                                    <span class="text-red-500">*</span>
+                                </label>
+                                {{ form.contour_modification }}
+                                {% if form.contour_modification.errors %}
+                                <p class="mt-1 text-sm text-red-600">{{ form.contour_modification.errors.0 }}</p>
+                                {% endif %}
+                                <p class="mt-1 text-xs text-gray-500">{{ form.contour_modification.help_text }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Right Column -->
+                        <div class="space-y-4">
+                            <!-- Modification Types (Checkboxes) -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-3">
+                                    {{ form.contour_modification_type.label }}
+                                </label>
+                                <div class="space-y-2">
+                                    {% for checkbox in form.contour_modification_type %}
+                                    <div class="flex items-center">
+                                        {{ checkbox.tag }}
+                                        <label for="{{ checkbox.id_for_label }}" class="ml-2 text-sm text-gray-700">
+                                            {{ checkbox.choice_label }}
+                                        </label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% if form.contour_modification_type.errors %}
+                                <p class="mt-1 text-sm text-red-600">{{ form.contour_modification_type.errors.0 }}</p>
+                                {% endif %}
+                                <p class="mt-2 text-xs text-gray-500">{{ form.contour_modification_type.help_text }}</p>
+                            </div>
+
+                            <!-- Comments -->
+                            <div>
+                                <label for="{{ form.contour_modification_comments.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                                    {{ form.contour_modification_comments.label }}
+                                </label>
+                                {{ form.contour_modification_comments }}
+                                {% if form.contour_modification_comments.errors %}
+                                <p class="mt-1 text-sm text-red-600">{{ form.contour_modification_comments.errors.0 }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if form.non_field_errors %}
+                    <div class="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                        <p class="text-sm text-red-800">{{ form.non_field_errors }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+                {% empty %}
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                    </svg>
+                    <p class="text-lg font-medium">No structures found</p>
+                    <p class="text-sm">No VOI data available for this RT Structure Set.</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-end space-x-4">
+            <a href="{% url 'dicom_handler:series_processing_status' %}" 
+               class="px-6 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                Cancel
+            </a>
+            <button type="submit" 
+                    class="px-6 py-3 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-colors">
+                <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Save Ratings
+            </button>
+        </div>
+    </form>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add confirmation before leaving if form is dirty
+    let formChanged = false;
+    const form = document.getElementById('rating-form');
+    const inputs = form.querySelectorAll('input, select, textarea');
+    
+    inputs.forEach(input => {
+        input.addEventListener('change', function() {
+            formChanged = true;
+        });
+    });
+    
+    window.addEventListener('beforeunload', function(e) {
+        if (formChanged) {
+            e.preventDefault();
+            e.returnValue = '';
+            return '';
+        }
+    });
+    
+    // Don't show warning when submitting
+    form.addEventListener('submit', function() {
+        formChanged = false;
+    });
+});
+</script>
+{% endblock %}

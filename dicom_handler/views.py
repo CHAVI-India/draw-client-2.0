@@ -5,8 +5,11 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db import models
-from .forms import TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm
-from .models import SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics
+from .forms import (TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm,
+                    RTStructureReviewForm, VOIRatingFormSet)
+from .models import (SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, 
+                     RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics,
+                     RTStructureFileImport, RTStructureFileVOIData)
 from .vr_validators import VRValidator
 import requests
 import json
@@ -1360,3 +1363,67 @@ def statistics_dashboard(request):
     }
     
     return render(request, 'dicom_handler/statistics_dashboard.html', context)
+
+
+@login_required
+def rate_contour_quality(request, series_uid):
+    """
+    View for rating contour quality of RT Structure Set and individual VOIs.
+    Displays form to rate RT Structure Set level data and individual VOI ratings.
+    
+    Args:
+        series_uid: Series Instance UID to find the RT Structure
+    """
+    # Get the series
+    series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
+    
+    # Get the RT Structure File Import for this series
+    try:
+        rt_import = RTStructureFileImport.objects.get(
+            deidentified_series_instance_uid=series
+        )
+    except RTStructureFileImport.DoesNotExist:
+        messages.error(request, 'No RT Structure file found for this series.')
+        return redirect('dicom_handler:series_processing_status')
+    
+    # Get all VOI data for this RT Structure
+    voi_queryset = RTStructureFileVOIData.objects.filter(
+        rt_structure_file_import=rt_import
+    ).order_by('volume_name')
+    
+    if request.method == 'POST':
+        # Process both forms
+        rt_form = RTStructureReviewForm(request.POST, instance=rt_import)
+        voi_formset = VOIRatingFormSet(request.POST, queryset=voi_queryset)
+        
+        if rt_form.is_valid() and voi_formset.is_valid():
+            # Save RT Structure level data
+            rt_form.save()
+            
+            # Save all VOI ratings
+            voi_formset.save()
+            
+            messages.success(request, 'Contour quality ratings saved successfully!')
+            return redirect('dicom_handler:series_processing_status')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        # Initialize forms
+        rt_form = RTStructureReviewForm(instance=rt_import)
+        voi_formset = VOIRatingFormSet(queryset=voi_queryset)
+    
+    # Get patient and study information for display
+    patient = series.study.patient
+    study = series.study
+    
+    context = {
+        'series': series,
+        'patient': patient,
+        'study': study,
+        'rt_import': rt_import,
+        'rt_form': rt_form,
+        'voi_formset': voi_formset,
+        'voi_count': voi_queryset.count(),
+    }
+    
+    return render(request, 'dicom_handler/contour_rating.html', context)
