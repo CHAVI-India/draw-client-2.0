@@ -1147,6 +1147,11 @@ def series_processing_status(request):
                 'server_segmentation_updated': latest_export.server_segmentation_updated_datetime
             }
         
+        # Get RT Structure counts and rating info
+        rt_structures = RTStructureFileImport.objects.filter(deidentified_series_instance_uid=series)
+        rt_structure_count = rt_structures.count()
+        rated_count = rt_structures.filter(date_contour_reviewed__isnull=False).count()
+        
         series_info = {
             'id': series.id,
             'series_instance_uid': series.series_instance_uid,  # Add the missing field
@@ -1162,7 +1167,9 @@ def series_processing_status(request):
             'matched_templates': ', '.join(matched_templates) if matched_templates else 'None',
             'processing_status': series.get_series_processsing_status_display(),
             'updated_at': series.updated_at,
-            'export_info': export_info
+            'export_info': export_info,
+            'rt_structure_count': rt_structure_count,
+            'rated_count': rated_count
         }
         series_data.append(series_info)
     
@@ -1427,3 +1434,50 @@ def rate_contour_quality(request, series_uid):
     }
     
     return render(request, 'dicom_handler/contour_rating.html', context)
+
+
+@login_required
+def view_series_ratings(request, series_uid):
+    """
+    View to display all RT Structure ratings for a given series.
+    Shows all RT Structure sets and their ratings.
+    
+    Args:
+        series_uid: Series Instance UID
+    """
+    # Get the series
+    series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
+    
+    # Get all RT Structure imports for this series
+    rt_imports = RTStructureFileImport.objects.filter(
+        deidentified_series_instance_uid=series
+    ).order_by('-created_at')
+    
+    # Prepare rating data
+    ratings_data = []
+    for rt_import in rt_imports:
+        # Get VOI count
+        voi_count = RTStructureFileVOIData.objects.filter(rt_structure_file_import=rt_import).count()
+        
+        rating_info = {
+            'rt_import': rt_import,
+            'voi_count': voi_count,
+            'export_date': rt_import.reidentified_rt_structure_file_export_datetime,
+            'has_rating': rt_import.date_contour_reviewed is not None,
+        }
+        ratings_data.append(rating_info)
+    
+    # Get patient and study information
+    patient = series.study.patient
+    study = series.study
+    
+    context = {
+        'series': series,
+        'patient': patient,
+        'study': study,
+        'ratings_data': ratings_data,
+        'rt_structure_count': len(ratings_data),
+        'rated_count': sum(1 for r in ratings_data if r['has_rating']),
+    }
+    
+    return render(request, 'dicom_handler/view_series_ratings.html', context)

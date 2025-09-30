@@ -518,7 +518,7 @@ class RTStructureFileVOIData(models.Model):
     rt_structure_file_import = models.ForeignKey(RTStructureFileImport,on_delete=models.CASCADE,null=True,blank=True)
     volume_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the volume")
     contour_modification = models.CharField(max_length=256,choices=ContourModificationChoices.choices,default=ContourModificationChoices.NO_MODIFICATION, null=True, blank=True,help_text="Contour modification required. If the contour was blank choose Not Segmented.")
-    contour_modification_type = models.ManyToManyField(ContourModificationTypeChoices,blank=True,help_text="Type of contour modification. ")
+    contour_modification_type = models.ManyToManyField(ContourModificationTypeChoices,blank=True,help_text="Type of contour modification made. You can select multiple options here or leave blank if this is not applicable. To add a new type of modification please contact your Administrator. ")
     contour_modification_comments = models.TextField(null=True,blank=True,help_text="Comments about the contour modification.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)    

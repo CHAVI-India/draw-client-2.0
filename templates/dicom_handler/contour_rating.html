@@ -187,23 +187,26 @@
             </div>
             {% endif %}
 
-            <div class="space-y-6">
+            <div class="space-y-4">
                 {% for form in voi_formset %}
-                <div class="border border-gray-200 rounded-lg p-5 hover:border-primary-300 transition-colors">
-                    <!-- Hidden ID field -->
+                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
+                    <!-- Hidden fields -->
                     {{ form.id }}
+                    <input type="hidden" name="{{ form.volume_name.html_name }}" value="{{ form.volume_name.value }}">
                     
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Left Column -->
-                        <div class="space-y-4">
-                            <!-- Structure Name (readonly) -->
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">
-                                    {{ form.volume_name.label }}
-                                </label>
-                                {{ form.volume_name }}
-                            </div>
+                    <!-- Structure Name as Header -->
+                    <div class="mb-3 pb-2 border-b border-gray-200">
+                        <h3 class="text-base font-semibold text-gray-900 flex items-center">
+                            <svg class="w-4 h-4 mr-2 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                            </svg>
+                            {{ form.volume_name.value }}
+                        </h3>
+                    </div>
 
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
+                        <!-- Left Column -->
+                        <div>
                             <!-- Contour Modification -->
                             <div>
                                 <label for="{{ form.contour_modification.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
@@ -219,13 +222,13 @@
                         </div>
 
                         <!-- Right Column -->
-                        <div class="space-y-4">
+                        <div>
                             <!-- Modification Types (Checkboxes) -->
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-3">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
                                     {{ form.contour_modification_type.label }}
                                 </label>
-                                <div class="space-y-2">
+                                <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-md p-3 bg-gray-50 space-y-2">
                                     {% for checkbox in form.contour_modification_type %}
                                     <div class="flex items-center">
                                         {{ checkbox.tag }}
@@ -238,20 +241,20 @@
                                 {% if form.contour_modification_type.errors %}
                                 <p class="mt-1 text-sm text-red-600">{{ form.contour_modification_type.errors.0 }}</p>
                                 {% endif %}
-                                <p class="mt-2 text-xs text-gray-500">{{ form.contour_modification_type.help_text }}</p>
-                            </div>
-
-                            <!-- Comments -->
-                            <div>
-                                <label for="{{ form.contour_modification_comments.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
-                                    {{ form.contour_modification_comments.label }}
-                                </label>
-                                {{ form.contour_modification_comments }}
-                                {% if form.contour_modification_comments.errors %}
-                                <p class="mt-1 text-sm text-red-600">{{ form.contour_modification_comments.errors.0 }}</p>
-                                {% endif %}
+                                <p class="mt-1 text-xs text-gray-500">{{ form.contour_modification_type.help_text }}</p>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Comments (Full Width Below) -->
+                    <div>
+                        <label for="{{ form.contour_modification_comments.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.contour_modification_comments.label }}
+                        </label>
+                        {{ form.contour_modification_comments }}
+                        {% if form.contour_modification_comments.errors %}
+                        <p class="mt-1 text-sm text-red-600">{{ form.contour_modification_comments.errors.0 }}</p>
+                        {% endif %}
                     </div>
 
                     {% if form.non_field_errors %}
