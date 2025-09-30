@@ -1,0 +1,12 @@
+modification_type
+Contour was empty hence was drawn again
+Contour was overlapping other structures hence needed to be edited
+Contour was irregular in outline and needed to be smoothened
+Disconnected segments (blobs) were present which needed to be joined
+Segments of contour were present in other structures which were removed
+Contour did not cover the entire structure properly hence edited
+Contour was drawn on the incorrect side (completely) hence corrected or redrawn
+Contour was drawn on the incorrect side (partially) hence corrected or redrawn
+Segments of contour were present outside the body structure which were removed
+Contour was located at the wrong region or site or structure hence corrected or redrawn
+There were holes inside the contour which had to be filled
