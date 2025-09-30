@@ -9,6 +9,7 @@ This is a revamped version of the DRAW Client with the following enhancements:
 6. This also has a secondary benefit of reducing the complexity of the celery task chain
 7. Better logging with integrating masking of identifiers. This prevents information leakage in the log files.
 8. Parallel processing of reading DICOM files to speed up the process.
+9. Integrated framework for providing rating for the segmentation quality.
 
 # Technology Stack Used
 
@@ -328,6 +329,7 @@ For these staff we just need to give them permission to view DICOM Series and tr
 
 1. Dicom_Handler|DICOM Series| Can View DICOM Series
 
+N.B. The Junior staff can provide rating for the segmentation quality.
 
 ## Adding Users
 

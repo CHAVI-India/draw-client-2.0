@@ -1373,6 +1373,7 @@ def statistics_dashboard(request):
 
 
 @login_required
+@permission_required('dicom_handler.view_dicomseries', raise_exception=True)
 def rate_contour_quality(request, series_uid):
     """
     View for rating contour quality of RT Structure Set and individual VOIs.
@@ -1459,6 +1460,7 @@ def rate_contour_quality(request, series_uid):
 
 
 @login_required
+@permission_required('dicom_handler.view_dicomseries', raise_exception=True)
 def view_series_ratings(request, series_uid):
     """
     View to display all RT Structure ratings for a given series.
