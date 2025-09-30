@@ -261,9 +261,9 @@
                 </div>
                 
                 <!-- RT Structure Info & Action Buttons -->
-                {% if series.processing_status == 'RT Structure Exported' and series.rt_structure_count > 0 %}
+                {% if series.rt_structure_count > 0 %}
                 <div class="mt-3 space-y-2">
-                    <!-- RT Structure Stats -->
+                    <!-- RT Structure Stats (Always visible if RT structures exist) -->
                     <div class="flex items-center text-xs text-gray-600 space-x-4">
                         <span class="flex items-center">
                             <svg class="w-4 h-4 mr-1 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -279,7 +279,7 @@
                         </span>
                     </div>
                     
-                    <!-- Action Buttons -->
+                    <!-- Action Buttons (Always visible if RT structures exist) -->
                     <div class="flex items-center space-x-2">
                         <a href="{% url 'dicom_handler:view_series_ratings' series.series_instance_uid %}" 
                            class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
