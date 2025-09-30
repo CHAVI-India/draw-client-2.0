@@ -344,8 +344,12 @@ class RTStructureReviewForm(forms.ModelForm):
     """Form for reviewing RT Structure Set level data"""
     class Meta:
         model = RTStructureFileImport
-        fields = ['date_contour_reviewed', 'contour_modification_time_required']
+        fields = ['assessor_name', 'date_contour_reviewed', 'contour_modification_time_required', 'overall_rating']
         widgets = {
+            'assessor_name': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter assessor name'
+            }),
             'date_contour_reviewed': forms.DateInput(attrs={
                 'type': 'date',
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
@@ -354,11 +358,20 @@ class RTStructureReviewForm(forms.ModelForm):
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
                 'placeholder': 'Time in minutes',
                 'min': '0'
+            }),
+            'overall_rating': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Rating (0-10)',
+                'min': '0',
+                'max': '10',
+                'step': '1'
             })
         }
         labels = {
+            'assessor_name': 'Assessor Name',
             'date_contour_reviewed': 'Date Contour Reviewed',
-            'contour_modification_time_required': 'Total Modification Time (minutes)'
+            'contour_modification_time_required': 'Total Modification Time (minutes)',
+            'overall_rating': 'Overall Segmentation Quality Rating (0-10)'
         }
 
 

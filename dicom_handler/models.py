@@ -5,6 +5,7 @@ from django.utils import timezone
 from datetime import timedelta
 import uuid
 from encrypted_model_fields.fields import EncryptedCharField
+from django.core.validators import MinValueValidator, MaxValueValidator
 # Create your models here.
 
 class SystemConfiguration(models.Model):
@@ -468,6 +469,10 @@ class RTStructureFileImport(models.Model):
     reidentified_rt_structure_file_export_datetime = models.DateTimeField(null=True,blank=True)
     date_contour_reviewed = models.DateField(null=True,blank=True,help_text="Date when the contour was reviewed")
     contour_modification_time_required = models.IntegerField(null=True,blank=True,help_text="Time required to modify the contours in this structure set in minutes. Please do not include time required to create or edit new structures which were not supposed to be autosegmented.")
+    assessor_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the assessor who reviewed the contour")
+    overall_rating = models.IntegerField(null=True,blank=True,
+    help_text="Overall rating of the automatic segementation quality between 0 to 10 where 10 indicates an excellent quality and 0 the worst possible quality.",
+    default=5, validators=[MinValueValidator(0), MaxValueValidator(10)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)    
     
