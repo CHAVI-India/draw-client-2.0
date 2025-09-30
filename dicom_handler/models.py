@@ -466,6 +466,8 @@ class RTStructureFileImport(models.Model):
     server_segmentation_updated_datetime = models.DateTimeField(null=True,blank=True)
     reidentified_rt_structure_file_path = models.CharField(max_length=256,null=True,blank=True)
     reidentified_rt_structure_file_export_datetime = models.DateTimeField(null=True,blank=True)
+    date_contour_reviewed = models.DateField(null=True,blank=True,help_text="Date when the contour was reviewed")
+    contour_modification_time_required = models.IntegerField(null=True,blank=True,help_text="Time required to modify the contours in this structure set in minutes. Please do not include time required to create or edit new structures which were not supposed to be autosegmented.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)    
     
@@ -475,6 +477,56 @@ class RTStructureFileImport(models.Model):
     class Meta:
         verbose_name = "RT Structure File Import"
         verbose_name_plural = "RT Structure File Imports"
+
+
+class ContourModificationChoices(models.TextChoices):
+    '''
+    This is an enumerated list of contour modification choices.
+    '''
+    NO_MODIFICATION = "NO_MODIFICATION", "No Modification"
+    MAJOR_MODIFICATION = "MAJOR_MODIFICATION", "Major Modification"
+    MINOR_MODIFICATION = "MINOR_MODIFICATION", "Minor Modification"
+    NOT_SEGMENTED = "NOT_SEGMENTED", "Not Segmented"
+
+class ContourModificationTypeChoices(models.Model):
+    '''
+    This is a model to store data about the contour modification type choices.
+    This model will available as a many to many relationship to the RTStructureFileVOIData model.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    modification_type = models.CharField(max_length=256,unique=True,null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)    
+    
+    def __str__(self):
+        return self.modification_type
+    
+    class Meta:
+        verbose_name = "Contour Modification Type Choice"
+        verbose_name_plural = "Contour Modification Type Choices"
+
+class RTStructureFileVOIData(models.Model):
+    '''
+    This is a model to store data about the RT structure file void data
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rt_structure_file_import = models.ForeignKey(RTStructureFileImport,on_delete=models.CASCADE,null=True,blank=True)
+    volume_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the volume")
+    assessor_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the assessor who reviewed the volume")
+    contour_modification = models.CharField(max_length=256,choices=ContourModificationChoices.choices,default=ContourModificationChoices.NO_MODIFICATION, null=True, blank=True,help_text="Contour modification required. If the contour was blank choose Not Segmented.")
+    contour_modification_type = models.ManyToManyField(ContourModificationTypeChoices,blank=True,help_text="Type of contour modification. ")
+    contour_modification_comments = models.TextField(null=True,blank=True,help_text="Comments about the contour modification.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)    
+    
+    def __str__(self):
+        return self.rt_structure_file_import.deidentified_rt_structure_file_path or self.rt_structure_file_import.reidentified_rt_structure_file_path or f"RTStruct Import {self.id}"  
+
+    class Meta:
+        verbose_name = "RT Structure File Void Data"
+        verbose_name_plural = "RT Structure File Void Data"
+
+
 
 class ChainExecutionLock(models.Model):
     '''

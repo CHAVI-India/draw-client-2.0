@@ -17,8 +17,8 @@
 # After this file is written to the series_root_path available in the DICOMSeries table. This will ensure that the file is sent back to the same folder where the DICOM data was available. The filename should be starting with <PATIENT_ID>_<DRAW>_<DATETIME>_RTSTRUCT.dcm format.
 # Update the series_processsing_status to RTSTRUCTURE_EXPORTED if successful else to RTSTRUCTURE_EXPORT_FAILED in the DICOMSeries model. 
 # Update the path where the file was saved in the RTStructureFileImport model in the reidentified_rt_structure_file_path field and update the date time in reidentified_rt_structure_file_export_datetime field.
-# Following this the RTstructurefile should be deleted from the folder where it was downloaded into. 
-
+# Read the names of all VOI in the file and save it the RTStructureFileVOIData model.
+# Following this the RTstructurefile should be deleted from the folder where it was downloaded into.
 import os
 import logging
 import shutil
@@ -32,6 +32,7 @@ from pydicom.errors import InvalidDicomError
 
 from ..models import (
     DICOMSeries, DICOMStudy, Patient, DICOMInstance, RTStructureFileImport,
+    RTStructureFileVOIData,
     ProcessingStatus
 )
 
@@ -155,6 +156,9 @@ def _process_rtstruct_file(file_info: Dict[str, Any]) -> Dict[str, Any]:
         if not output_path:
             _update_failed_status(rt_import, "Failed to export reidentified file")
             return {"success": False, "error": "Failed to export reidentified file"}
+        
+        # Get VOI names from RTStructure file and save to database
+        _extract_and_save_voi_data(rtstruct_path, rt_import)
         
         # Update successful status
         _update_successful_status(rt_import, output_path, series_data['series'])
@@ -397,6 +401,45 @@ def _update_failed_status(rt_import: RTStructureFileImport, error_msg: str) -> N
         
     except Exception as e:
         logger.error(f"Error updating failed status: {str(e)}")
+
+def _extract_and_save_voi_data(rtstruct_path: str, rt_import: RTStructureFileImport) -> None:
+    """
+    Extract VOI names from RT Structure Set file and save them to the database.
+    Each VOI will be saved as a separate row in RTStructureFileVOIData table.
+    
+    Args:
+        rtstruct_path: Path to the RTStructure DICOM file
+        rt_import: RTStructureFileImport record to associate VOI data with
+    """
+    try:
+        # Load the RTStructure file
+        ds = pydicom.dcmread(rtstruct_path, force=True)
+        
+        voi_objects = []
+        
+        # Check if StructureSetROISequence exists (this contains the VOI names)
+        if hasattr(ds, 'StructureSetROISequence') and ds.StructureSetROISequence:
+            for roi in ds.StructureSetROISequence:
+                # Extract ROI Name from each structure
+                if hasattr(roi, 'ROIName') and roi.ROIName:
+                    # Create VOI object for bulk insert
+                    voi_objects.append(
+                        RTStructureFileVOIData(
+                            rt_structure_file_import=rt_import,
+                            volume_name=roi.ROIName
+                        )
+                    )
+                    logger.debug(f"Found VOI: {roi.ROIName}")
+        
+        # Bulk create all VOI entries in a single database operation
+        if voi_objects:
+            RTStructureFileVOIData.objects.bulk_create(voi_objects)
+            logger.info(f"Successfully extracted and saved {len(voi_objects)} VOI entries to database using bulk_create")
+        else:
+            logger.warning(f"No VOI names found in RTStructure file: {rtstruct_path}")
+        
+    except Exception as e:
+        logger.error(f"Error extracting and saving VOI data: {str(e)}")
 
 def _cleanup_temp_file(file_path: str) -> None:
     """Clean up temporary RTStructure file."""
