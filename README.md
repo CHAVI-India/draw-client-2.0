@@ -145,12 +145,7 @@ If not you can use the following command after dropping into the postgres user:
 
 ```bash
 sudo -u postgres psql
-createdb drawclient
-```
-In the above command the database drawclient has been created using the user postgres.
-
-### Create the database structure
-
+createdb drawclientdicom_processing
 You will need to create the database structure using the following command:
 
 ```bash
@@ -506,3 +501,26 @@ The Segmentation status is displayed in the Processing Status page. This will be
 
 ![Processing Status](screenshots/processing_status.png)
 
+# Rating for Structure Set
+
+We also provide an interface for you to rate the structure set. To rate the structure set please go to the Processing Status page. With each patient you will be able to see the following:
+1. The number of structure sets for a given series
+2. The number of structure sets for which a rating have been provided. 
+3. A button to review the ratings provided.
+4. A button to add new ratings. 
+
+![Rating](screenshots/rating.jpeg)
+
+If you click on the **Rate Contour Quality** button then you will be able to rate the structure set. This will allow you to rate the latest structure set. 
+
+If you click on the **View All Ratings** button then you will be able to view all the ratings provided for the structure set. 
+
+![View Ratings](screenshots/view_ratings.jpeg)
+
+In the View Rating page, you will be able to see the number of structure sets, the rating provided for each and will be able to add ratings for the structure set or edit an existing rating. 
+
+The rating form allows you to provide an overall rating for the structure set as well as specific feedback for individual structures like the type of modification done as well as the nature of the modification along with comments. 
+
+![Rating Form](screenshots/rating_form.jpeg)
+
+Please do consider rating the strcuture sets. This will help us improve the quality of the segmentation and provide better models for future.
