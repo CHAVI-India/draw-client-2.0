@@ -1380,18 +1380,33 @@ def rate_contour_quality(request, series_uid):
     
     Args:
         series_uid: Series Instance UID to find the RT Structure
+        rt_import (query param): Optional RT Structure Import ID to rate a specific structure set
     """
     # Get the series
     series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
     
-    # Get the RT Structure File Import for this series
-    try:
-        rt_import = RTStructureFileImport.objects.get(
+    # Check if a specific RT Structure Import ID was provided
+    rt_import_id = request.GET.get('rt_import')
+    
+    if rt_import_id:
+        # Get the specific RT Structure Import
+        rt_import = get_object_or_404(
+            RTStructureFileImport,
+            id=rt_import_id,
             deidentified_series_instance_uid=series
         )
-    except RTStructureFileImport.DoesNotExist:
-        messages.error(request, 'No RT Structure file found for this series.')
-        return redirect('dicom_handler:series_processing_status')
+    else:
+        # Get the most recent RT Structure File Import for this series
+        try:
+            rt_import = RTStructureFileImport.objects.filter(
+                deidentified_series_instance_uid=series
+            ).order_by('-created_at').first()
+            
+            if not rt_import:
+                raise RTStructureFileImport.DoesNotExist
+        except RTStructureFileImport.DoesNotExist:
+            messages.error(request, 'No RT Structure file found for this series.')
+            return redirect('dicom_handler:series_processing_status')
     
     # Get all VOI data for this RT Structure
     voi_queryset = RTStructureFileVOIData.objects.filter(
@@ -1423,6 +1438,11 @@ def rate_contour_quality(request, series_uid):
     patient = series.study.patient
     study = series.study
     
+    # Get total RT Structure count for this series
+    total_rt_structures = RTStructureFileImport.objects.filter(
+        deidentified_series_instance_uid=series
+    ).count()
+    
     context = {
         'series': series,
         'patient': patient,
@@ -1431,6 +1451,8 @@ def rate_contour_quality(request, series_uid):
         'rt_form': rt_form,
         'voi_formset': voi_formset,
         'voi_count': voi_queryset.count(),
+        'total_rt_structures': total_rt_structures,
+        'rt_import_id': rt_import.id,
     }
     
     return render(request, 'dicom_handler/contour_rating.html', context)
