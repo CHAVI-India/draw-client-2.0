@@ -13,7 +13,7 @@ class SystemConfiguration(models.Model):
     This is a model to store data about the system configuration. This will be a singleton model.
     '''
     id = models.IntegerField(primary_key=True, default=1, editable=False)
-    draw_base_url = models.CharField(max_length=256,null=True,blank=True,help_text="Base URL of the DRAW API server", default="https://draw.chavi.ai")
+    draw_base_url = models.CharField(max_length=256,null=True,blank=True,help_text="Base URL of the DRAW API server", default="https://draw.chavi.ai/")
     client_id = models.CharField(max_length=256,null=True,blank=True,help_text="Client ID from the DRAW API server. Please rember this is case sensitive and should match what is entered in the server to ensure you can see the data for your center in the server.")
     draw_upload_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Upload endpoint of the DRAW API server where the image zip file and checksum is to be uploaded.", default="/api/upload/")
     draw_status_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Status endpoint of the DRAW API server where status of segmentation is to be polled. The task_id is returned by the DRAW API server.", default="/api/upload/{task_id}/status/")
