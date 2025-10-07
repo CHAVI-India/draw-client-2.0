@@ -50,6 +50,9 @@ urlpatterns = [
     # Statistics Dashboard
     path('statistics/', views.statistics_dashboard, name='statistics_dashboard'),
     
+    # API Health Check
+    path('api/health-check/', views.check_api_health, name='check_api_health'),
+    
     # Contour Quality Rating
     path('rate-contour/<str:series_uid>/', views.rate_contour_quality, name='rate_contour_quality'),
     path('view-ratings/<str:series_uid>/', views.view_series_ratings, name='view_series_ratings'),

@@ -36,6 +36,11 @@
             <!-- User Menu -->
             <div class="hidden md:flex items-center space-x-4">
                 {% if user.is_authenticated %}
+                    <!-- API Health Status Indicator -->
+                    <div id="health-status-indicator" class="flex items-center space-x-2 px-3 py-1 rounded-md text-xs font-medium" title="DRAW API Health Status">
+                        <span id="health-status-dot" class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
+                        <span id="health-status-text" class="text-gray-500">API: Checking...</span>
+                    </div>
                     <span class="text-gray-700 text-sm">Welcome, {{ user.username }}</span>
                     <a href="{% url 'account_email' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">
                         <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -104,6 +109,11 @@
                 {% endif %}
                 {% if user.is_authenticated %}
                     <div class="border-t border-gray-200 pt-2">
+                        <!-- API Health Status Indicator (Mobile) -->
+                        <div id="health-status-indicator-mobile" class="flex items-center space-x-2 px-3 py-2 text-sm font-medium" title="DRAW API Health Status">
+                            <span id="health-status-dot-mobile" class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
+                            <span id="health-status-text-mobile" class="text-gray-500">API: Checking...</span>
+                        </div>
                         <span class="block text-gray-700 px-3 py-2 text-base">Welcome, {{ user.username }}</span>
                         <a href="{% url 'account_email' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
                             <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -136,4 +146,67 @@
         const mobileMenu = document.getElementById('mobile-menu');
         mobileMenu.classList.toggle('hidden');
     });
+
+    // Check API health status on page load
+    {% if user.is_authenticated %}
+    function checkAPIHealth() {
+        const statusDot = document.getElementById('health-status-dot');
+        const statusText = document.getElementById('health-status-text');
+        const statusIndicator = document.getElementById('health-status-indicator');
+        const statusDotMobile = document.getElementById('health-status-dot-mobile');
+        const statusTextMobile = document.getElementById('health-status-text-mobile');
+        const statusIndicatorMobile = document.getElementById('health-status-indicator-mobile');
+        
+        fetch('{% url "dicom_handler:check_api_health" %}')
+            .then(response => response.json())
+            .then(data => {
+                let dotClass, textContent, textClass, titleText;
+                
+                if (data.status === 'healthy') {
+                    dotClass = 'w-2 h-2 rounded-full bg-green-500';
+                    textContent = 'API: Healthy';
+                    textClass = 'text-green-700';
+                    titleText = 'DRAW API Status: Healthy';
+                } else if (data.status === 'degraded') {
+                    dotClass = 'w-2 h-2 rounded-full bg-yellow-500';
+                    textContent = 'API: Degraded';
+                    textClass = 'text-yellow-700';
+                    titleText = 'DRAW API Status: Degraded';
+                } else {
+                    dotClass = 'w-2 h-2 rounded-full bg-red-500';
+                    textContent = 'API: Error';
+                    textClass = 'text-red-700';
+                    titleText = 'DRAW API Status: Error - ' + (data.message || 'Unknown error');
+                }
+                
+                // Update desktop indicator
+                statusDot.className = dotClass;
+                statusText.textContent = textContent;
+                statusText.className = textClass;
+                statusIndicator.title = titleText;
+                
+                // Update mobile indicator
+                statusDotMobile.className = dotClass;
+                statusTextMobile.textContent = textContent;
+                statusTextMobile.className = textClass;
+                statusIndicatorMobile.title = titleText;
+            })
+            .catch(error => {
+                // Update desktop indicator
+                statusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+                statusText.textContent = 'API: Offline';
+                statusText.className = 'text-red-700';
+                statusIndicator.title = 'DRAW API Status: Connection Failed';
+                
+                // Update mobile indicator
+                statusDotMobile.className = 'w-2 h-2 rounded-full bg-red-500';
+                statusTextMobile.textContent = 'API: Offline';
+                statusTextMobile.className = 'text-red-700';
+                statusIndicatorMobile.title = 'DRAW API Status: Connection Failed';
+            });
+    }
+    
+    // Check health status when page loads
+    document.addEventListener('DOMContentLoaded', checkAPIHealth);
+    {% endif %}
 </script>

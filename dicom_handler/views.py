@@ -1505,3 +1505,64 @@ def view_series_ratings(request, series_uid):
     }
     
     return render(request, 'dicom_handler/view_series_ratings.html', context)
+
+@login_required
+def check_api_health(request):
+    """
+    View to check the health status of the DRAW API server
+    Returns JSON response with health status
+    """
+    try:
+        system_config = SystemConfiguration.get_singleton()
+        
+        if not system_config or not system_config.draw_base_url:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'System configuration not found'
+            }, status=500)
+        
+        # Construct the health check URL
+        # Note: draw_base_url already has trailing slash
+        api_url = f"{system_config.draw_base_url}api/health"
+        
+        headers = {}
+        if system_config.draw_bearer_token:
+            headers['Authorization'] = f"Bearer {system_config.draw_bearer_token}"
+        
+        # Make request to health endpoint with timeout
+        response = requests.get(api_url, headers=headers, timeout=5)
+        
+        # Parse the response
+        if response.status_code == 200:
+            health_data = response.json()
+            return JsonResponse({
+                'status': health_data.get('status', 'unknown'),
+                'details': health_data.get('details', {})
+            })
+        elif response.status_code == 503:
+            health_data = response.json()
+            return JsonResponse({
+                'status': health_data.get('status', 'degraded'),
+                'details': health_data.get('details', {})
+            })
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'Unexpected status code: {response.status_code}'
+            }, status=response.status_code)
+            
+    except requests.exceptions.Timeout:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Request timeout'
+        }, status=504)
+    except requests.exceptions.ConnectionError:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Connection error'
+        }, status=503)
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
