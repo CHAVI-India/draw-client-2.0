@@ -1515,10 +1515,16 @@ def check_api_health(request):
     try:
         system_config = SystemConfiguration.get_singleton()
         
-        if not system_config or not system_config.draw_base_url:
+        if not system_config:
             return JsonResponse({
                 'status': 'error',
-                'message': 'System configuration not found'
+                'message': 'System configuration not found. Please configure system settings.'
+            }, status=500)
+        
+        if not system_config.draw_base_url:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'DRAW API URL not configured. Please set draw_base_url in System Configuration.'
             }, status=500)
         
         # Construct the health check URL
