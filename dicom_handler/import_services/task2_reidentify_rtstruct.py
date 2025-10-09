@@ -331,9 +331,9 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
                     original_uid = uid_mapping[deidentified_uid]
                     data_element.value = original_uid
                     uid_replacement_count += 1
-                    logger.debug(f"Replaced UID at tag {data_element.tag}: "
-                               f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}*** -> "
-                               f"***{original_uid[:8]}...{original_uid[-8:]}***")
+                    # logger.debug(f"Replaced UID at tag {data_element.tag}: "
+                    #            f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}*** -> "
+                    #            f"***{original_uid[:8]}...{original_uid[-8:]}***")
                 else:
                     logger.debug(f"No mapping found for UID at tag {data_element.tag}: "
                                f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}***")
