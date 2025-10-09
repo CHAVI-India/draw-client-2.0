@@ -354,7 +354,7 @@ def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], 
         safe_patient_id = _sanitize_filename(patient_id)
         if safe_patient_id != patient_id:
             logger.info(f"Sanitized patient ID for filename: '{patient_id}' -> '{safe_patient_id}'")
-        filename = f"RS_{safe_patient_id}_DRAW_{timestamp}_RTSTRUCT.dcm"
+        filename = f"RS_{safe_patient_id}_DRAW_{timestamp}.dcm"
         output_path = os.path.join(output_dir, filename)
         
         # Save the reidentified file
