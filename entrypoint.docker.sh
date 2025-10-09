@@ -1,17 +1,15 @@
 #!/bin/bash
 
-# Update CA certificates if any are mounted
-if [ -d "/usr/local/share/ca-certificates" ]; then
-    update-ca-certificates
-fi
+# Note: CA certificates update must be done at build time or with root privileges
+# If you need to update CA certificates, uncomment the volume mount in docker-compose
+# and rebuild the image with root user
 
-# Create staticfiles directory if it doesn't exist and set permissions
+# Create staticfiles directory if it doesn't exist
+# No need to chown since we're already running as appuser
 mkdir -p /app/staticfiles
-chown -R appuser:appuser /app/staticfiles
 
-# Collect static files with proper permissions
+# Collect static files
 python manage.py collectstatic --noinput
-chown -R appuser:appuser /app/staticfiles
 
 # Apply database migrations
 python manage.py migrate
