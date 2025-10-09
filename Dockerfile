@@ -17,7 +17,7 @@ COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
  
 # Stage 2: Production stage
-FROM python:3
+FROM python:3.13-slim-bookworm
  
 # Create user and required directories
 RUN groupadd -g 1000 appuser && \
