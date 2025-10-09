@@ -271,107 +271,79 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         # Only the Referenced Series Instance UID in sequences needs to be updated
         
         logger.debug(f"Skipping RTStructure's own Series Instance UID - keeping original. Proceeding with other tags")
-        # Replace Frame of Reference UIDs
-        if series.frame_of_reference_uid:
-            # Frame of Reference UID using DICOM tag (0020,0052)
-            if (0x0020, 0x0052) in ds:
-                ds[0x0020, 0x0052].value = series.frame_of_reference_uid
-            logger.debug(f"Reidentified Frame of Reference UID field. Proceeding with other tags")    
-            
-            # Referenced Frame of Reference UID using DICOM tag (3006,0024) if present
-            if (0x3006, 0x0024) in ds:
-                ds[0x3006, 0x0024].value = series.frame_of_reference_uid
-            logger.debug(f"Reidentified Referenced Frame of Reference UID field. Proceeding with other tags")    
-            
-            # Also update in ReferencedFrameOfReferenceSequence if present
-            if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence:
-                for ref_frame in ds.ReferencedFrameOfReferenceSequence:
-                    ref_frame.FrameOfReferenceUID = series.frame_of_reference_uid
-            logger.debug(f"Reidentified Referenced Frame of Reference Sequence field. Proceeding with other tags")    
         
-        logger.debug(f"Reidentified Frame of Reference UID field. Proceeding with other tags")
-        
-        # Create a dictionary mapping deidentified SOP Instance UIDs to original SOP Instance UIDs
-        # This improves performance from O(N*M) to O(N+M) for large datasets
-        sop_uid_mapping = {}
+        # Build comprehensive UID mapping dictionary including all levels (instance, series, study)
+        # This approach matches the working code pattern
+        uid_mapping = {}
         missing_original_uids = []
+        
+        # Add instance-level SOP Instance UIDs
         for instance in instances:
             if instance.deidentified_sop_instance_uid:
                 if instance.sop_instance_uid:
-                    sop_uid_mapping[instance.deidentified_sop_instance_uid] = instance.sop_instance_uid
+                    uid_mapping[instance.deidentified_sop_instance_uid] = instance.sop_instance_uid
                 else:
-                    # Track instances that have deidentified UIDs but missing original UIDs
                     missing_original_uids.append(instance.deidentified_sop_instance_uid)
         
+        # Add series-level Series Instance UID
+        if series.deidentified_series_instance_uid and series.series_instance_uid:
+            uid_mapping[series.deidentified_series_instance_uid] = series.series_instance_uid
+        elif series.deidentified_series_instance_uid and not series.series_instance_uid:
+            logger.error(f"CRITICAL: Original series_instance_uid is missing in database for series ID {series.id}")
+            missing_original_uids.append(series.deidentified_series_instance_uid)
+        
+        # Add study-level Study Instance UID
+        if study.deidentified_study_instance_uid and study.study_instance_uid:
+            uid_mapping[study.deidentified_study_instance_uid] = study.study_instance_uid
+        
         if missing_original_uids:
-            logger.warning(f"Found {len(missing_original_uids)} instances with missing original SOP Instance UIDs. "
+            logger.warning(f"Found {len(missing_original_uids)} UIDs with missing original values. "
                           f"These will not be reidentified. First few: {missing_original_uids[:5]}")
         
-        logger.debug(f"Created SOP UID mapping with {len(sop_uid_mapping)} entries")
+        logger.info(f"Created comprehensive UID mapping with {len(uid_mapping)} entries")
+        logger.info(f"  - SOP Instance UIDs: {sum(1 for inst in instances if inst.sop_instance_uid)}")
+        logger.info(f"  - Series Instance UID: {'Yes' if series.series_instance_uid else 'No'}")
+        logger.info(f"  - Study Instance UID: {'Yes' if study.study_instance_uid else 'No'}")
         
-        # Log the series UIDs for debugging
-        logger.info(f"Series UID values from database:")
-        logger.info(f"  - Original series_instance_uid: ***{series.series_instance_uid[:8] if series.series_instance_uid else 'NONE'}...{series.series_instance_uid[-8:] if series.series_instance_uid else ''}***")
-        logger.info(f"  - Deidentified series_instance_uid: ***{series.deidentified_series_instance_uid[:8] if series.deidentified_series_instance_uid else 'NONE'}...{series.deidentified_series_instance_uid[-8:] if series.deidentified_series_instance_uid else ''}***")
+        # Use walk() callbacks to replace UIDs throughout the entire DICOM structure
+        # This ensures ALL occurrences are replaced, not just specific sequences
         
-        # Check if original series instance UID is available
-        if not series.series_instance_uid:
-            logger.error(f"CRITICAL: Original series_instance_uid is missing in database for series ID {series.id}. "
-                        f"Series Instance UID in RTReferencedSeriesSequence will NOT be reidentified!")
+        frame_of_reference_replacement_count = 0
+        uid_replacement_count = 0
         
-        # Update Referenced Series Instance UID in RTReferencedSeriesSequence
-        if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence:
-            for ref_frame in ds.ReferencedFrameOfReferenceSequence:
-                if hasattr(ref_frame, 'RTReferencedSeriesSequence') and ref_frame.RTReferencedSeriesSequence:
-                    for rt_ref_series in ref_frame.RTReferencedSeriesSequence:
-                        # Update Series Instance UID using tag (0020,000E) in RTReferencedSeriesSequence
-                        # Only update if original series_instance_uid exists
-                        if series.series_instance_uid:
-                            if (0x0020, 0x000E) in rt_ref_series:
-                                rtstruct_current_value = rt_ref_series[0x0020, 0x000E].value
-                                logger.info(f"RTStructure current Series Instance UID: ***{rtstruct_current_value[:8]}...{rtstruct_current_value[-8:]}***")
-                                logger.info(f"Database series.series_instance_uid: ***{series.series_instance_uid[:8]}...{series.series_instance_uid[-8:]}***")
-                                logger.info(f"Database series.deidentified_series_instance_uid: ***{series.deidentified_series_instance_uid[:8]}...{series.deidentified_series_instance_uid[-8:]}***")
-                                
-                                # Check if they're the same (indicating database has wrong value)
-                                if rtstruct_current_value == series.series_instance_uid:
-                                    logger.error(f"PROBLEM DETECTED: The RTStructure file already contains the value from "
-                                               f"series.series_instance_uid field. This suggests the database field "
-                                               f"'series_instance_uid' contains the DEIDENTIFIED UID, not the original UID!")
-                                
-                                rt_ref_series[0x0020, 0x000E].value = series.series_instance_uid
-                                logger.info(f"Updated Series Instance UID from ***{rtstruct_current_value[:8]}...{rtstruct_current_value[-8:]}*** "
-                                           f"to ***{series.series_instance_uid[:8]}...{series.series_instance_uid[-8:]}***")
-                            else:
-                                rt_ref_series.SeriesInstanceUID = series.series_instance_uid
-                                logger.debug(f"Reidentified Series Instance UID field (attribute access)")
-                        else:
-                            logger.warning(f"Skipping Series Instance UID reidentification - original UID not available in database")
-                        
-                        # Update Referenced SOP Instance UIDs if present
-                        if hasattr(rt_ref_series, 'ContourImageSequence') and rt_ref_series.ContourImageSequence:
-                            reidentified_count = 0
-                            not_found_count = 0
-                            
-                            for contour_image in rt_ref_series.ContourImageSequence:
-                                # Get the current deidentified SOP Instance UID using tag (0008,1155)
-                                if (0x0008, 0x1155) in contour_image:
-                                    current_sop_uid = contour_image[0x0008, 0x1155].value
-                                    
-                                    # Use dictionary lookup for O(1) performance
-                                    if current_sop_uid in sop_uid_mapping:
-                                        contour_image[0x0008, 0x1155].value = sop_uid_mapping[current_sop_uid]
-                                        logger.debug("Replaced SOP Instance UID: "
-                                                    f"***{current_sop_uid[:8]}...{current_sop_uid[-8:]}*** "
-                                                    f"with ***{sop_uid_mapping[current_sop_uid][:8]}...{sop_uid_mapping[current_sop_uid][-8:]}***")
-                                        reidentified_count += 1
-                                    else:
-                                        not_found_count += 1
-                                        logger.warning(f"No original SOP Instance UID found for deidentified UID: "
-                                                      f"***{current_sop_uid[:8]}...{current_sop_uid[-8:]}***")
-                            
-                            logger.info(f"Reidentified {reidentified_count} SOP Instance UIDs in ContourImageSequence. "
-                                       f"Not found: {not_found_count}")
+        def frame_of_reference_callback(ds_elem, data_element):
+            """Replace Frame of Reference UIDs wherever they appear"""
+            nonlocal frame_of_reference_replacement_count
+            if data_element.tag in [(0x0020, 0x0052), (0x3006, 0x0024)]:
+                if series.frame_of_reference_uid:
+                    data_element.value = series.frame_of_reference_uid
+                    frame_of_reference_replacement_count += 1
+                    logger.debug(f"Replaced Frame of Reference UID at tag {data_element.tag}")
+        
+        def uid_replacement_callback(ds_elem, data_element):
+            """Replace Referenced SOP Instance UIDs and Series Instance UIDs wherever they appear"""
+            nonlocal uid_replacement_count
+            # Tags to replace: (0x0008, 0x1155) = Referenced SOP Instance UID
+            #                  (0x0020, 0x000E) = Series Instance UID (in referenced sequences)
+            if data_element.tag in [(0x0008, 0x1155), (0x0020, 0x000E)]:
+                deidentified_uid = data_element.value
+                if deidentified_uid in uid_mapping:
+                    original_uid = uid_mapping[deidentified_uid]
+                    data_element.value = original_uid
+                    uid_replacement_count += 1
+                    logger.debug(f"Replaced UID at tag {data_element.tag}: "
+                               f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}*** -> "
+                               f"***{original_uid[:8]}...{original_uid[-8:]}***")
+                else:
+                    logger.debug(f"No mapping found for UID at tag {data_element.tag}: "
+                               f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}***")
+        
+        # Walk through the entire DICOM structure and apply callbacks
+        ds.walk(frame_of_reference_callback)
+        ds.walk(uid_replacement_callback)
+        
+        logger.info(f"Frame of Reference UID replacements: {frame_of_reference_replacement_count}")
+        logger.info(f"Total UID replacements (SOP Instance + Series Instance): {uid_replacement_count}")
         
         logger.info(f"Successfully reidentified DICOM tags for patient: ***{patient.patient_id}***")
         return ds
