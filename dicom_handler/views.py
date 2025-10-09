@@ -1159,7 +1159,7 @@ def series_processing_status(request):
             'patient_name': series.study.patient.patient_name or 'N/A',
             'gender': series.study.patient.patient_gender or 'N/A',
             'study_date': series.study.study_date,
-            'study_description': series.study.study_description or 'N/A',
+            'series_description': series.series_description or 'N/A',
             'study_protocol': series.study.study_protocol or 'N/A',
             'study_modality': series.study.study_modality or 'N/A',
             'instance_count': series.instance_count or 0,

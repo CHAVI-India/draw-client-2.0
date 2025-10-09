@@ -209,9 +209,9 @@
                         <span class="text-gray-900 font-medium ml-1">{{ series.gender }}</span>
                     </div>
                     <div>
-                        <span class="text-gray-500">Date:</span>
+                        <span class="text-gray-500">Study Date:</span>
                         <span class="text-gray-900 font-medium ml-1">
-                            {% if series.study_date %}{{ series.study_date|date:"m/d/y" }}{% else %}N/A{% endif %}
+                            {% if series.study_date %}{{ series.study_date|date:"d/m/y" }}{% else %}N/A{% endif %}
                         </span>
                     </div>
                     <div>
@@ -224,15 +224,15 @@
                     </div>
                     <div>
                         <span class="text-gray-500">Status:</span>
-                        <span class="text-gray-900 font-medium ml-1">{{ series.processing_status|truncatechars:12 }}</span>
+                        <span class="text-gray-900 font-medium ml-1 break-words">{{ series.processing_status }}</span>
                     </div>
                     <div>
                         <span class="text-gray-500">Protocol:</span>
-                        <span class="text-gray-900 font-medium ml-1">{{ series.study_protocol|truncatechars:15 }}</span>
+                        <span class="text-gray-900 font-medium ml-1 break-words">{{ series.study_protocol }}</span>
                     </div>
                     <div>
-                        <span class="text-gray-500">Description:</span>
-                        <span class="text-gray-900 font-medium ml-1">{{ series.study_description|truncatechars:20 }}</span>
+                        <span class="text-gray-500">Series Description:</span>
+                        <span class="text-gray-900 font-medium ml-1 break-words">{{ series.series_description }}</span>
                     </div>
                     {% if series.export_info.task_id != 'N/A' %}
                     <div>

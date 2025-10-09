@@ -34,92 +34,73 @@
         {% endif %}
 
         {% if rulesets %}
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                RuleSet Name
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Description
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Combination Type
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Associated Template
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Rules Count
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Created
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Actions
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        {% for ruleset in rulesets %}
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm font-medium text-gray-900">
-                                        <a href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}" 
-                                           class="text-primary-600 hover:text-primary-900 hover:underline">
-                                            {{ ruleset.ruleset_name }}
-                                        </a>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <div class="text-sm text-gray-500 max-w-xs truncate">
-                                        {{ ruleset.ruleset_description|default:"No description" }}
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                                        {% if ruleset.rule_combination_type == 'AND' %}bg-blue-100 text-blue-800{% else %}bg-green-100 text-green-800{% endif %}">
-                                        {{ ruleset.get_rule_combination_type_display }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-900">
-                                        {% if ruleset.associated_autosegmentation_template %}
-                                            <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}"
-                                               class="text-primary-600 hover:text-primary-900 hover:underline">
-                                                {{ ruleset.associated_autosegmentation_template.template_name }}
-                                            </a>
-                                        {% else %}
-                                            <span class="text-gray-400">No template assigned</span>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                        {{ ruleset.rule_count }} rule{{ ruleset.rule_count|pluralize }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ ruleset.created_at|date:"M d, Y" }}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    <div class="flex space-x-2">
-                                        {% if perms.dicom_handler.view_ruleset %}
-                                            <c-button variant="primary" size="sm" icon="eye" href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}">View</c-button>
-                                        {% endif %}
-                                        {% if perms.dicom_handler.change_ruleset %}
-                                            <c-button variant="secondary" size="sm" icon="edit" href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}">Edit</c-button>
-                                        {% endif %}
-                                        {% if perms.dicom_handler.delete_ruleset %}
-                                            <c-button variant="danger" size="sm" icon="trash" href="{% url 'dicom_handler:ruleset_delete' ruleset.id %}">Delete</c-button>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6">
+                {% for ruleset in rulesets %}
+                    <div class="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200">
+                        <!-- Card Header -->
+                        <div class="p-4 border-b border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-900 break-words">
+                                <a href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}" 
+                                   class="text-primary-600 hover:text-primary-900 hover:underline">
+                                    {{ ruleset.ruleset_name }}
+                                </a>
+                            </h3>
+                            <p class="text-xs text-gray-500 mt-1">Created {{ ruleset.created_at|date:"M d, Y" }}</p>
+                        </div>
+                        
+                        <!-- Card Body -->
+                        <div class="p-4 space-y-3">
+                            <!-- Description -->
+                            <div>
+                                <p class="text-sm text-gray-600 break-words line-clamp-3">
+                                    {{ ruleset.ruleset_description|default:"No description provided" }}
+                                </p>
+                            </div>
+                            
+                            <!-- Badges Section -->
+                            <div class="flex flex-wrap gap-2">
+                                <!-- Combination Type Badge -->
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                    {% if ruleset.rule_combination_type == 'AND' %}bg-blue-100 text-blue-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                    {{ ruleset.get_rule_combination_type_display }}
+                                </span>
+                                
+                                <!-- Rules Count Badge -->
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                    {{ ruleset.rule_count }} rule{{ ruleset.rule_count|pluralize }}
+                                </span>
+                            </div>
+                            
+                            <!-- Associated Template -->
+                            <div class="pt-2">
+                                <p class="text-xs text-gray-500 mb-1">Associated Template:</p>
+                                {% if ruleset.associated_autosegmentation_template %}
+                                    <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}"
+                                       class="text-sm text-primary-600 hover:text-primary-900 hover:underline break-words">
+                                        {{ ruleset.associated_autosegmentation_template.template_name }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-sm text-gray-400 italic">No template assigned</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- Card Footer - Actions -->
+                        <div class="p-4 bg-gray-50 border-t border-gray-200 rounded-b-lg">
+                            <div class="flex flex-wrap gap-2">
+                                {% if perms.dicom_handler.view_ruleset %}
+                                    <c-button variant="primary" size="sm" icon="eye" href="{% url 'dicom_handler:ruleset_detail' ruleset.id %}">View</c-button>
+                                {% endif %}
+                                {% if perms.dicom_handler.change_ruleset %}
+                                    <c-button variant="secondary" size="sm" icon="edit" href="{% url 'dicom_handler:ruleset_edit' ruleset.id %}">Edit</c-button>
+                                {% endif %}
+                                {% if perms.dicom_handler.delete_ruleset %}
+                                    <c-button variant="danger" size="sm" icon="trash" href="{% url 'dicom_handler:ruleset_delete' ruleset.id %}">Delete</c-button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
             </div>
         {% else %}
             <div class="text-center py-12">
