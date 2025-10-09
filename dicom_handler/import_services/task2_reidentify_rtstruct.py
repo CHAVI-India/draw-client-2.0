@@ -290,33 +290,88 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
             logger.debug(f"Reidentified Referenced Frame of Reference Sequence field. Proceeding with other tags")    
         
         logger.debug(f"Reidentified Frame of Reference UID field. Proceeding with other tags")
+        
+        # Create a dictionary mapping deidentified SOP Instance UIDs to original SOP Instance UIDs
+        # This improves performance from O(N*M) to O(N+M) for large datasets
+        sop_uid_mapping = {}
+        missing_original_uids = []
+        for instance in instances:
+            if instance.deidentified_sop_instance_uid:
+                if instance.sop_instance_uid:
+                    sop_uid_mapping[instance.deidentified_sop_instance_uid] = instance.sop_instance_uid
+                else:
+                    # Track instances that have deidentified UIDs but missing original UIDs
+                    missing_original_uids.append(instance.deidentified_sop_instance_uid)
+        
+        if missing_original_uids:
+            logger.warning(f"Found {len(missing_original_uids)} instances with missing original SOP Instance UIDs. "
+                          f"These will not be reidentified. First few: {missing_original_uids[:5]}")
+        
+        logger.debug(f"Created SOP UID mapping with {len(sop_uid_mapping)} entries")
+        
+        # Log the series UIDs for debugging
+        logger.info(f"Series UID values from database:")
+        logger.info(f"  - Original series_instance_uid: ***{series.series_instance_uid[:8] if series.series_instance_uid else 'NONE'}...{series.series_instance_uid[-8:] if series.series_instance_uid else ''}***")
+        logger.info(f"  - Deidentified series_instance_uid: ***{series.deidentified_series_instance_uid[:8] if series.deidentified_series_instance_uid else 'NONE'}...{series.deidentified_series_instance_uid[-8:] if series.deidentified_series_instance_uid else ''}***")
+        
+        # Check if original series instance UID is available
+        if not series.series_instance_uid:
+            logger.error(f"CRITICAL: Original series_instance_uid is missing in database for series ID {series.id}. "
+                        f"Series Instance UID in RTReferencedSeriesSequence will NOT be reidentified!")
+        
         # Update Referenced Series Instance UID in RTReferencedSeriesSequence
         if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence:
             for ref_frame in ds.ReferencedFrameOfReferenceSequence:
                 if hasattr(ref_frame, 'RTReferencedSeriesSequence') and ref_frame.RTReferencedSeriesSequence:
                     for rt_ref_series in ref_frame.RTReferencedSeriesSequence:
                         # Update Series Instance UID using tag (0020,000E) in RTReferencedSeriesSequence
-                        if (0x0020, 0x000E) in rt_ref_series:
-                            rt_ref_series[0x0020, 0x000E].value = series.series_instance_uid
-                            logger.debug(f"Reidentified Series Instance UID field. Proceeding with other tags")
+                        # Only update if original series_instance_uid exists
+                        if series.series_instance_uid:
+                            if (0x0020, 0x000E) in rt_ref_series:
+                                rtstruct_current_value = rt_ref_series[0x0020, 0x000E].value
+                                logger.info(f"RTStructure current Series Instance UID: ***{rtstruct_current_value[:8]}...{rtstruct_current_value[-8:]}***")
+                                logger.info(f"Database series.series_instance_uid: ***{series.series_instance_uid[:8]}...{series.series_instance_uid[-8:]}***")
+                                logger.info(f"Database series.deidentified_series_instance_uid: ***{series.deidentified_series_instance_uid[:8]}...{series.deidentified_series_instance_uid[-8:]}***")
+                                
+                                # Check if they're the same (indicating database has wrong value)
+                                if rtstruct_current_value == series.series_instance_uid:
+                                    logger.error(f"PROBLEM DETECTED: The RTStructure file already contains the value from "
+                                               f"series.series_instance_uid field. This suggests the database field "
+                                               f"'series_instance_uid' contains the DEIDENTIFIED UID, not the original UID!")
+                                
+                                rt_ref_series[0x0020, 0x000E].value = series.series_instance_uid
+                                logger.info(f"Updated Series Instance UID from ***{rtstruct_current_value[:8]}...{rtstruct_current_value[-8:]}*** "
+                                           f"to ***{series.series_instance_uid[:8]}...{series.series_instance_uid[-8:]}***")
+                            else:
+                                rt_ref_series.SeriesInstanceUID = series.series_instance_uid
+                                logger.debug(f"Reidentified Series Instance UID field (attribute access)")
                         else:
-                            rt_ref_series.SeriesInstanceUID = series.series_instance_uid
-                            logger.debug(f"Reidentified Series Instance UID field. Proceeding with other tags")
+                            logger.warning(f"Skipping Series Instance UID reidentification - original UID not available in database")
                         
                         # Update Referenced SOP Instance UIDs if present
                         if hasattr(rt_ref_series, 'ContourImageSequence') and rt_ref_series.ContourImageSequence:
+                            reidentified_count = 0
+                            not_found_count = 0
+                            
                             for contour_image in rt_ref_series.ContourImageSequence:
                                 # Get the current deidentified SOP Instance UID using tag (0008,1155)
                                 if (0x0008, 0x1155) in contour_image:
                                     current_sop_uid = contour_image[0x0008, 0x1155].value
                                     
-                                    # Find matching original SOP Instance UID from instances
-                                    for instance in instances:
-                                        if (instance.deidentified_sop_instance_uid == current_sop_uid and 
-                                            instance.sop_instance_uid):
-                                            contour_image[0x0008, 0x1155].value = instance.sop_instance_uid
-                                            logger.debug(f"Reidentified SOP Instance UID field. Proceeding with other tags")
-                                            break
+                                    # Use dictionary lookup for O(1) performance
+                                    if current_sop_uid in sop_uid_mapping:
+                                        contour_image[0x0008, 0x1155].value = sop_uid_mapping[current_sop_uid]
+                                        logger.debug("Replaced SOP Instance UID: "
+                                                    f"***{current_sop_uid[:8]}...{current_sop_uid[-8:]}*** "
+                                                    f"with ***{sop_uid_mapping[current_sop_uid][:8]}...{sop_uid_mapping[current_sop_uid][-8:]}***")
+                                        reidentified_count += 1
+                                    else:
+                                        not_found_count += 1
+                                        logger.warning(f"No original SOP Instance UID found for deidentified UID: "
+                                                      f"***{current_sop_uid[:8]}...{current_sop_uid[-8:]}***")
+                            
+                            logger.info(f"Reidentified {reidentified_count} SOP Instance UIDs in ContourImageSequence. "
+                                       f"Not found: {not_found_count}")
         
         logger.info(f"Successfully reidentified DICOM tags for patient: ***{patient.patient_id}***")
         return ds
