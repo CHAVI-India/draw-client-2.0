@@ -536,7 +536,7 @@ def read_dicom_from_storage():
                             processed_files += 1
                         elif result['status'] == 'skipped':
                             skipped_files += 1
-                            logger.debug(f"Skipped file: {result['reason']} - {mask_sensitive_data(result['file_path'], 'file_path')}")
+                            # logger.debug(f"Skipped file: {result['reason']} - {mask_sensitive_data(result['file_path'], 'file_path')}")
                         else:
                             error_files += 1
                             logger.warning(f"Error processing file: {result.get('reason', 'unknown')} - {mask_sensitive_data(result['file_path'], 'file_path')}")
@@ -578,6 +578,8 @@ def read_dicom_from_storage():
         # Get final series data for next task
         series_data = get_series_for_next_task()
         
+
+
         return {
             "status": "success",
             "processed_files": processed_files,
