@@ -1300,73 +1300,139 @@ def manual_processing_status(request):
 @login_required
 def statistics_dashboard(request):
     """
-    View for displaying DICOM processing statistics dashboard
+    View for displaying DICOM processing statistics dashboard with aggregated daily and weekly stats
     """
     from django.db.models import Count, Avg
     from django.utils import timezone
-    from datetime import timedelta
+    from datetime import timedelta, datetime, time
     import json
+    import statistics as stats_module
     
-    # Get the latest statistics (last 30 minutes)
-    latest_stats = {}
-    for stat in Statistics.objects.order_by('parameter_name', '-created_at').distinct('parameter_name'):
-        latest_stats[stat.parameter_name] = {
-            'value': stat.parameter_value,
-            'created_at': stat.created_at
-        }
+    now = timezone.now()
     
-    # Get historical data for charts (last 24 hours)
-    last_24_hours = timezone.now() - timedelta(hours=24)
-    historical_stats = Statistics.objects.filter(
-        created_at__gte=last_24_hours
-    ).order_by('created_at')
+    # Calculate time ranges (week starts on Monday)
+    today_start = timezone.make_aware(datetime.combine(now.date(), time.min))
+    today_end = timezone.make_aware(datetime.combine(now.date(), time.max))
     
-    # Organize data for charts
-    chart_data = {}
-    for stat in historical_stats:
-        if stat.parameter_name not in chart_data:
-            chart_data[stat.parameter_name] = {
-                'labels': [],
-                'data': []
-            }
-        chart_data[stat.parameter_name]['labels'].append(
-            stat.created_at.strftime('%H:%M')
+    # Current week (Monday to Sunday)
+    days_since_monday = now.weekday()  # Monday = 0, Sunday = 6
+    this_week_start = timezone.make_aware(
+        datetime.combine((now - timedelta(days=days_since_monday)).date(), time.min)
+    )
+    this_week_end = timezone.make_aware(
+        datetime.combine((this_week_start + timedelta(days=6)).date(), time.max)
+    )
+    
+    # Past week (previous Monday to Sunday)
+    past_week_start = this_week_start - timedelta(days=7)
+    past_week_end = this_week_start - timedelta(seconds=1)
+    
+    def aggregate_stats(start_time, end_time, period_name):
+        """
+        Aggregate statistics for a given time period
+        """
+        stats = Statistics.objects.filter(
+            created_at__gte=start_time,
+            created_at__lte=end_time
         )
-        try:
-            value = float(stat.parameter_value)
-        except ValueError:
-            value = 0
-        chart_data[stat.parameter_name]['data'].append(value)
+        
+        # Initialize aggregated values
+        aggregated = {
+            'period': period_name,
+            'unique_patients': 0,
+            'unique_studies': 0,
+            'unique_series': 0,
+            'unique_instances': 0,
+            'rt_struct_files': 0,
+            'matched_rulesets': 0,
+            'failed_segmentation': 0,
+            'failed_deidentification': 0,
+            'failed_exports': 0,
+            'successful_exports': 0,
+            'completed_segmentation': 0,
+            'median_processing_time': 0,
+        }
+        
+        # Aggregate each metric by summing values
+        for param_name in [
+            'unique_patients_since_last_run',
+            'unique_dicom_studies_since_last_run',
+            'unique_dicom_series_since_last_run',
+            'unique_dicom_instances_since_last_run',
+            'rt_struct_files_downloaded_since_last_run',
+            'series_with_matching_rulesets_since_last_run',
+            'series_with_failed_segmentation_since_last_run',
+            'series_with_failed_deidentification_since_last_run',
+            'series_with_failed_export_since_last_run',
+            'series_exported_successfully_since_last_run',
+            'series_completing_segmentation_since_last_run',
+        ]:
+            param_stats = stats.filter(parameter_name=param_name)
+            total = sum(int(s.parameter_value) for s in param_stats if s.parameter_value.isdigit())
+            
+            # Map to aggregated keys
+            if 'unique_patients' in param_name:
+                aggregated['unique_patients'] = total
+            elif 'unique_dicom_studies' in param_name:
+                aggregated['unique_studies'] = total
+            elif 'unique_dicom_series' in param_name:
+                aggregated['unique_series'] = total
+            elif 'unique_dicom_instances' in param_name:
+                aggregated['unique_instances'] = total
+            elif 'rt_struct_files_downloaded' in param_name:
+                aggregated['rt_struct_files'] = total
+            elif 'series_with_matching_rulesets' in param_name:
+                aggregated['matched_rulesets'] = total
+            elif 'series_with_failed_segmentation' in param_name:
+                aggregated['failed_segmentation'] = total
+            elif 'series_with_failed_deidentification' in param_name:
+                aggregated['failed_deidentification'] = total
+            elif 'series_with_failed_export' in param_name:
+                aggregated['failed_exports'] = total
+            elif 'series_exported_successfully' in param_name:
+                aggregated['successful_exports'] = total
+            elif 'series_completing_segmentation' in param_name:
+                aggregated['completed_segmentation'] = total
+        
+        # Calculate median processing time (excluding zeros)
+        processing_times = stats.filter(
+            parameter_name='average_segmentation_processing_time_seconds_since_last_run'
+        )
+        time_values = []
+        for pt in processing_times:
+            try:
+                val = float(pt.parameter_value)
+                if val > 0:  # Exclude zero values
+                    time_values.append(val)
+            except (ValueError, TypeError):
+                continue
+        
+        if time_values:
+            aggregated['median_processing_time'] = round(stats_module.median(time_values), 2)
+        else:
+            aggregated['median_processing_time'] = 0
+        
+        return aggregated
     
-    # Calculate summary statistics
-    total_patients = Patient.objects.count()
-    total_studies = DICOMStudy.objects.count()
-    total_series = DICOMSeries.objects.count()
+    # Calculate aggregated statistics for each period
+    today_stats = aggregate_stats(today_start, today_end, 'Today')
+    this_week_stats = aggregate_stats(this_week_start, this_week_end, 'This Week')
+    past_week_stats = aggregate_stats(past_week_start, past_week_end, 'Past Week')
     
-    # Processing status breakdown
+    # Processing status breakdown (current state)
     status_breakdown = DICOMSeries.objects.values('series_processsing_status').annotate(
         count=Count('id')
     ).order_by('series_processsing_status')
     
-    # Recent activity (last 7 days)
-    last_week = timezone.now() - timedelta(days=7)
-    recent_patients = Patient.objects.filter(created_at__gte=last_week).count()
-    recent_studies = DICOMStudy.objects.filter(created_at__gte=last_week).count()
-    recent_series = DICOMSeries.objects.filter(created_at__gte=last_week).count()
-    
     context = {
-        'latest_stats': latest_stats,
-        'chart_data': json.dumps(chart_data),
-        'summary': {
-            'total_patients': total_patients,
-            'total_studies': total_studies,
-            'total_series': total_series,
-            'recent_patients': recent_patients,
-            'recent_studies': recent_studies,
-            'recent_series': recent_series,
-        },
+        'today_stats': today_stats,
+        'this_week_stats': this_week_stats,
+        'past_week_stats': past_week_stats,
         'status_breakdown': status_breakdown,
-        'last_updated': timezone.now(),
+        'last_updated': now,
+        'today_date': today_start.strftime('%B %d, %Y'),
+        'this_week_range': f"{this_week_start.strftime('%b %d')} - {this_week_end.strftime('%b %d, %Y')}",
+        'past_week_range': f"{past_week_start.strftime('%b %d')} - {past_week_end.strftime('%b %d, %Y')}",
     }
     
     return render(request, 'dicom_handler/statistics_dashboard.html', context)
