@@ -1408,7 +1408,7 @@ def statistics_dashboard(request):
                 continue
         
         if time_values:
-            aggregated['median_processing_time'] = round(stats_module.median(time_values), 2)
+            aggregated['median_processing_time'] = round(stats_module.median(time_values)/60, 2)
         else:
             aggregated['median_processing_time'] = 0
         
