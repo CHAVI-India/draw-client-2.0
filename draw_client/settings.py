@@ -228,14 +228,14 @@ CELERY_BEAT_SCHEDULE = {
     },
     'gather-statistics': {
         'task': 'dicom_handler.gather_statistics',
-        'schedule': crontab(minute=0, hour='*/6'),  # Run every 6 hours
+        'schedule': crontab(minute='*/30'),  # Run every 30 hours
         'options': {
-            'expires': 60 * 30,  # Task expires after 30 minutes if not picked up
+            'expires': 60 * 15,  # Task expires after 15 minutes if not picked up
         },
     },
     'dicom-export': {
         'task': 'dicom_handler.run_chain_a_export_pipeline',
-        'schedule': crontab(minute='*/5'), # Run every 5 minutes
+        'schedule': crontab(minute='*/10'), # Run every 10 minutes
         'options': {
             'expires': 60 * 30, # Task expiry after 30 min if not picked up
         },   
