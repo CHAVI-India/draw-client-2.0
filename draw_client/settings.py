@@ -254,6 +254,21 @@ CELERY_BEAT_SCHEDULE = {
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
+# Django Allauth Configuration
+ACCOUNT_LOGIN_METHODS = {'username', 'email'}  # Allow login with username or email
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
+ACCOUNT_EMAIL_VERIFICATION = 'none'  # Options: 'none', 'optional', 'mandatory'
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_SESSION_REMEMBER = True
+
+
+# Email Configuration for Development
+# Use console backend to print emails to terminal instead of sending them
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'admin@drawclient.chavi.ai'
+
+
+
 
 # Logging Configuration
 

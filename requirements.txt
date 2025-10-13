@@ -12,7 +12,7 @@ click-repl==0.3.0
 crispy-tailwind==0.5.0
 cron_descriptor==2.0.6
 cryptography==45.0.7
-Django==5.2.6
+Django==5.2.7
 django-allauth==65.11.2
 django-celery-beat==2.8.1
 django-cotton==2.1.3
