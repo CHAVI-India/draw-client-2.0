@@ -56,11 +56,16 @@ import random
 import uuid
 import shutil
 import yaml
+import zipfile
 from datetime import datetime, date, timedelta
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import json
-from ..models import DICOMSeries, DICOMInstance, DICOMFileExport, Patient, DICOMStudy, ProcessingStatus
+
+from ..models import (
+    DICOMSeries, DICOMInstance, DICOMStudy, Patient, ProcessingStatus,
+    DICOMFileExport, DICOMFileTransferStatus, AutosegmentationTemplate
+)
 from django.utils import timezone
 from django.db.models import Count
 
