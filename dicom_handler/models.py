@@ -385,6 +385,8 @@ class DICOMSeries(models.Model):
     series_description = models.CharField(max_length=256,null=True,blank=True)
     series_date = models.DateField(null=True,blank=True)
     deidentified_series_date = models.DateField(null=True,blank=True)
+    series_files_fully_read = models.BooleanField(default=False)
+    series_files_fully_read_datetime = models.DateTimeField(null=True,blank=True)
     instance_count = models.IntegerField(null=True,blank=True)
     matched_rule_sets = models.ManyToManyField(RuleSet)
     matched_templates = models.ManyToManyField(AutosegmentationTemplate)

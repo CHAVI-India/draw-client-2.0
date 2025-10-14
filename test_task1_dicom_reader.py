@@ -84,6 +84,9 @@ def print_database_summary():
         print(f"  - Series UID: {s.series_instance_uid[:20]}... Status: {s.series_processsing_status}")
         print(f"    Root path: {s.series_root_path}")
         print(f"    Instance count: {s.instance_count}")
+        print(f"    ⭐ Fully loaded: {s.series_files_fully_read}")
+        if s.series_files_fully_read:
+            print(f"    ⭐ Loaded at: {s.series_files_fully_read_datetime}")
     
     print(f"Instances created: {instances.count()}")
     for instance in instances[:5]:  # Show first 5 instances
@@ -92,6 +95,53 @@ def print_database_summary():
     
     if instances.count() > 5:
         print(f"  ... and {instances.count() - 5} more instances")
+
+def validate_series_completeness():
+    """
+    Validate that all series are properly marked as complete
+    Checks for instance count mismatches
+    """
+    print("\n" + "="*50)
+    print("SERIES COMPLETENESS VALIDATION")
+    print("="*50)
+    
+    series_list = DICOMSeries.objects.all()
+    
+    if not series_list.exists():
+        print("No series found in database")
+        return True
+    
+    all_valid = True
+    
+    for series in series_list:
+        # Count actual instances in database
+        actual_count = DICOMInstance.objects.filter(series_instance_uid=series).count()
+        recorded_count = series.instance_count or 0
+        
+        print(f"\nSeries: {series.series_instance_uid[:30]}...")
+        print(f"  Recorded count: {recorded_count}")
+        print(f"  Actual count: {actual_count}")
+        print(f"  Fully loaded flag: {series.series_files_fully_read}")
+        
+        if actual_count != recorded_count:
+            print(f"  ⚠️  WARNING: Instance count mismatch! Difference: {abs(actual_count - recorded_count)}")
+            all_valid = False
+        else:
+            print(f"  ✅ Instance count matches")
+        
+        if not series.series_files_fully_read:
+            print(f"  ⚠️  WARNING: Series not marked as fully loaded!")
+            all_valid = False
+        else:
+            print(f"  ✅ Series marked as fully loaded")
+    
+    print("\n" + "-"*50)
+    if all_valid:
+        print("✅ All series are complete and valid")
+    else:
+        print("⚠️  Some series have issues - see warnings above")
+    
+    return all_valid
 
 def test_json_serialization(result):
     """
@@ -207,6 +257,9 @@ def main():
         
         # Show database summary
         print_database_summary()
+        
+        # Validate series completeness
+        validate_series_completeness()
         
         print(f"\n" + "="*60)
         print("TEST COMPLETED SUCCESSFULLY")
