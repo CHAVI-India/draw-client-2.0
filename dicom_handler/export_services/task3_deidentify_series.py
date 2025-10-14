@@ -569,7 +569,7 @@ def deidentify_series(task2_output):
                     if result:
                         instance_mappings[result['original_sop_uid']] = result['deidentified_sop_uid']
                         deidentified_files.append(result['output_path'])
-                        logger.debug(f"Deidentified instance: {mask_sensitive_data(result['original_sop_uid'], 'sop_uid')}")
+                        #logger.debug(f"Deidentified instance: {mask_sensitive_data(result['original_sop_uid'], 'sop_uid')}")
                 
                 if not deidentified_files:
                     logger.error(f"No files were successfully deidentified for series: {mask_sensitive_data(series_uid, 'series_uid')}")
