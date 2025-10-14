@@ -116,7 +116,11 @@ def refresh_bearer_token(config, session):
         logger.error("No refresh token available for token refresh")
         return False
     
-    refresh_url = f"{config.draw_base_url.rstrip('/')}/api/auth/refresh"
+    if not config.draw_token_refresh_endpoint:
+        logger.error("No token refresh endpoint configured")
+        return False
+    
+    refresh_url = config.draw_base_url + config.draw_token_refresh_endpoint
     
     try:
         headers = {
@@ -135,7 +139,14 @@ def refresh_bearer_token(config, session):
                 if 'refresh_token' in token_data:
                     config.draw_refresh_token = token_data.get('refresh_token')
                 if 'expires_at' in token_data:
-                    config.draw_bearer_token_validaty = datetime.fromisoformat(token_data['expires_at'])
+                    from dateutil import parser as dateutil_parser
+                    from django.utils import timezone as django_timezone
+                    # Parse ISO format datetime and ensure it's timezone-aware
+                    expires_at = dateutil_parser.isoparse(token_data['expires_at'])
+                    if expires_at.tzinfo is None:
+                        # If naive, make it aware using Django's timezone
+                        expires_at = django_timezone.make_aware(expires_at)
+                    config.draw_bearer_token_validaty = expires_at
                 config.save()
             
             logger.info("Bearer token refreshed successfully")

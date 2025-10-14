@@ -14,6 +14,9 @@ from .vr_validators import VRValidator
 import requests
 import json
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 @login_required
 @permission_required('dicom_handler.add_autosegmentationtemplate', raise_exception=True)
@@ -1595,6 +1598,44 @@ def check_api_health(request):
                 'message': 'DRAW API URL not configured. Please set draw_base_url in System Configuration.'
             }, status=500)
         
+        # Check if bearer token needs refresh
+        from django.utils import timezone
+        if system_config.draw_bearer_token_validaty and system_config.draw_bearer_token_validaty <= timezone.now():
+            logger.info("Bearer token expired, attempting refresh before health check")
+            if system_config.draw_refresh_token and system_config.draw_token_refresh_endpoint:
+                # Attempt to refresh the token
+                refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+                try:
+                    refresh_headers = {
+                        'Authorization': f'Bearer {system_config.draw_refresh_token}',
+                        'Content-Type': 'application/json'
+                    }
+                    refresh_response = requests.post(refresh_url, headers=refresh_headers, timeout=5)
+                    
+                    if refresh_response.status_code == 200:
+                        token_data = refresh_response.json()
+                        from django.db import transaction
+                        from dateutil import parser as dateutil_parser
+                        
+                        with transaction.atomic():
+                            system_config.draw_bearer_token = token_data.get('access_token')
+                            if 'refresh_token' in token_data:
+                                system_config.draw_refresh_token = token_data.get('refresh_token')
+                            if 'expires_at' in token_data:
+                                # Parse ISO format datetime and ensure it's timezone-aware
+                                expires_at = dateutil_parser.isoparse(token_data['expires_at'])
+                                if expires_at.tzinfo is None:
+                                    # If naive, make it aware using Django's timezone
+                                    expires_at = timezone.make_aware(expires_at)
+                                system_config.draw_bearer_token_validaty = expires_at
+                            system_config.save()
+                        
+                        logger.info("Bearer token refreshed successfully during health check")
+                    else:
+                        logger.warning(f"Token refresh failed with status: {refresh_response.status_code}")
+                except Exception as refresh_error:
+                    logger.error(f"Error refreshing token during health check: {str(refresh_error)}")
+        
         # Construct the health check URL
         # Note: draw_base_url already has trailing slash
         api_url = f"{system_config.draw_base_url}api/health"
@@ -1605,6 +1646,44 @@ def check_api_health(request):
         
         # Make request to health endpoint with timeout
         response = requests.get(api_url, headers=headers, timeout=5)
+        
+        # If we get 401, try to refresh token and retry once
+        if response.status_code == 401:
+            logger.info("Received 401 Unauthorized, attempting token refresh")
+            if system_config.draw_refresh_token and system_config.draw_token_refresh_endpoint:
+                refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+                try:
+                    refresh_headers = {
+                        'Authorization': f'Bearer {system_config.draw_refresh_token}',
+                        'Content-Type': 'application/json'
+                    }
+                    refresh_response = requests.post(refresh_url, headers=refresh_headers, timeout=5)
+                    
+                    if refresh_response.status_code == 200:
+                        token_data = refresh_response.json()
+                        from django.db import transaction
+                        from dateutil import parser as dateutil_parser
+                        
+                        with transaction.atomic():
+                            system_config.draw_bearer_token = token_data.get('access_token')
+                            if 'refresh_token' in token_data:
+                                system_config.draw_refresh_token = token_data.get('refresh_token')
+                            if 'expires_at' in token_data:
+                                # Parse ISO format datetime and ensure it's timezone-aware
+                                expires_at = dateutil_parser.isoparse(token_data['expires_at'])
+                                if expires_at.tzinfo is None:
+                                    # If naive, make it aware using Django's timezone
+                                    expires_at = timezone.make_aware(expires_at)
+                                system_config.draw_bearer_token_validaty = expires_at
+                            system_config.save()
+                        
+                        logger.info("Bearer token refreshed successfully, retrying health check")
+                        
+                        # Retry health check with new token
+                        headers['Authorization'] = f"Bearer {system_config.draw_bearer_token}"
+                        response = requests.get(api_url, headers=headers, timeout=5)
+                except Exception as refresh_error:
+                    logger.error(f"Error refreshing token after 401: {str(refresh_error)}")
         
         # Parse the response
         if response.status_code == 200:
@@ -1619,6 +1698,11 @@ def check_api_health(request):
                 'status': health_data.get('status', 'degraded'),
                 'details': health_data.get('details', {})
             })
+        elif response.status_code == 401:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Authentication failed. Please check bearer token configuration.'
+            }, status=401)
         else:
             return JsonResponse({
                 'status': 'error',

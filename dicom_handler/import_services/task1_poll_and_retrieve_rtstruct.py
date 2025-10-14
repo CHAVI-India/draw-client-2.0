@@ -44,6 +44,67 @@ from ..utils.proxy_configuration import get_session_with_proxy
 
 logger = logging.getLogger(__name__)
 
+def refresh_bearer_token(
+    session: requests.Session,
+    system_config: SystemConfiguration
+) -> bool:
+    """
+    Refresh the bearer token using the refresh token.
+    
+    Args:
+        session: Requests session with proxy configuration
+        system_config: System configuration object
+        
+    Returns:
+        bool: True if token refresh was successful
+    """
+    if not system_config.draw_refresh_token:
+        logger.error("No refresh token available for token refresh")
+        return False
+    
+    if not system_config.draw_token_refresh_endpoint:
+        logger.error("No token refresh endpoint configured")
+        return False
+    
+    refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+    
+    try:
+        headers = {
+            'Authorization': f'Bearer {system_config.draw_refresh_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        logger.info("Attempting to refresh bearer token")
+        response = session.post(refresh_url, headers=headers, timeout=30)
+        
+        if response.status_code == 200:
+            token_data = response.json()
+            
+            # Update configuration with new tokens
+            with transaction.atomic():
+                system_config.draw_bearer_token = token_data.get('access_token')
+                if 'refresh_token' in token_data:
+                    system_config.draw_refresh_token = token_data.get('refresh_token')
+                if 'expires_at' in token_data:
+                    from dateutil import parser as dateutil_parser
+                    # Parse ISO format datetime and ensure it's timezone-aware
+                    expires_at = dateutil_parser.isoparse(token_data['expires_at'])
+                    if expires_at.tzinfo is None:
+                        # If naive, make it aware using Django's timezone
+                        expires_at = timezone.make_aware(expires_at)
+                    system_config.draw_bearer_token_validaty = expires_at
+                system_config.save()
+            
+            logger.info("Bearer token refreshed successfully")
+            return True
+        else:
+            logger.error(f"Token refresh failed with status: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error refreshing bearer token: {str(e)}")
+        return False
+
 def poll_and_retrieve_rtstruct() -> Dict[str, Any]:
     """
     Poll DRAW API server for completed segmentations and download RTStructure files.
@@ -168,6 +229,13 @@ def _poll_server_status(
         bool: True if status was updated successfully
     """
     try:
+        # Check if bearer token needs refresh
+        if system_config.draw_bearer_token_validaty and system_config.draw_bearer_token_validaty <= timezone.now():
+            logger.info("Bearer token expired, attempting refresh before polling status")
+            if not refresh_bearer_token(session, system_config):
+                logger.error("Failed to refresh bearer token for status polling")
+                return False
+        
         # Construct status endpoint URL
         status_url = system_config.draw_base_url + system_config.draw_status_endpoint.format(
             task_id=export.task_id
@@ -227,6 +295,14 @@ def _download_and_validate_rtstruct(
     """
     logger.info(f"_download_and_validate_rtstruct called for task_id: ***{export.task_id[:4]}...{export.task_id[-4:]}***")
     try:
+        # Check if bearer token needs refresh
+        if system_config.draw_bearer_token_validaty and system_config.draw_bearer_token_validaty <= timezone.now():
+            logger.info("Bearer token expired, attempting refresh before downloading")
+            if not refresh_bearer_token(session, system_config):
+                logger.error("Failed to refresh bearer token for download")
+                _update_failed_status(export, DICOMFileTransferStatus.FAILED)
+                return None
+        
         # Construct download URL
         download_url = system_config.draw_base_url + system_config.draw_download_endpoint.format(
             task_id=export.task_id
@@ -491,6 +567,13 @@ def _notify_server_receipt(
         bool: True if notification was successful
     """
     try:
+        # Check if bearer token needs refresh
+        if system_config.draw_bearer_token_validaty and system_config.draw_bearer_token_validaty <= timezone.now():
+            logger.info("Bearer token expired, attempting refresh before notification")
+            if not refresh_bearer_token(session, system_config):
+                logger.error("Failed to refresh bearer token for notification")
+                return False
+        
         # Construct notify URL
         notify_url = system_config.draw_base_url + system_config.draw_notify_endpoint.format(
             task_id=export.task_id

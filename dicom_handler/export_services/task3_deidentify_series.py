@@ -55,20 +55,17 @@ import pydicom
 import random
 import uuid
 import shutil
-import zipfile
 import yaml
 from datetime import datetime, date, timedelta
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import json
-from ..models import (
-    DICOMSeries, DICOMInstance, DICOMStudy, Patient, ProcessingStatus,
-    DICOMFileExport, DICOMFileTransferStatus, AutosegmentationTemplate
-)
+from ..models import DICOMSeries, DICOMInstance, DICOMFileExport, Patient, DICOMStudy, ProcessingStatus
+from django.utils import timezone
+from django.db.models import Count
 
 # Configure logging with masking for sensitive information
 logger = logging.getLogger(__name__)
-
 # Organization prefix for UID generation
 ORGANIZATION_PREFIX = "1.2.826.0.1.3680043.10.1561"
 
@@ -233,8 +230,6 @@ def deidentify_dicom_file(file_path, uid_mappings, date_mappings, output_path):
         # Save deidentified file
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         dicom_data.save_as(output_path,enforce_file_format=True)
-        
-        logger.debug(f"Deidentified DICOM file saved: {mask_sensitive_data(output_path, 'file_path')}")
         
         return {
             'original_sop_uid': original_sop_uid,
@@ -407,6 +402,57 @@ def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappin
         logger.error(f"Error updating database with deidentified data: {str(e)}")
         return False
 
+def log_deidentification_summary(deidentified_results):
+    """
+    Log comprehensive summary of deidentification process
+    Shows patient, study, series, and instance level statistics
+    """
+    if not deidentified_results:
+        logger.info("No series were deidentified")
+        return
+    
+    logger.info("="*80)
+    logger.info("DEIDENTIFICATION SUMMARY")
+    logger.info("="*80)
+    
+    # Collect unique patients, studies, series
+    unique_patients = set()
+    unique_studies = set()
+    total_instances = 0
+    
+    for result in deidentified_results:
+        try:
+            series = DICOMSeries.objects.get(series_instance_uid=result['original_series_uid'])
+            study = series.study
+            patient = study.patient
+            
+            unique_patients.add(patient.patient_id)
+            unique_studies.add(study.study_instance_uid)
+            total_instances += result.get('file_count', 0)
+        except Exception as e:
+            logger.warning(f"Could not retrieve info for series: {e}")
+    
+    logger.info(f"Total Patients Deidentified: {len(unique_patients)}")
+    logger.info(f"Total Studies Deidentified: {len(unique_studies)}")
+    logger.info(f"Total Series Deidentified: {len(deidentified_results)}")
+    logger.info(f"Total Instances Deidentified: {total_instances}")
+    logger.info("")
+    
+    # Show per-series details
+    logger.info("DEIDENTIFIED SERIES DETAILS:")
+    for idx, result in enumerate(deidentified_results, 1):
+        logger.info(f"  Series {idx}:")
+        logger.info(f"    Original Series UID: {mask_sensitive_data(result['original_series_uid'], 'series_uid')}")
+        logger.info(f"    Deidentified Series UID: {mask_sensitive_data(result['deidentified_series_uid'], 'series_uid')}")
+        logger.info(f"    Template: {result.get('template_name', 'N/A')}")
+        logger.info(f"    Instances: {result.get('file_count', 0)}")
+        logger.info(f"    ZIP File: {mask_sensitive_data(result['zip_file_path'], 'file_path')}")
+        logger.info("")
+    
+    logger.info("="*80)
+    logger.info("✅ Deidentification process completed successfully")
+    logger.info("="*80)
+
 def deidentify_series(task2_output):
     """
     Main function to deidentify DICOM series
@@ -573,6 +619,9 @@ def deidentify_series(task2_output):
                 continue
         
         logger.info(f"Deidentification completed. Processed: {processed_count}, Successful: {len(deidentified_results)}")
+        
+        # Log comprehensive summary
+        log_deidentification_summary(deidentified_results)
         
         return {
             "status": "success",

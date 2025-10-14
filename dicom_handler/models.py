@@ -19,6 +19,7 @@ class SystemConfiguration(models.Model):
     draw_status_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Status endpoint of the DRAW API server where status of segmentation is to be polled. The task_id is returned by the DRAW API server.", default="/api/upload/{task_id}/status/")
     draw_download_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Download endpoint of the DRAW API server where the RTStructureSet file is to be downloaded.", default="/api/rtstruct/{task_id}/")
     draw_notify_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Notification endpoint of the DRAW API server where notification is sent after completion of RTStructure Download.", default="/api/rtstruct/{task_id}/confirm/")
+    draw_token_refresh_endpoint = models.CharField(max_length=256,null=True,blank=True,help_text="Token refresh endpoint of the DRAW API server where the refresh token is to be refreshed.", default="/api/token/refresh/")
     draw_bearer_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Bearer token from the DRAW API server")
     draw_refresh_token = EncryptedCharField(max_length=256,null=True,blank=True,help_text="Refresh token from the DRAW API server")
     draw_bearer_token_validaty = models.DateTimeField(null=True,blank=True,help_text="Bearer token validity for the DRAW API server")

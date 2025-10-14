@@ -224,9 +224,9 @@ class SystemConfigurationForm(forms.ModelForm):
         model = SystemConfiguration
         fields = [
             'draw_base_url', 'client_id', 'draw_upload_endpoint', 'draw_status_endpoint',
-            'draw_download_endpoint', 'draw_notify_endpoint', 'draw_bearer_token',
-            'draw_refresh_token', 'draw_bearer_token_validaty', 'folder_configuration',
-            'data_pull_start_datetime'
+            'draw_download_endpoint', 'draw_notify_endpoint', 'draw_token_refresh_endpoint',
+            'draw_bearer_token', 'draw_refresh_token', 'draw_bearer_token_validaty',
+            'folder_configuration', 'data_pull_start_datetime'
         ]
         widgets = {
             'draw_base_url': forms.URLInput(attrs={
@@ -252,6 +252,10 @@ class SystemConfigurationForm(forms.ModelForm):
             'draw_notify_endpoint': forms.TextInput(attrs={
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
                 'placeholder': '/api/rtstruct/{task_id}/confirm/'
+            }),
+            'draw_token_refresh_endpoint': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': '/api/token/refresh/'
             }),
             'draw_bearer_token': forms.PasswordInput(attrs={
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
@@ -299,6 +303,10 @@ class SystemConfigurationForm(forms.ModelForm):
                 Row(
                     Column('draw_download_endpoint', css_class='form-group col-md-6 mb-0'),
                     Column('draw_notify_endpoint', css_class='form-group col-md-6 mb-0'),
+                    css_class='form-row'
+                ),
+                Row(
+                    Column('draw_token_refresh_endpoint', css_class='form-group col-md-6 mb-0'),
                     css_class='form-row'
                 ),
                 css_class='mb-4 collapse-fieldset',
