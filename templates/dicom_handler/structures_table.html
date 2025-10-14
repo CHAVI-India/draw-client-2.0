@@ -5,6 +5,7 @@
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Select</th>
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Structure Name</th>
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Modality</th>
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Anatomic Region</th>
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                 <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model Name</th>
@@ -36,6 +37,9 @@
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                         {{ structure.Major_Category|default:"N/A" }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {{ structure.delineation_modality|default:"N/A" }}
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                         {{ structure.Anatomic_Group|default:"N/A" }}

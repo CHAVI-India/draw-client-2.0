@@ -55,6 +55,7 @@ def search_structures(request):
                         'Major_Category': structure.get('Major_Category'),
                         'Anatomic_Group': structure.get('Anatomic_Group'),
                         'Description': structure.get('Description'),
+                        'delineation_modality': structure.get('delineation_modality'),
                         'median_dice_score': structure.get('median_dice_score'),
                         'model_id': model.get('model_id'),
                         'model_name': model.get('model_name'),
