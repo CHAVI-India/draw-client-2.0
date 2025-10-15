@@ -685,20 +685,37 @@ def get_series_for_next_task():
         logger.error(f"Error getting series for next task: {str(e)}")
         return []
 
-def log_processing_summary():
+def log_processing_summary(newly_processed_series_uids=None):
     """
     Log comprehensive summary of processed data with patient-level statistics
     Shows masked patient IDs and counts of studies, series, and instances per patient
+    
+    Args:
+        newly_processed_series_uids: Set of series UIDs that were newly processed in this run.
+                                     If None or empty, logs all data in database.
     """
     logger.info("="*80)
     logger.info("DICOM PROCESSING SUMMARY")
     logger.info("="*80)
     
-    # Get all patients processed
-    patients = Patient.objects.all().order_by('patient_id')
-    total_patients = patients.count()
+    # If no new series were processed, log that and return early
+    if newly_processed_series_uids is not None and len(newly_processed_series_uids) == 0:
+        logger.info("No new patients/series processed in this run")
+        logger.info("="*80)
+        return
     
-    logger.info(f"Total Patients Processed: {total_patients}")
+    # Get patients based on newly processed series
+    if newly_processed_series_uids:
+        # Get only patients with newly processed series
+        patients = Patient.objects.filter(
+            dicomstudy__dicomseries__series_instance_uid__in=newly_processed_series_uids
+        ).distinct().order_by('patient_id')
+        logger.info(f"Patients with NEW series in this run: {patients.count()}")
+    else:
+        # Get all patients (legacy behavior)
+        patients = Patient.objects.all().order_by('patient_id')
+        logger.info(f"Total Patients Processed: {patients.count()}")
+    
     logger.info("")
     
     total_studies = 0
@@ -707,16 +724,38 @@ def log_processing_summary():
     
     for idx, patient in enumerate(patients, 1):
         # Get studies for this patient
-        studies = DICOMStudy.objects.filter(patient=patient)
+        if newly_processed_series_uids:
+            # Only studies with newly processed series
+            studies = DICOMStudy.objects.filter(
+                patient=patient,
+                dicomseries__series_instance_uid__in=newly_processed_series_uids
+            ).distinct()
+        else:
+            studies = DICOMStudy.objects.filter(patient=patient)
+        
         study_count = studies.count()
         
-        # Get series for this patient (across all studies)
-        series_count = DICOMSeries.objects.filter(study__patient=patient).count()
+        # Get series for this patient
+        if newly_processed_series_uids:
+            # Only newly processed series
+            series_count = DICOMSeries.objects.filter(
+                study__patient=patient,
+                series_instance_uid__in=newly_processed_series_uids
+            ).count()
+        else:
+            series_count = DICOMSeries.objects.filter(study__patient=patient).count()
         
         # Get instances for this patient
-        instance_count = DICOMInstance.objects.filter(
-            series_instance_uid__study__patient=patient
-        ).count()
+        if newly_processed_series_uids:
+            # Only instances from newly processed series
+            instance_count = DICOMInstance.objects.filter(
+                series_instance_uid__study__patient=patient,
+                series_instance_uid__series_instance_uid__in=newly_processed_series_uids
+            ).count()
+        else:
+            instance_count = DICOMInstance.objects.filter(
+                series_instance_uid__study__patient=patient
+            ).count()
         
         # Accumulate totals
         total_studies += study_count
@@ -733,10 +772,22 @@ def log_processing_summary():
         
         # Show study details for this patient
         for study in studies:
-            study_series_count = DICOMSeries.objects.filter(study=study).count()
-            study_instance_count = DICOMInstance.objects.filter(
-                series_instance_uid__study=study
-            ).count()
+            if newly_processed_series_uids:
+                # Only count series from this run
+                study_series_count = DICOMSeries.objects.filter(
+                    study=study,
+                    series_instance_uid__in=newly_processed_series_uids
+                ).count()
+                study_instance_count = DICOMInstance.objects.filter(
+                    series_instance_uid__study=study,
+                    series_instance_uid__series_instance_uid__in=newly_processed_series_uids
+                ).count()
+            else:
+                study_series_count = DICOMSeries.objects.filter(study=study).count()
+                study_instance_count = DICOMInstance.objects.filter(
+                    series_instance_uid__study=study
+                ).count()
+            
             logger.info(f"    └─ Study: {mask_sensitive_data(study.study_instance_uid, 'study_uid')} "
                        f"({study.study_modality}) - {study_series_count} series, {study_instance_count} instances")
         
@@ -744,16 +795,29 @@ def log_processing_summary():
     
     # Overall summary
     logger.info("="*80)
-    logger.info("OVERALL TOTALS")
+    if newly_processed_series_uids:
+        logger.info("TOTALS FOR THIS RUN")
+    else:
+        logger.info("OVERALL TOTALS")
     logger.info("="*80)
-    logger.info(f"Total Patients: {total_patients}")
+    logger.info(f"Total Patients: {total_patients if not newly_processed_series_uids else patients.count()}")
     logger.info(f"Total Studies: {total_studies}")
     logger.info(f"Total Series: {total_series}")
     logger.info(f"Total Instances: {total_instances}")
     
     # Series completion status
-    complete_series = DICOMSeries.objects.filter(series_files_fully_read=True).count()
-    incomplete_series = DICOMSeries.objects.filter(series_files_fully_read=False).count()
+    if newly_processed_series_uids:
+        complete_series = DICOMSeries.objects.filter(
+            series_instance_uid__in=newly_processed_series_uids,
+            series_files_fully_read=True
+        ).count()
+        incomplete_series = DICOMSeries.objects.filter(
+            series_instance_uid__in=newly_processed_series_uids,
+            series_files_fully_read=False
+        ).count()
+    else:
+        complete_series = DICOMSeries.objects.filter(series_files_fully_read=True).count()
+        incomplete_series = DICOMSeries.objects.filter(series_files_fully_read=False).count()
     
     logger.info("")
     logger.info("SERIES COMPLETION STATUS")
@@ -806,6 +870,7 @@ def read_dicom_from_storage_series_aware():
         series_in_progress = {}  # {series_uid: {'files': [], 'last_seen': timestamp, 'root_path': str}}
         series_completed = []     # List of completed series ready for DB insert
         finalized_series_uids = set()  # ⭐ Track which series have been finalized to prevent re-adding
+        newly_processed_series_uids = set()  # ⭐ Track series UIDs processed in THIS run for summary logging
         
         # Configuration for series completion detection
         max_series_in_memory = 50  # Flush to DB when this many series accumulated
@@ -871,6 +936,9 @@ def read_dicom_from_storage_series_aware():
                     # Flush completed series to database periodically
                     if len(series_completed) >= max_series_in_memory:
                         logger.info(f"Flushing {len(series_completed)} completed series to database...")
+                        # Track newly processed series UIDs
+                        for series_data in series_completed:
+                            newly_processed_series_uids.add(series_data['series_uid'])
                         flush_completed_series_to_db(series_completed)
                         series_completed = []
         
@@ -894,16 +962,19 @@ def read_dicom_from_storage_series_aware():
         # Final flush to database
         if series_completed:
             logger.info(f"Final flush: {len(series_completed)} completed series to database")
+            # Track newly processed series UIDs
+            for series_data in series_completed:
+                newly_processed_series_uids.add(series_data['series_uid'])
             flush_completed_series_to_db(series_completed)
         
         logger.info(f"DICOM reading completed. Files discovered: {total_files_discovered}, Processed: {processed_files}, Skipped: {skipped_files}, Errors: {error_files}")
-        logger.info(f"Total complete series: {len(series_completed)}")
+        logger.info(f"Newly processed series in this run: {len(newly_processed_series_uids)}")
         
         # Get final series data for next task
         series_data = get_series_for_next_task()
         
-        # ⭐ Log comprehensive processing summary with patient-level statistics
-        log_processing_summary()
+        # ⭐ Log comprehensive processing summary with ONLY newly processed series
+        log_processing_summary(newly_processed_series_uids)
 
         return {
             "status": "success",

@@ -1616,18 +1616,27 @@ def check_api_health(request):
                         token_data = refresh_response.json()
                         from django.db import transaction
                         from dateutil import parser as dateutil_parser
+                        from datetime import timedelta
                         
                         with transaction.atomic():
                             system_config.draw_bearer_token = token_data.get('access_token')
                             if 'refresh_token' in token_data:
                                 system_config.draw_refresh_token = token_data.get('refresh_token')
-                            if 'expires_at' in token_data:
-                                # Parse ISO format datetime and ensure it's timezone-aware
+                            
+                            # Calculate expiry date from expires_in (seconds)
+                            if 'expires_in' in token_data:
+                                expires_in_seconds = int(token_data['expires_in'])
+                                expires_at = timezone.now() + timedelta(seconds=expires_in_seconds)
+                                system_config.draw_bearer_token_validaty = expires_at
+                                logger.info(f"Token expiry updated to: {expires_at}")
+                            elif 'expires_at' in token_data:
+                                # Fallback: Parse ISO format datetime if provided
                                 expires_at = dateutil_parser.isoparse(token_data['expires_at'])
                                 if expires_at.tzinfo is None:
-                                    # If naive, make it aware using Django's timezone
                                     expires_at = timezone.make_aware(expires_at)
                                 system_config.draw_bearer_token_validaty = expires_at
+                                logger.info(f"Token expiry updated to: {expires_at}")
+                            
                             system_config.save()
                         
                         logger.info("Bearer token refreshed successfully during health check")
@@ -1668,13 +1677,21 @@ def check_api_health(request):
                             system_config.draw_bearer_token = token_data.get('access_token')
                             if 'refresh_token' in token_data:
                                 system_config.draw_refresh_token = token_data.get('refresh_token')
-                            if 'expires_at' in token_data:
-                                # Parse ISO format datetime and ensure it's timezone-aware
+                            
+                            # Calculate expiry date from expires_in (seconds)
+                            if 'expires_in' in token_data:
+                                expires_in_seconds = int(token_data['expires_in'])
+                                expires_at = timezone.now() + timedelta(seconds=expires_in_seconds)
+                                system_config.draw_bearer_token_validaty = expires_at
+                                logger.info(f"Token expiry updated to: {expires_at}")
+                            elif 'expires_at' in token_data:
+                                # Fallback: Parse ISO format datetime if provided
                                 expires_at = dateutil_parser.isoparse(token_data['expires_at'])
                                 if expires_at.tzinfo is None:
-                                    # If naive, make it aware using Django's timezone
                                     expires_at = timezone.make_aware(expires_at)
                                 system_config.draw_bearer_token_validaty = expires_at
+                                logger.info(f"Token expiry updated to: {expires_at}")
+                            
                             system_config.save()
                         
                         logger.info("Bearer token refreshed successfully, retrying health check")
