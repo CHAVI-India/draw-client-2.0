@@ -151,8 +151,8 @@ class DICOMSeriesAdmin(admin.ModelAdmin):
 @admin.register(DICOMInstance)
 class DICOMInstanceAdmin(admin.ModelAdmin):
     list_display = ('sop_instance_uid', 'series_instance_uid', 'instance_path', 'created_at')
-    search_fields = ('sop_instance_uid', 'deidentified_sop_instance_uid', 'instance_path')
-    list_filter = ('created_at',)
+    search_fields = ('sop_instance_uid', 'deidentified_sop_instance_uid', 'instance_path', 'series_instance_uid__series_instance_uid')
+    list_filter = ('created_at', 'series_instance_uid__study__patient__patient_id')
     autocomplete_fields = ['series_instance_uid']
     
     def get_readonly_fields(self, request, obj=None):

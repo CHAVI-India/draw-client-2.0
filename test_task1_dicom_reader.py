@@ -140,6 +140,7 @@ def validate_series_completeness():
         print("✅ All series are complete and valid")
     else:
         print("⚠️  Some series have issues - see warnings above")
+    print("="*50)
     
     return all_valid
 

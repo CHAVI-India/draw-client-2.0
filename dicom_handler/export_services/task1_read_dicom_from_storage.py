@@ -58,8 +58,6 @@ import pydicom
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import transaction
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from multiprocessing import cpu_count
 import json
 from ..models import (
     SystemConfiguration, Patient, DICOMStudy, DICOMSeries, 
@@ -448,71 +446,62 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
         logger.error(f"Error processing DICOM file {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")
         return {'status': 'error', 'message': str(e)}
 
-def process_file_batch_and_group(file_queue, series_in_progress, existing_sop_uids, finalized_series_uids, max_workers):
+def process_single_file_and_group(file_info, series_in_progress, existing_sop_uids, finalized_series_uids):
     """
-    Process batch of files in parallel and group by series UID
-    Each file read ONCE with full metadata extraction
+    Process a single file and group by series UID
     Returns: Statistics dict with processed/skipped/error counts
     """
     stats = {'processed': 0, 'skipped': 0, 'errors': 0}
     
-    # Parallel processing for speed
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_file = {
-            executor.submit(process_single_file, file_info): file_info[0]
-            for file_info in file_queue
-        }
+    try:
+        result = process_single_file(file_info)
         
-        for future in as_completed(future_to_file):
-            try:
-                result = future.result()
-                
-                # Count by status
-                if result['status'] == 'success':
-                    stats['processed'] += 1
-                elif result['status'] == 'skipped':
-                    stats['skipped'] += 1
-                else:
-                    stats['errors'] += 1
-                    continue
-                
-                # Only process successful results
-                if result['status'] != 'success':
-                    continue
-                
-                metadata = result['metadata']
-                series_uid = metadata['series_instance_uid']
-                sop_uid = metadata['sop_instance_uid']
-                
-                # Skip if already in database
-                if sop_uid in existing_sop_uids:
-                    stats['skipped'] += 1
-                    stats['processed'] -= 1
-                    continue
-                
-                existing_sop_uids.add(sop_uid)
-                
-                # ⭐ Skip if series already finalized
-                if series_uid in finalized_series_uids:
-                    logger.warning(f"Skipping file from already finalized series: {mask_sensitive_data(series_uid, 'series_uid')}")
-                    continue
-                
-                # ⭐ Group by series (single read, immediate grouping)
-                if series_uid not in series_in_progress:
-                    series_in_progress[series_uid] = {
-                        'files': [],
-                        'last_seen': timezone.now(),
-                        'series_root_path': metadata['series_root_path'],
-                        'first_file_metadata': metadata
-                    }
-                
-                # Add file to series group
-                series_in_progress[series_uid]['files'].append(result)
-                series_in_progress[series_uid]['last_seen'] = timezone.now()
-                
-            except Exception as e:
-                stats['errors'] += 1
-                logger.error(f"Error processing file in batch: {e}")
+        # Count by status
+        if result['status'] == 'success':
+            stats['processed'] += 1
+        elif result['status'] == 'skipped':
+            stats['skipped'] += 1
+        else:
+            stats['errors'] += 1
+            return stats
+        
+        # Only process successful results
+        if result['status'] != 'success':
+            return stats
+        
+        metadata = result['metadata']
+        series_uid = metadata['series_instance_uid']
+        sop_uid = metadata['sop_instance_uid']
+        
+        # Skip if already in database
+        if sop_uid in existing_sop_uids:
+            stats['skipped'] += 1
+            stats['processed'] -= 1
+            return stats
+        
+        existing_sop_uids.add(sop_uid)
+        
+        # ⭐ Skip if series already finalized
+        if series_uid in finalized_series_uids:
+            logger.warning(f"Skipping file from already finalized series: {mask_sensitive_data(series_uid, 'series_uid')}")
+            return stats
+        
+        # ⭐ Group by series (single read, immediate grouping)
+        if series_uid not in series_in_progress:
+            series_in_progress[series_uid] = {
+                'files': [],
+                'last_seen': timezone.now(),
+                'series_root_path': metadata['series_root_path'],
+                'first_file_metadata': metadata
+            }
+        
+        # Add file to series group
+        series_in_progress[series_uid]['files'].append(result)
+        series_in_progress[series_uid]['last_seen'] = timezone.now()
+        
+    except Exception as e:
+        stats['errors'] += 1
+        logger.error(f"Error processing file: {e}")
     
     return stats
 
@@ -800,7 +789,7 @@ def log_processing_summary(newly_processed_series_uids=None):
     else:
         logger.info("OVERALL TOTALS")
     logger.info("="*80)
-    logger.info(f"Total Patients: {total_patients if not newly_processed_series_uids else patients.count()}")
+    logger.info(f"Total Patients: {patients.count()}")
     logger.info(f"Total Studies: {total_studies}")
     logger.info(f"Total Series: {total_series}")
     logger.info(f"Total Instances: {total_instances}")
@@ -878,10 +867,8 @@ def read_dicom_from_storage_series_aware():
         # Statistics
         total_files_discovered = 0
         
-        logger.info("Phase 1: Discovering and grouping files by series (single-pass)...")
+        logger.info("Phase 1: Discovering and grouping files by series (single-pass, single process)...")
         
-        # ⭐ Collect files in mini-batches for parallel processing
-        file_queue = []
         last_directory = None
         
         # Check for existing SOP Instance UIDs to avoid duplicates
@@ -889,10 +876,7 @@ def read_dicom_from_storage_series_aware():
             DICOMInstance.objects.values_list('sop_instance_uid', flat=True)
         )
         logger.info(f"Found {len(existing_sop_uids)} existing SOP Instance UIDs in database")
-        
-        # Process files in parallel using threads (Celery-compatible)
-        max_workers = min(cpu_count(), 8)  # Limit to 8 threads max
-        logger.info(f"Processing files with {max_workers} parallel threads")
+        logger.info(f"Processing files sequentially (single process)")
         
         processed_files = 0
         skipped_files = 0
@@ -912,48 +896,35 @@ def read_dicom_from_storage_series_aware():
             
             last_directory = root
             
-            # Collect files from this directory
+            # Process files from this directory one at a time
             for file in files:
                 file_path = os.path.join(root, file)
-                file_queue.append((file_path, root, date_filter, current_time, ten_minutes_ago))
                 total_files_discovered += 1
                 
-                # Process in mini-batches for parallel reading (100 files at a time)
-                if len(file_queue) >= 100:
-                    stats = process_file_batch_and_group(
-                        file_queue,
-                        series_in_progress,
-                        existing_sop_uids,
-                        finalized_series_uids,
-                        max_workers
-                    )
-                    processed_files += stats['processed']
-                    skipped_files += stats['skipped']
-                    error_files += stats['errors']
-                    
-                    file_queue = []  # Clear queue
-                    
-                    # Flush completed series to database periodically
-                    if len(series_completed) >= max_series_in_memory:
-                        logger.info(f"Flushing {len(series_completed)} completed series to database...")
-                        # Track newly processed series UIDs
-                        for series_data in series_completed:
-                            newly_processed_series_uids.add(series_data['series_uid'])
-                        flush_completed_series_to_db(series_completed)
-                        series_completed = []
-        
-        # Process remaining files in queue
-        if file_queue:
-            stats = process_file_batch_and_group(
-                file_queue,
-                series_in_progress,
-                existing_sop_uids,
-                finalized_series_uids,
-                max_workers
-            )
-            processed_files += stats['processed']
-            skipped_files += stats['skipped']
-            error_files += stats['errors']
+                # Process single file
+                file_info = (file_path, root, date_filter, current_time, ten_minutes_ago)
+                stats = process_single_file_and_group(
+                    file_info,
+                    series_in_progress,
+                    existing_sop_uids,
+                    finalized_series_uids
+                )
+                processed_files += stats['processed']
+                skipped_files += stats['skipped']
+                error_files += stats['errors']
+                
+                # Log progress every 100 files
+                if total_files_discovered % 100 == 0:
+                    logger.info(f"Progress: {total_files_discovered} files discovered, {processed_files} processed")
+                
+                # Flush completed series to database periodically
+                if len(series_completed) >= max_series_in_memory:
+                    logger.info(f"Flushing {len(series_completed)} completed series to database...")
+                    # Track newly processed series UIDs
+                    for series_data in series_completed:
+                        newly_processed_series_uids.add(series_data['series_uid'])
+                    flush_completed_series_to_db(series_completed)
+                    series_completed = []
         
         # Finalize all remaining series (end of directory walk)
         logger.info(f"Finalizing {len(series_in_progress)} remaining series...")
