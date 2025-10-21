@@ -1,0 +1,1506 @@
+[
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+  "fields": {
+    "template_name": "Example CNS Template",
+    "template_description": "Example Template for CNS",
+    "created_at": "2025-10-21T10:17:25.534Z",
+    "updated_at": "2025-10-21T10:18:25.481Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "3c51faad-914e-4c46-acff-a7ccb7e07fff",
+  "fields": {
+    "template_name": "Example Lung Template",
+    "template_description": "Example Template for lung cancer",
+    "created_at": "2025-10-21T10:15:20.595Z",
+    "updated_at": "2025-10-21T10:21:04.192Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "450058ba-a0fd-45e0-9756-9fb832269650",
+  "fields": {
+    "template_name": "Example Prostate Template",
+    "template_description": "Template for Prostate Cancer",
+    "created_at": "2025-10-21T10:14:35.429Z",
+    "updated_at": "2025-10-21T10:14:35.430Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+  "fields": {
+    "template_name": "Example Head Neck Template",
+    "template_description": "Template for Head Neck Cancer",
+    "created_at": "2025-10-21T10:13:40.479Z",
+    "updated_at": "2025-10-21T10:13:40.479Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "9e3cb026-4208-489b-af02-34a437719deb",
+  "fields": {
+    "template_name": "Example Breast Template",
+    "template_description": "Example Breast Template",
+    "created_at": "2025-10-21T10:12:04.761Z",
+    "updated_at": "2025-10-21T10:12:04.761Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "a4a772ee-e872-4326-a7b8-0627b736228d",
+  "fields": {
+    "template_name": "Example Gyn Template",
+    "template_description": "Example Template for Gyn Cancers",
+    "created_at": "2025-10-21T10:19:50.367Z",
+    "updated_at": "2025-10-21T10:19:50.367Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationtemplate",
+  "pk": "eb6a771a-821d-4c37-ae3c-bac1f1d1a2bd",
+  "fields": {
+    "template_name": "Example Rectum Template",
+    "template_description": "Example Template for Rectal Cancer",
+    "created_at": "2025-10-21T10:16:04.671Z",
+    "updated_at": "2025-10-21T10:20:45.603Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+  "fields": {
+    "autosegmentation_template_name": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+    "model_id": 301,
+    "name": "HeadNeckOAR",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset301_HeadNeckOAR/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:13:40.496Z",
+    "updated_at": "2025-10-21T10:13:40.496Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "15f04d8e-1c78-4040-994b-1538df0e9407",
+  "fields": {
+    "autosegmentation_template_name": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+    "model_id": 302,
+    "name": "HeadNeckCNS",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset302_HeadNeckCNS/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:13:40.613Z",
+    "updated_at": "2025-10-21T10:13:40.613Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "2529f433-116d-4b75-8e84-ebd8ef716ca4",
+  "fields": {
+    "autosegmentation_template_name": "450058ba-a0fd-45e0-9756-9fb832269650",
+    "model_id": 721,
+    "name": "TSPrimeCTVP",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "null",
+    "created_at": "2025-10-21T10:14:35.711Z",
+    "updated_at": "2025-10-21T10:14:35.711Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "259f4fc8-3eb8-43e6-b70f-8be5e2dc686d",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 652,
+    "name": "BreastSurgicalClips",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset652_BreastSurgicalClips/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.941Z",
+    "updated_at": "2025-10-21T10:12:04.941Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "33ac2147-7599-49ba-adbb-fc0defe69622",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 922,
+    "name": "TSCnsHippocampus",
+    "config": "3d_lowres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "nnUNet_results/Dataset922_TSCnsHippocampus/nnUNetTrainer__nnUNetPlans__3d_lowres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.710Z",
+    "updated_at": "2025-10-21T10:18:25.710Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "4e36ce7b-8d3a-4ee2-aa22-2b26df01d403",
+  "fields": {
+    "autosegmentation_template_name": "3c51faad-914e-4c46-acff-a7ccb7e07fff",
+    "model_id": 656,
+    "name": "LAD_Thyroid",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset656_LAD_Thyroid/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:21:04.284Z",
+    "updated_at": "2025-10-21T10:21:04.284Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "5332cfb8-0982-4cdd-b6a0-b10d9dd1bfac",
+  "fields": {
+    "autosegmentation_template_name": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+    "model_id": 303,
+    "name": "HeadNeckCochlea",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset303_HeadNeckCochlea/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:13:40.588Z",
+    "updated_at": "2025-10-21T10:13:40.588Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "69bda522-4b1d-4772-b762-a5517ce4ffa9",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 653,
+    "name": "BreastGTVp",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset653_BreastGTVp/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.925Z",
+    "updated_at": "2025-10-21T10:12:04.925Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "7ace1a8d-81df-44d3-95a4-0f01fc5e0b8e",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 655,
+    "name": "BreastCTVSCF",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset655_BreastCTVSCF/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.875Z",
+    "updated_at": "2025-10-21T10:12:04.875Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "7ba27cfe-5cf9-4473-a3f1-b84b7bc1a7c0",
+  "fields": {
+    "autosegmentation_template_name": "450058ba-a0fd-45e0-9756-9fb832269650",
+    "model_id": 722,
+    "name": "TSPrimeCTVN",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "null",
+    "created_at": "2025-10-21T10:14:35.551Z",
+    "updated_at": "2025-10-21T10:14:35.551Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "80731df9-73d3-46aa-9873-525e590732ae",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 301,
+    "name": "HeadNeckOAR",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset301_HeadNeckOAR/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.543Z",
+    "updated_at": "2025-10-21T10:18:25.543Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "8259ac91-a837-44d1-b47c-9fe4f8c30b27",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 303,
+    "name": "HeadNeckCochlea",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset303_HeadNeckCochlea/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.668Z",
+    "updated_at": "2025-10-21T10:18:25.668Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "88fe9cd6-4775-445c-8f47-91f3d850fd9e",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 651,
+    "name": "BreastCTVp",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset651_BreastCTVp/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.850Z",
+    "updated_at": "2025-10-21T10:12:04.850Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "8b4bcf9a-d423-492d-be6b-e3e06b978aa7",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 654,
+    "name": "BreastCTVIMN",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset654_BreastCTVIMN/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.900Z",
+    "updated_at": "2025-10-21T10:12:04.900Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "98caa7a0-faa5-4c5f-9886-2c8a5beaf9b1",
+  "fields": {
+    "autosegmentation_template_name": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+    "model_id": 304,
+    "name": "HeadNeckBPlexus",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset304_HeadNeckBPlexus/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:13:40.663Z",
+    "updated_at": "2025-10-21T10:13:40.663Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 302,
+    "name": "HeadNeckCNS",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset302_HeadNeckCNS/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.618Z",
+    "updated_at": "2025-10-21T10:18:25.618Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "a83949a7-985b-4849-a3e7-5e3a2c5ecd00",
+  "fields": {
+    "autosegmentation_template_name": "eb6a771a-821d-4c37-ae3c-bac1f1d1a2bd",
+    "model_id": 720,
+    "name": "TSPrime",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset720_TSPrime/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:20:45.637Z",
+    "updated_at": "2025-10-21T10:20:45.637Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+  "fields": {
+    "autosegmentation_template_name": "450058ba-a0fd-45e0-9756-9fb832269650",
+    "model_id": 720,
+    "name": "TSPrime",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset720_TSPrime/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/postprocessing.pkl",
+    "created_at": "2025-10-21T10:14:35.447Z",
+    "updated_at": "2025-10-21T10:14:35.447Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "ab9fc813-1492-4033-99b8-c70808f00a79",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 923,
+    "name": "TSCnsTemporal",
+    "config": "3d_lowres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "nnUNet_results/Dataset923_TSCnsTemporal/nnUNetTrainer__nnUNetPlans__3d_lowres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.743Z",
+    "updated_at": "2025-10-21T10:18:25.743Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "b8508552-5e87-4189-961d-8ffb868acdca",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 657,
+    "name": "BrachialPlexus",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset657_BrachialPlexus/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:05.108Z",
+    "updated_at": "2025-10-21T10:12:05.108Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "cb548972-3b4c-4210-9bc0-ad899ded153e",
+  "fields": {
+    "autosegmentation_template_name": "038493c6-1766-49ca-a4e6-749bee3a6a4d",
+    "model_id": 921,
+    "name": "TSCnsLensOptic",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "nnUNet_results/Dataset921_TSCnsLensOptic/nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:18:25.693Z",
+    "updated_at": "2025-10-21T10:18:25.693Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+  "fields": {
+    "autosegmentation_template_name": "eb6a771a-821d-4c37-ae3c-bac1f1d1a2bd",
+    "model_id": 820,
+    "name": "TSGyneOrgans",
+    "config": "3d_lowres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "null",
+    "created_at": "2025-10-21T10:20:45.678Z",
+    "updated_at": "2025-10-21T10:20:45.678Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "dc4e2e52-0567-4adb-a796-a00898acf686",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 650,
+    "name": "ThoraxOAR",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset650_ThoraxOAR/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.783Z",
+    "updated_at": "2025-10-21T10:12:04.783Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "f1250c43-318e-414c-94e4-b97f62301e45",
+  "fields": {
+    "autosegmentation_template_name": "3c51faad-914e-4c46-acff-a7ccb7e07fff",
+    "model_id": 650,
+    "name": "ThoraxOAR",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerNoMirroring",
+    "postprocess": "nnUNet_results/Dataset650_ThoraxOAR/nnUNetTrainerNoMirroring__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:21:04.226Z",
+    "updated_at": "2025-10-21T10:21:04.226Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "f215cadd-8fea-40dc-9bff-9850d284e1f7",
+  "fields": {
+    "autosegmentation_template_name": "9e3cb026-4208-489b-af02-34a437719deb",
+    "model_id": 656,
+    "name": "LAD_Thyroid",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset656_LAD_Thyroid/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:12:04.958Z",
+    "updated_at": "2025-10-21T10:12:04.958Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+  "fields": {
+    "autosegmentation_template_name": "a4a772ee-e872-4326-a7b8-0627b736228d",
+    "model_id": 820,
+    "name": "TSGyneOrgans",
+    "config": "3d_lowres",
+    "trainer_name": "nnUNetTrainer",
+    "postprocess": "null",
+    "created_at": "2025-10-21T10:19:50.395Z",
+    "updated_at": "2025-10-21T10:19:50.395Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationmodel",
+  "pk": "fc12e115-72a7-44c9-96cb-63f1499f255d",
+  "fields": {
+    "autosegmentation_template_name": "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",
+    "model_id": 305,
+    "name": "HeadNeckMuscConstrict",
+    "config": "3d_fullres",
+    "trainer_name": "nnUNetTrainerDiceCELoss_noSmooth",
+    "postprocess": "nnUNet_results/Dataset305_HeadNeckMuscConstrict/nnUNetTrainerDiceCELoss_noSmooth__nnUNetPlans__3d_fullres/fold_0/validation/postprocessing.pkl",
+    "created_at": "2025-10-21T10:13:40.571Z",
+    "updated_at": "2025-10-21T10:13:40.571Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0856f5f7-ced1-4704-a0a4-6945a60a8124",
+  "fields": {
+    "autosegmentation_model": "7ba27cfe-5cf9-4473-a3f1-b84b7bc1a7c0",
+    "map_id": 1,
+    "name": "Ctvn",
+    "created_at": "2025-10-21T10:14:35.664Z",
+    "updated_at": "2025-10-21T10:14:35.664Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0880d0cb-8cb0-48e1-9e81-b562e09f398e",
+  "fields": {
+    "autosegmentation_model": "8b4bcf9a-d423-492d-be6b-e3e06b978aa7",
+    "map_id": 2,
+    "name": "Ctv_Imn_L",
+    "created_at": "2025-10-21T10:12:04.916Z",
+    "updated_at": "2025-10-21T10:12:04.916Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0b94b8b0-f40e-4dde-8ab8-85c6aa20fc37",
+  "fields": {
+    "autosegmentation_model": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+    "map_id": 3,
+    "name": "Lens_R",
+    "created_at": "2025-10-21T10:18:25.643Z",
+    "updated_at": "2025-10-21T10:18:25.643Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0be51758-c5a8-4248-802e-d4913d617d6e",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 4,
+    "name": "Liver",
+    "created_at": "2025-10-21T10:12:04.825Z",
+    "updated_at": "2025-10-21T10:12:04.825Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0c469c90-5583-45ed-85ab-a38cf869b946",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 4,
+    "name": "Eye_R",
+    "created_at": "2025-10-21T10:13:40.529Z",
+    "updated_at": "2025-10-21T10:13:40.529Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "0eaddc9a-cad6-4d27-b24e-194778ff20ba",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 2,
+    "name": "Lung_R",
+    "created_at": "2025-10-21T10:21:04.242Z",
+    "updated_at": "2025-10-21T10:21:04.242Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "1422cda7-5ef9-4e74-beec-8e50bb12b98e",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 9,
+    "name": "Stomach",
+    "created_at": "2025-10-21T10:19:50.444Z",
+    "updated_at": "2025-10-21T10:19:50.444Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "16857c5f-021d-4a76-a6bd-87c531b3c358",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 1,
+    "name": "Bladder",
+    "created_at": "2025-10-21T10:14:35.455Z",
+    "updated_at": "2025-10-21T10:14:35.455Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "1aa433b4-2f22-445f-acb7-289377b67cbe",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 3,
+    "name": "Pancreas",
+    "created_at": "2025-10-21T10:19:50.419Z",
+    "updated_at": "2025-10-21T10:19:50.419Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "1fe40c94-c696-4de6-a6dc-7e4fc43a4754",
+  "fields": {
+    "autosegmentation_model": "5332cfb8-0982-4cdd-b6a0-b10d9dd1bfac",
+    "map_id": 1,
+    "name": "Cochlea_L",
+    "created_at": "2025-10-21T10:13:40.596Z",
+    "updated_at": "2025-10-21T10:13:40.596Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "22d71287-9468-4985-853e-cc8c71c944f8",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 10,
+    "name": "Spleen",
+    "created_at": "2025-10-21T10:19:50.453Z",
+    "updated_at": "2025-10-21T10:19:50.453Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "25e79001-6a32-4ad8-b726-f7f27fc5520c",
+  "fields": {
+    "autosegmentation_model": "8259ac91-a837-44d1-b47c-9fe4f8c30b27",
+    "map_id": 2,
+    "name": "Cochlea_R",
+    "created_at": "2025-10-21T10:18:25.685Z",
+    "updated_at": "2025-10-21T10:18:25.685Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "2cff0639-b9bf-4df7-b85a-f17bf9249df8",
+  "fields": {
+    "autosegmentation_model": "a83949a7-985b-4849-a3e7-5e3a2c5ecd00",
+    "map_id": 5,
+    "name": "Femur_Head_R",
+    "created_at": "2025-10-21T10:20:45.661Z",
+    "updated_at": "2025-10-21T10:20:45.661Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "32f7d040-7719-4697-881d-0acf77c27cea",
+  "fields": {
+    "autosegmentation_model": "f215cadd-8fea-40dc-9bff-9850d284e1f7",
+    "map_id": 2,
+    "name": "Glnd_Thyroid",
+    "created_at": "2025-10-21T10:12:05.100Z",
+    "updated_at": "2025-10-21T10:12:05.100Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "37db535e-6640-4bf1-9484-082666111e09",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 3,
+    "name": "Eye_L",
+    "created_at": "2025-10-21T10:13:40.521Z",
+    "updated_at": "2025-10-21T10:13:40.521Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "37f62c51-ba3f-4301-be09-506272d3aa1d",
+  "fields": {
+    "autosegmentation_model": "98caa7a0-faa5-4c5f-9886-2c8a5beaf9b1",
+    "map_id": 1,
+    "name": "Lips",
+    "created_at": "2025-10-21T10:13:40.671Z",
+    "updated_at": "2025-10-21T10:13:40.671Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "3aec033b-c202-4c2b-a11b-251c2ee7b0b1",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 17,
+    "name": "Bone_Marrow_Lum",
+    "created_at": "2025-10-21T10:19:50.511Z",
+    "updated_at": "2025-10-21T10:19:50.511Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "3ee21a31-6d95-4007-815b-f8c87aea5ca2",
+  "fields": {
+    "autosegmentation_model": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+    "map_id": 5,
+    "name": "OpticNrv_R",
+    "created_at": "2025-10-21T10:18:25.660Z",
+    "updated_at": "2025-10-21T10:18:25.660Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "4516768c-80ac-433f-9e31-0169dba9ab31",
+  "fields": {
+    "autosegmentation_model": "ab9fc813-1492-4033-99b8-c70808f00a79",
+    "map_id": 2,
+    "name": "Lobe_Temporal_R",
+    "created_at": "2025-10-21T10:18:25.760Z",
+    "updated_at": "2025-10-21T10:18:25.760Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "4bfd96c2-4454-4589-8adf-520ff967ff7c",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 3,
+    "name": "Lung_L",
+    "created_at": "2025-10-21T10:12:04.816Z",
+    "updated_at": "2025-10-21T10:12:04.816Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "4e552146-3478-43fe-9d4e-0140fe81ee84",
+  "fields": {
+    "autosegmentation_model": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+    "map_id": 1,
+    "name": "Brainstem",
+    "created_at": "2025-10-21T10:18:25.626Z",
+    "updated_at": "2025-10-21T10:18:25.626Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "4e5b6759-0b48-4465-a1e4-1c6ed4476b55",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 3,
+    "name": "Bag_Bowel",
+    "created_at": "2025-10-21T10:14:35.472Z",
+    "updated_at": "2025-10-21T10:14:35.472Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "4f17ee8f-5f00-4eee-bfd4-4a6fdaba294c",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 4,
+    "name": "Femur_Head_L",
+    "created_at": "2025-10-21T10:14:35.480Z",
+    "updated_at": "2025-10-21T10:14:35.480Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "5188dba0-bdd2-45d0-8bcd-0effa7c38b56",
+  "fields": {
+    "autosegmentation_model": "15f04d8e-1c78-4040-994b-1538df0e9407",
+    "map_id": 1,
+    "name": "Brainstem",
+    "created_at": "2025-10-21T10:13:40.621Z",
+    "updated_at": "2025-10-21T10:13:40.621Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "5301174a-49c5-4d63-960a-0d6a97a2bb7a",
+  "fields": {
+    "autosegmentation_model": "15f04d8e-1c78-4040-994b-1538df0e9407",
+    "map_id": 2,
+    "name": "Lens_L",
+    "created_at": "2025-10-21T10:13:40.629Z",
+    "updated_at": "2025-10-21T10:13:40.629Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "548cb8cc-dd8c-41fa-94cb-72f233cda0c0",
+  "fields": {
+    "autosegmentation_model": "88fe9cd6-4775-445c-8f47-91f3d850fd9e",
+    "map_id": 1,
+    "name": "Breast_R",
+    "created_at": "2025-10-21T10:12:04.858Z",
+    "updated_at": "2025-10-21T10:12:04.858Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "562dfa02-4b7e-4160-ab0f-479cdfa10590",
+  "fields": {
+    "autosegmentation_model": "8259ac91-a837-44d1-b47c-9fe4f8c30b27",
+    "map_id": 1,
+    "name": "Cochlea_L",
+    "created_at": "2025-10-21T10:18:25.676Z",
+    "updated_at": "2025-10-21T10:18:25.676Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "5cf4b7bd-9883-479e-89ab-10f0465604dc",
+  "fields": {
+    "autosegmentation_model": "15f04d8e-1c78-4040-994b-1538df0e9407",
+    "map_id": 5,
+    "name": "OpticNrv_R",
+    "created_at": "2025-10-21T10:13:40.654Z",
+    "updated_at": "2025-10-21T10:13:40.654Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "5f0a11b9-2884-4d65-a3c7-cec3b9715008",
+  "fields": {
+    "autosegmentation_model": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+    "map_id": 13,
+    "name": "Kidney_L",
+    "created_at": "2025-10-21T10:20:45.720Z",
+    "updated_at": "2025-10-21T10:20:45.720Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "5ffc56c9-8a52-4dd8-829d-7276d1e0065a",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 2,
+    "name": "Anorectum",
+    "created_at": "2025-10-21T10:14:35.463Z",
+    "updated_at": "2025-10-21T10:14:35.463Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "6505af3f-2561-4c8b-8695-21e23291effb",
+  "fields": {
+    "autosegmentation_model": "98caa7a0-faa5-4c5f-9886-2c8a5beaf9b1",
+    "map_id": 4,
+    "name": "OpticChiasm",
+    "created_at": "2025-10-21T10:13:40.696Z",
+    "updated_at": "2025-10-21T10:13:40.696Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "6a6c0dbe-f03f-4121-8219-f565aa156a92",
+  "fields": {
+    "autosegmentation_model": "4e36ce7b-8d3a-4ee2-aa22-2b26df01d403",
+    "map_id": 1,
+    "name": "A_LAD",
+    "created_at": "2025-10-21T10:21:04.292Z",
+    "updated_at": "2025-10-21T10:21:04.292Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "6a87be37-ae5e-47b1-a66e-1f4e5e8f7981",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 16,
+    "name": "Bone_Marrow_Pel",
+    "created_at": "2025-10-21T10:19:50.503Z",
+    "updated_at": "2025-10-21T10:19:50.503Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "6dc524b3-f3cf-4867-851b-8892d2a16eca",
+  "fields": {
+    "autosegmentation_model": "259f4fc8-3eb8-43e6-b70f-8be5e2dc686d",
+    "map_id": 1,
+    "name": "Surgical_Clips",
+    "created_at": "2025-10-21T10:12:04.950Z",
+    "updated_at": "2025-10-21T10:12:04.950Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "71c9b07d-5047-4217-a8d3-cb3cc02c4f90",
+  "fields": {
+    "autosegmentation_model": "2529f433-116d-4b75-8e84-ebd8ef716ca4",
+    "map_id": 1,
+    "name": "Ctvp",
+    "created_at": "2025-10-21T10:14:35.722Z",
+    "updated_at": "2025-10-21T10:14:35.722Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "766fd657-36d1-44f6-83b1-0841ec71fb2c",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 2,
+    "name": "Duodenum",
+    "created_at": "2025-10-21T10:19:50.411Z",
+    "updated_at": "2025-10-21T10:19:50.411Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "82dbc5f9-18c5-4f64-813d-613ecc796292",
+  "fields": {
+    "autosegmentation_model": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+    "map_id": 9,
+    "name": "Stomach",
+    "created_at": "2025-10-21T10:20:45.703Z",
+    "updated_at": "2025-10-21T10:20:45.703Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "853b7a51-1f68-4ecf-a1c6-6a1ff925e516",
+  "fields": {
+    "autosegmentation_model": "a83949a7-985b-4849-a3e7-5e3a2c5ecd00",
+    "map_id": 3,
+    "name": "Bag_Bowel",
+    "created_at": "2025-10-21T10:20:45.670Z",
+    "updated_at": "2025-10-21T10:20:45.670Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "85664a31-b02f-41ee-8e4d-54f886a9310f",
+  "fields": {
+    "autosegmentation_model": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+    "map_id": 4,
+    "name": "OpticNrv_L",
+    "created_at": "2025-10-21T10:18:25.651Z",
+    "updated_at": "2025-10-21T10:18:25.651Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "87c9e99f-06f9-474d-a5be-a814a4910922",
+  "fields": {
+    "autosegmentation_model": "5332cfb8-0982-4cdd-b6a0-b10d9dd1bfac",
+    "map_id": 2,
+    "name": "Cochlea_R",
+    "created_at": "2025-10-21T10:13:40.604Z",
+    "updated_at": "2025-10-21T10:13:40.604Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "8c63b5b6-5f52-4fa4-b7c3-c1ee50dfcc67",
+  "fields": {
+    "autosegmentation_model": "33ac2147-7599-49ba-adbb-fc0defe69622",
+    "map_id": 3,
+    "name": "Hippocampus_L",
+    "created_at": "2025-10-21T10:18:25.735Z",
+    "updated_at": "2025-10-21T10:18:25.735Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "8d57206a-f0f4-4f17-bbb3-992718097e09",
+  "fields": {
+    "autosegmentation_model": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+    "map_id": 3,
+    "name": "Pancreas",
+    "created_at": "2025-10-21T10:20:45.695Z",
+    "updated_at": "2025-10-21T10:20:45.695Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "908d1b3d-69f2-4e10-bc43-52fb6e181206",
+  "fields": {
+    "autosegmentation_model": "7ace1a8d-81df-44d3-95a4-0f01fc5e0b8e",
+    "map_id": 1,
+    "name": "Ctv_Scf_R",
+    "created_at": "2025-10-21T10:12:04.883Z",
+    "updated_at": "2025-10-21T10:12:04.883Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "921e1604-836a-4339-9f83-5c32403c8357",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 1,
+    "name": "Heart",
+    "created_at": "2025-10-21T10:21:04.234Z",
+    "updated_at": "2025-10-21T10:21:04.234Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "92635703-0a2c-40ca-b944-a5e70a92f418",
+  "fields": {
+    "autosegmentation_model": "33ac2147-7599-49ba-adbb-fc0defe69622",
+    "map_id": 2,
+    "name": "Hippocampus_L",
+    "created_at": "2025-10-21T10:18:25.726Z",
+    "updated_at": "2025-10-21T10:18:25.726Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "93e817d7-eeb9-4c20-91cf-0fa059132b4c",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 1,
+    "name": "Heart",
+    "created_at": "2025-10-21T10:12:04.791Z",
+    "updated_at": "2025-10-21T10:12:04.791Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "9965cb89-0c05-4249-b8aa-f79031404bc0",
+  "fields": {
+    "autosegmentation_model": "88fe9cd6-4775-445c-8f47-91f3d850fd9e",
+    "map_id": 2,
+    "name": "Breast_L",
+    "created_at": "2025-10-21T10:12:04.866Z",
+    "updated_at": "2025-10-21T10:12:04.866Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "9b8b9bc8-7afe-4b7e-a20a-161142b2fcf2",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 3,
+    "name": "Lung_L",
+    "created_at": "2025-10-21T10:21:04.251Z",
+    "updated_at": "2025-10-21T10:21:04.251Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "9d9aa63c-6739-49b9-8042-78ae71368059",
+  "fields": {
+    "autosegmentation_model": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+    "map_id": 2,
+    "name": "Duodenum",
+    "created_at": "2025-10-21T10:20:45.686Z",
+    "updated_at": "2025-10-21T10:20:45.686Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "9f2da9ad-53bc-4b81-91c6-2bf8f17e3e39",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 5,
+    "name": "Femur_Head_R",
+    "created_at": "2025-10-21T10:14:35.488Z",
+    "updated_at": "2025-10-21T10:14:35.488Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a26f8940-76a7-4cc2-bbb6-93631e770d61",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 6,
+    "name": "Glnd_Parotid_R",
+    "created_at": "2025-10-21T10:18:25.610Z",
+    "updated_at": "2025-10-21T10:18:25.610Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a3b5a171-9705-4c43-bc2e-785290cd6ca7",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 5,
+    "name": "SpinalCord",
+    "created_at": "2025-10-21T10:21:04.267Z",
+    "updated_at": "2025-10-21T10:21:04.267Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a623a031-56c2-4753-afc5-0d35f07e2a4b",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 5,
+    "name": "SpinalCord",
+    "created_at": "2025-10-21T10:12:04.833Z",
+    "updated_at": "2025-10-21T10:12:04.833Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a66a94c0-a18d-4607-9654-12c5e785dd45",
+  "fields": {
+    "autosegmentation_model": "b8508552-5e87-4189-961d-8ffb868acdca",
+    "map_id": 2,
+    "name": "BrachialPlex_R",
+    "created_at": "2025-10-21T10:12:05.125Z",
+    "updated_at": "2025-10-21T10:12:05.125Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a759747e-1ea5-4b29-8e97-74273b005b7c",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 8,
+    "name": "SpinalCord",
+    "created_at": "2025-10-21T10:13:40.563Z",
+    "updated_at": "2025-10-21T10:13:40.563Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "a8f33e6e-22e7-48d9-a77c-031e87f8e416",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 4,
+    "name": "Eye_R",
+    "created_at": "2025-10-21T10:18:25.576Z",
+    "updated_at": "2025-10-21T10:18:25.576Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "af327720-5c4f-45d2-bb1c-66e305b70b98",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 4,
+    "name": "Liver",
+    "created_at": "2025-10-21T10:21:04.259Z",
+    "updated_at": "2025-10-21T10:21:04.259Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "af33b20b-ec60-42a5-9ed1-136a58f40cdf",
+  "fields": {
+    "autosegmentation_model": "ab9fc813-1492-4033-99b8-c70808f00a79",
+    "map_id": 1,
+    "name": "Lobe_Temporal_L",
+    "created_at": "2025-10-21T10:18:25.751Z",
+    "updated_at": "2025-10-21T10:18:25.751Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "b0943dee-cfbf-4e42-a079-18076f2733ba",
+  "fields": {
+    "autosegmentation_model": "a83949a7-985b-4849-a3e7-5e3a2c5ecd00",
+    "map_id": 4,
+    "name": "Femur_Head_L",
+    "created_at": "2025-10-21T10:20:45.653Z",
+    "updated_at": "2025-10-21T10:20:45.653Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "b5305305-2abb-4c31-acd6-f2501ac21846",
+  "fields": {
+    "autosegmentation_model": "69bda522-4b1d-4772-b762-a5517ce4ffa9",
+    "map_id": 1,
+    "name": "Gtvp_Postop",
+    "created_at": "2025-10-21T10:12:04.933Z",
+    "updated_at": "2025-10-21T10:12:04.933Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "b90e87c8-ed5a-4ad9-9b80-c3565a2c681b",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 3,
+    "name": "Eye_L",
+    "created_at": "2025-10-21T10:18:25.568Z",
+    "updated_at": "2025-10-21T10:18:25.568Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "b94e7030-a04c-40d1-a973-cdd37011ac74",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 11,
+    "name": "Liver",
+    "created_at": "2025-10-21T10:19:50.461Z",
+    "updated_at": "2025-10-21T10:19:50.461Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "b9d235d9-5754-4d57-8a58-54f8c146e376",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 2,
+    "name": "Brain",
+    "created_at": "2025-10-21T10:13:40.513Z",
+    "updated_at": "2025-10-21T10:13:40.513Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "bc6b1d20-3a10-46a4-998c-0644e233b827",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 5,
+    "name": "Glnd_Parotid_L",
+    "created_at": "2025-10-21T10:18:25.590Z",
+    "updated_at": "2025-10-21T10:18:25.590Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "be6fdfb7-2da2-4f14-85bc-e9487e48ee13",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 12,
+    "name": "Kidney_R",
+    "created_at": "2025-10-21T10:19:50.469Z",
+    "updated_at": "2025-10-21T10:19:50.469Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "be80014a-701a-4843-8ec7-2726440a2606",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 6,
+    "name": "Glnd_Parotid_R",
+    "created_at": "2025-10-21T10:13:40.546Z",
+    "updated_at": "2025-10-21T10:13:40.546Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "c26fae16-68b7-490f-97cc-75e96397623b",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 18,
+    "name": "Anus",
+    "created_at": "2025-10-21T10:19:50.519Z",
+    "updated_at": "2025-10-21T10:19:50.519Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "c2de4d3f-8fe2-4894-89e9-656cceba0554",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 13,
+    "name": "Kidney_L",
+    "created_at": "2025-10-21T10:19:50.478Z",
+    "updated_at": "2025-10-21T10:19:50.478Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "c7028aee-c9cd-43da-aada-50e37564733d",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 6,
+    "name": "Esophagus",
+    "created_at": "2025-10-21T10:12:04.841Z",
+    "updated_at": "2025-10-21T10:12:04.841Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "c99d6276-e9e8-4f8a-9524-53b44f8240a5",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 15,
+    "name": "Femur_L",
+    "created_at": "2025-10-21T10:19:50.494Z",
+    "updated_at": "2025-10-21T10:19:50.494Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "cc21732d-d315-41ca-97c2-9db1de9bf842",
+  "fields": {
+    "autosegmentation_model": "cb548972-3b4c-4210-9bc0-ad899ded153e",
+    "map_id": 5,
+    "name": "OpticChiasm",
+    "created_at": "2025-10-21T10:18:25.701Z",
+    "updated_at": "2025-10-21T10:18:25.701Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "cd3d5dff-5aa2-4195-a0fa-a8d0c542a16d",
+  "fields": {
+    "autosegmentation_model": "fc12e115-72a7-44c9-96cb-63f1499f255d",
+    "map_id": 1,
+    "name": "Musc_Constrict",
+    "created_at": "2025-10-21T10:13:40.579Z",
+    "updated_at": "2025-10-21T10:13:40.579Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "cf131a83-ba8d-479f-98d3-4b26197611ab",
+  "fields": {
+    "autosegmentation_model": "a73b0618-93c9-4d83-82e3-4e0168894b8a",
+    "map_id": 2,
+    "name": "Lens_L",
+    "created_at": "2025-10-21T10:18:25.635Z",
+    "updated_at": "2025-10-21T10:18:25.635Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "d2ee48b8-6c25-4a81-a66f-a9b29ec1b0d6",
+  "fields": {
+    "autosegmentation_model": "f1250c43-318e-414c-94e4-b97f62301e45",
+    "map_id": 6,
+    "name": "Esophagus",
+    "created_at": "2025-10-21T10:21:04.275Z",
+    "updated_at": "2025-10-21T10:21:04.276Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "d69b4d0b-a827-4244-a3fa-f191bf4cd1ff",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 1,
+    "name": "Bone_Mandible",
+    "created_at": "2025-10-21T10:13:40.504Z",
+    "updated_at": "2025-10-21T10:13:40.504Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "d8f512f4-f5fd-4050-8886-eb6fdedff451",
+  "fields": {
+    "autosegmentation_model": "b8508552-5e87-4189-961d-8ffb868acdca",
+    "map_id": 1,
+    "name": "BrachialPlex_L",
+    "created_at": "2025-10-21T10:12:05.116Z",
+    "updated_at": "2025-10-21T10:12:05.116Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "d9df077c-c1da-4175-9c4e-329068515700",
+  "fields": {
+    "autosegmentation_model": "a83949a7-985b-4849-a3e7-5e3a2c5ecd00",
+    "map_id": 1,
+    "name": "Bladder",
+    "created_at": "2025-10-21T10:20:45.645Z",
+    "updated_at": "2025-10-21T10:20:45.645Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "dea5547e-88bd-4242-a4e1-c74fcd14330f",
+  "fields": {
+    "autosegmentation_model": "a90c2ec2-81d4-457f-8b72-c3f1b44d9354",
+    "map_id": 6,
+    "name": "PenileBulb",
+    "created_at": "2025-10-21T10:14:35.497Z",
+    "updated_at": "2025-10-21T10:14:35.497Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "e11b9ee7-21bb-4d03-8318-155497a4f480",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 4,
+    "name": "Rectum",
+    "created_at": "2025-10-21T10:19:50.428Z",
+    "updated_at": "2025-10-21T10:19:50.428Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "e3ddbcd5-8a9f-4973-82a9-1bb8db1e139d",
+  "fields": {
+    "autosegmentation_model": "d1d7c0f6-22d7-4a54-a526-b28918aef0e4",
+    "map_id": 12,
+    "name": "Kidney_R",
+    "created_at": "2025-10-21T10:20:45.711Z",
+    "updated_at": "2025-10-21T10:20:45.711Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "e677e630-f4df-4650-9d6d-fb4c0ca30edb",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 1,
+    "name": "Bone_Mandible",
+    "created_at": "2025-10-21T10:18:25.551Z",
+    "updated_at": "2025-10-21T10:18:25.551Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "e7ce5e62-844d-4b0c-a713-c1088edc1160",
+  "fields": {
+    "autosegmentation_model": "dc4e2e52-0567-4adb-a796-a00898acf686",
+    "map_id": 2,
+    "name": "Lung_R",
+    "created_at": "2025-10-21T10:12:04.808Z",
+    "updated_at": "2025-10-21T10:12:04.808Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "ea68350c-1383-4ad4-81ac-94132eb0adfe",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 5,
+    "name": "Colon_Sigmoid",
+    "created_at": "2025-10-21T10:19:50.436Z",
+    "updated_at": "2025-10-21T10:19:50.436Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "eb038864-9510-4e0c-ab6d-13d2524019bf",
+  "fields": {
+    "autosegmentation_model": "4e36ce7b-8d3a-4ee2-aa22-2b26df01d403",
+    "map_id": 2,
+    "name": "Glnd_Thyroid",
+    "created_at": "2025-10-21T10:21:04.301Z",
+    "updated_at": "2025-10-21T10:21:04.301Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "eb1e4335-863d-4669-912c-63b562da6800",
+  "fields": {
+    "autosegmentation_model": "8b4bcf9a-d423-492d-be6b-e3e06b978aa7",
+    "map_id": 1,
+    "name": "Ctv_Imn_R",
+    "created_at": "2025-10-21T10:12:04.908Z",
+    "updated_at": "2025-10-21T10:12:04.908Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "eb702317-ea5a-4979-87f7-a6f076e59ae2",
+  "fields": {
+    "autosegmentation_model": "98caa7a0-faa5-4c5f-9886-2c8a5beaf9b1",
+    "map_id": 3,
+    "name": "Glnd_Thyroid",
+    "created_at": "2025-10-21T10:13:40.688Z",
+    "updated_at": "2025-10-21T10:13:40.688Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "ef50797f-5d6a-4bcf-a3c2-08f1b95bc6a6",
+  "fields": {
+    "autosegmentation_model": "7ace1a8d-81df-44d3-95a4-0f01fc5e0b8e",
+    "map_id": 2,
+    "name": "Ctv_Scf_L",
+    "created_at": "2025-10-21T10:12:04.891Z",
+    "updated_at": "2025-10-21T10:12:04.891Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f09f97ae-116e-4314-9474-a8de490fc302",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 1,
+    "name": "Bladder",
+    "created_at": "2025-10-21T10:19:50.403Z",
+    "updated_at": "2025-10-21T10:19:50.403Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f4cc0248-5d00-433c-b6f1-af1803c83623",
+  "fields": {
+    "autosegmentation_model": "80731df9-73d3-46aa-9873-525e590732ae",
+    "map_id": 2,
+    "name": "Brain",
+    "created_at": "2025-10-21T10:18:25.560Z",
+    "updated_at": "2025-10-21T10:18:25.560Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f6169d9e-d5c7-4551-81db-8cebe6a971a3",
+  "fields": {
+    "autosegmentation_model": "15f04d8e-1c78-4040-994b-1538df0e9407",
+    "map_id": 4,
+    "name": "OpticNrv_L",
+    "created_at": "2025-10-21T10:13:40.646Z",
+    "updated_at": "2025-10-21T10:13:40.646Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f7301528-31f1-4862-8607-736a7e1be6d2",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 5,
+    "name": "Glnd_Parotid_L",
+    "created_at": "2025-10-21T10:13:40.538Z",
+    "updated_at": "2025-10-21T10:13:40.538Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f89fa8a7-4a7e-46ec-ac72-efe2cba412fe",
+  "fields": {
+    "autosegmentation_model": "98caa7a0-faa5-4c5f-9886-2c8a5beaf9b1",
+    "map_id": 2,
+    "name": "Pituitary",
+    "created_at": "2025-10-21T10:13:40.679Z",
+    "updated_at": "2025-10-21T10:13:40.679Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "f923d8e3-d69b-42e1-9385-7700d99e21d5",
+  "fields": {
+    "autosegmentation_model": "f4715bd5-6cda-49de-9f07-bde093fa7c07",
+    "map_id": 14,
+    "name": "Femur_R",
+    "created_at": "2025-10-21T10:19:50.486Z",
+    "updated_at": "2025-10-21T10:19:50.486Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "fd883ba0-f388-43be-9d06-0065105da707",
+  "fields": {
+    "autosegmentation_model": "01b744f4-b3cd-4789-a2ba-3724b244f951",
+    "map_id": 7,
+    "name": "Larynx",
+    "created_at": "2025-10-21T10:13:40.555Z",
+    "updated_at": "2025-10-21T10:13:40.555Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "fe2a568c-e34a-4d9f-9f32-32b20c3ca68b",
+  "fields": {
+    "autosegmentation_model": "f215cadd-8fea-40dc-9bff-9850d284e1f7",
+    "map_id": 1,
+    "name": "A_LAD",
+    "created_at": "2025-10-21T10:12:04.966Z",
+    "updated_at": "2025-10-21T10:12:04.966Z"
+  }
+},
+{
+  "model": "dicom_handler.autosegmentationstructure",
+  "pk": "fff82f22-7a4e-4647-b717-42802d92108f",
+  "fields": {
+    "autosegmentation_model": "15f04d8e-1c78-4040-994b-1538df0e9407",
+    "map_id": 3,
+    "name": "Lens_R",
+    "created_at": "2025-10-21T10:13:40.638Z",
+    "updated_at": "2025-10-21T10:13:40.638Z"
+  }
+}
+]
