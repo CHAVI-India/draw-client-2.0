@@ -90,15 +90,28 @@ def load_autosegmentation_templates(apps, schema_editor):
 
 
 def reverse_load_autosegmentation_templates(apps, schema_editor):
-    """Remove all autosegmentation templates, models, and structures"""
+    """Remove ONLY the example autosegmentation templates loaded by this migration"""
     AutosegmentationTemplate = apps.get_model('dicom_handler', 'AutosegmentationTemplate')
     AutosegmentationModel = apps.get_model('dicom_handler', 'AutosegmentationModel')
     AutosegmentationStructure = apps.get_model('dicom_handler', 'AutosegmentationStructure')
     
-    AutosegmentationStructure.objects.all().delete()
-    AutosegmentationModel.objects.all().delete()
-    AutosegmentationTemplate.objects.all().delete()
-    print("Removed all autosegmentation templates, models, and structures")
+    # Only delete the specific example templates by UUID
+    example_template_uuids = [
+        "9e3cb026-4208-489b-af02-34a437719deb",  # Example Breast Template
+        "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",  # Example Head Neck Template
+        "450058ba-a0fd-45e0-9756-9fb832269650",  # Example Prostate Template
+        "3c51faad-914e-4c46-acff-a7ccb7e07fff",  # Example Lung Template
+        "eb6a771a-821d-4c37-ae3c-bac1f1d1a2bd",  # Example Rectum Template
+        "038493c6-1766-49ca-a4e6-749bee3a6a4d",  # Example CNS Template
+        "a4a772ee-e872-4326-a7b8-0627b736228d",  # Example Gyn Template
+    ]
+    
+    # Delete only example templates (cascade will handle models and structures)
+    deleted_count = AutosegmentationTemplate.objects.filter(
+        id__in=example_template_uuids
+    ).delete()[0]
+    
+    print(f"Removed {deleted_count} example templates (existing templates preserved)")
 
 
 class Migration(migrations.Migration):
