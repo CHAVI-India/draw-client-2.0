@@ -122,7 +122,7 @@
                                 {% endif %}
                             </div>
                             
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="grid grid-cols-1 gap-4 sm:gap-4 md:grid-cols-3">
                                 <!-- DICOM Tag Selection -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -228,6 +228,11 @@
         border: 1px solid #d1d5db !important;
         border-radius: 0.375rem !important;
         padding: 0.5rem 0.75rem !important;
+    }
+    
+    .select2-container {
+        width: 100% !important;
+        max-width: 100% !important;
     }
     
     .select2-container--default .select2-selection--single .select2-selection__rendered {
