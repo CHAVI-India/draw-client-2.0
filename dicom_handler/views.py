@@ -741,8 +741,19 @@ def edit_template(request, template_id):
             paginator = Paginator(filtered_structures, 25)
             page_obj = paginator.get_page(page_number)
             
-            # Convert current_structures to a list of IDs for the template
-            selected_structure_ids = [str(s['id']) for s in current_structures if s.get('id')]
+            # Build a set of selected structure IDs by matching model_id + mapid combinations
+            # from database structures to API structures
+            selected_structure_ids = []
+            for db_structure in current_structures:
+                db_model_id = db_structure.get('model_id')
+                db_mapid = db_structure.get('mapid')
+                
+                # Find matching API structure
+                for api_structure in all_structures:
+                    if (api_structure.get('model_id') == db_model_id and 
+                        api_structure.get('mapid') == db_mapid):
+                        selected_structure_ids.append(str(api_structure.get('id')))
+                        break
             
             return render(request, 'dicom_handler/edit_template.html', {
                 'template': template,

@@ -27,6 +27,24 @@
             </div>
         </div>
 
+        <!-- Currently Selected Structures Section -->
+        <div id="selected-structures-panel" class="mb-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-medium text-gray-900">Currently Selected Structures</h2>
+                <button type="button" id="toggle-selected-panel" class="text-sm text-blue-600 hover:text-blue-800">
+                    <span id="toggle-text">Hide</span>
+                </button>
+            </div>
+            <div id="selected-structures-content">
+                <div id="selected-structures-list" class="space-y-3">
+                    <!-- Selected structures will be dynamically added here -->
+                </div>
+                <div id="no-selections-message" class="text-gray-500 text-sm py-4 text-center hidden">
+                    No structures selected yet. Use the table below to select structures.
+                </div>
+            </div>
+        </div>
+
         <!-- Search and Filter Section -->
         <div class="mb-6 space-y-4">
             <!-- Search Bar -->
@@ -151,6 +169,68 @@ function updateSelectionCount() {
         saveButton.disabled = true;
         saveButton.className = 'px-6 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed';
     }
+    
+    // Update selected structures panel
+    updateSelectedStructuresPanel();
+}
+
+// Update the selected structures panel
+function updateSelectedStructuresPanel() {
+    const selectedList = document.getElementById('selected-structures-list');
+    const noSelectionsMsg = document.getElementById('no-selections-message');
+    
+    if (selectedStructures.size === 0) {
+        selectedList.innerHTML = '';
+        noSelectionsMsg.classList.remove('hidden');
+        return;
+    }
+    
+    noSelectionsMsg.classList.add('hidden');
+    
+    // Group structures by model
+    const modelGroups = {};
+    
+    selectedStructures.forEach(structureId => {
+        const data = window.structureData && window.structureData[structureId];
+        if (data) {
+            const modelName = data.model_name || 'Unknown Model';
+            if (!modelGroups[modelName]) {
+                modelGroups[modelName] = [];
+            }
+            modelGroups[modelName].push({
+                id: structureId,
+                name: data.map_tg263_primary_name || data.name || 'Unknown Structure'
+            });
+        }
+    });
+    
+    // Build HTML for grouped structures
+    let html = '';
+    Object.keys(modelGroups).sort().forEach(modelName => {
+        const structures = modelGroups[modelName];
+        html += `
+            <div class="bg-white rounded-lg p-4 border border-blue-200">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-medium text-gray-900">
+                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        </svg>
+                        ${modelName}
+                    </h3>
+                    <span class="text-xs text-gray-500">${structures.length} structure${structures.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    ${structures.map(s => `
+                        <div class="inline-flex items-center bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                            <span>${s.name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    });
+    
+    selectedList.innerHTML = html;
 }
 
 // Sync checkboxes with selected structures
@@ -291,7 +371,7 @@ function updateTemplate() {
             return {
                 id: data.id || structureId,
                 mapid: data.mapid || data.id || structureId,
-                map_tg263_primary_name: data.map_tg263_primary_name || data.name || '',
+                map_tg263_primary_name: data.map_tg263_primary_name || '',
                 model_id: data.model_id,
                 model_name: data.model_name,
                 model_config: data.model_config,
@@ -313,8 +393,8 @@ function updateTemplate() {
                 model_postprocess: checkbox.getAttribute('data-model-postprocess')
             };
         }
-        return { id: structureId, mapid: structureId }; // minimal fallback
-    });
+        return null; // Skip invalid structures
+    }).filter(s => s !== null && s.model_id); // Filter out invalid entries
     
     fetch('{% url "dicom_handler:update_template" template.id %}', {
         method: 'POST',
@@ -369,15 +449,17 @@ function initializeSelectedStructures() {
     selectedStructures.clear();
     
     // Store structure data for existing structures and create lookup map
-    window.structureData = window.structureData || {};
-    window.existingStructures = new Map(); // Map of model_id + map_id -> API structure ID
+    window.structureData = {};
+    window.existingStructures = new Map(); // Map of model_id + map_id -> structure data
     
+    // Pre-populate structureData with all database structures
+    // This ensures the selected panel shows all structures even if they're not on the current page
     {% for structure in selected_structures %}
     (function() {
         const dbStructure = {
             id: '{{ structure.id }}',
             mapid: '{{ structure.mapid }}',
-            name: '{{ structure.map_tg263_primary_name|escapejs }}',
+            map_tg263_primary_name: '{{ structure.map_tg263_primary_name|escapejs }}',
             model_id: '{{ structure.model_id }}',
             model_name: '{{ structure.model_name|escapejs }}',
             model_config: '{{ structure.model_config|escapejs }}',
@@ -388,11 +470,18 @@ function initializeSelectedStructures() {
         // Create lookup key using model_id and map_id
         const lookupKey = `${dbStructure.model_id}_${dbStructure.mapid}`;
         window.existingStructures.set(lookupKey, dbStructure);
+        
+        // Store in structureData using a temporary key (will be replaced with API ID when found)
+        // Use the lookup key as a temporary ID so the panel can display structures
+        const tempId = `temp_${lookupKey}`;
+        window.structureData[tempId] = dbStructure;
+        selectedStructures.add(tempId);
+        
         console.log('Added existing structure with lookup key:', lookupKey, dbStructure);
     })();
     {% endfor %}
     
-    // Now find matching API structures on the current page and select them
+    // Now find matching API structures on the current page and update with real API IDs
     const checkboxes = document.querySelectorAll('input[type="checkbox"][data-id]');
     checkboxes.forEach(checkbox => {
         const apiStructureId = checkbox.getAttribute('data-id');
@@ -402,6 +491,13 @@ function initializeSelectedStructures() {
         if (modelId && mapId) {
             const lookupKey = `${modelId}_${mapId}`;
             if (window.existingStructures.has(lookupKey)) {
+                const tempId = `temp_${lookupKey}`;
+                
+                // Remove the temporary ID
+                selectedStructures.delete(tempId);
+                delete window.structureData[tempId];
+                
+                // Add with real API ID
                 selectedStructures.add(String(apiStructureId));
                 
                 // Store the API structure data
@@ -419,31 +515,6 @@ function initializeSelectedStructures() {
                 console.log('Matched existing structure:', lookupKey, 'to API ID:', apiStructureId);
             }
         }
-    });
-    
-    // Also check for any checked checkboxes (fallback)
-    const checkedBoxes = document.querySelectorAll('input[type="checkbox"].structure-checkbox:checked');
-    console.log('Found checked boxes:', checkedBoxes.length);
-    
-    checkedBoxes.forEach(checkbox => {
-        const structureId = checkbox.getAttribute('data-id');
-        console.log('Adding structure ID from checkbox:', structureId);
-        selectedStructures.add(String(structureId));
-        
-        // Store structure data
-        const structureData = {
-            id: structureId,
-            mapid: checkbox.getAttribute('data-mapid'),
-            name: checkbox.getAttribute('data-map-tg263-primary-name'),
-            model_id: checkbox.getAttribute('data-model-id'),
-            model_name: checkbox.getAttribute('data-model-name'),
-            model_config: checkbox.getAttribute('data-model-config'),
-            model_trainer_name: checkbox.getAttribute('data-model-trainer-name'),
-            model_postprocess: checkbox.getAttribute('data-model-postprocess')
-        };
-        
-        window.structureData = window.structureData || {};
-        window.structureData[structureId] = structureData;
     });
     
     console.log('Total selected structures:', selectedStructures.size);
@@ -465,6 +536,15 @@ function matchExistingStructuresOnPage() {
         if (modelId && mapId) {
             const lookupKey = `${modelId}_${mapId}`;
             if (window.existingStructures.has(lookupKey)) {
+                const tempId = `temp_${lookupKey}`;
+                
+                // If we have a temp ID, replace it with the real API ID
+                if (selectedStructures.has(tempId)) {
+                    selectedStructures.delete(tempId);
+                    delete window.structureData[tempId];
+                }
+                
+                // Add with real API ID
                 selectedStructures.add(String(apiStructureId));
                 
                 // Store the API structure data
@@ -485,12 +565,29 @@ function matchExistingStructuresOnPage() {
     });
 }
 
+// Toggle selected structures panel
+function toggleSelectedPanel() {
+    const content = document.getElementById('selected-structures-content');
+    const toggleText = document.getElementById('toggle-text');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggleText.textContent = 'Hide';
+    } else {
+        content.style.display = 'none';
+        toggleText.textContent = 'Show';
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeSelectedStructures();
     syncCheckboxes();
     updateSelectionCount();
     attachEventListeners();
+    
+    // Toggle panel button
+    document.getElementById('toggle-selected-panel').addEventListener('click', toggleSelectedPanel);
     
     // Search button event
     document.getElementById('search-btn').addEventListener('click', performSearch);
