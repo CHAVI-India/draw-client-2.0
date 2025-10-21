@@ -19,9 +19,23 @@ def load_autosegmentation_templates(apps, schema_editor):
         print(f"Warning: Fixture file not found at {fixture_path}")
         return
     
-    # Check if templates already exist to avoid duplicates
-    if AutosegmentationTemplate.objects.exists():
-        print("Autosegmentation templates already exist. Skipping seed data load.")
+    # Check if example templates already exist by UUID to avoid duplicates
+    example_template_uuids = [
+        "9e3cb026-4208-489b-af02-34a437719deb",  # Example Breast Template
+        "99a29dc2-2ad4-41a4-aa83-6657cbb30b62",  # Example Head Neck Template
+        "450058ba-a0fd-45e0-9756-9fb832269650",  # Example Prostate Template
+        "3c51faad-914e-4c46-acff-a7ccb7e07fff",  # Example Lung Template
+        "eb6a771a-821d-4c37-ae3c-bac1f1d1a2bd",  # Example Rectum Template
+        "038493c6-1766-49ca-a4e6-749bee3a6a4d",  # Example CNS Template
+        "a4a772ee-e872-4326-a7b8-0627b736228d",  # Example Gyn Template
+    ]
+    
+    existing_examples = AutosegmentationTemplate.objects.filter(
+        id__in=example_template_uuids
+    ).count()
+    
+    if existing_examples > 0:
+        print(f"Found {existing_examples} example templates already loaded. Skipping seed data load.")
         return
     
     with open(fixture_path, 'r', encoding='utf-8') as f:
