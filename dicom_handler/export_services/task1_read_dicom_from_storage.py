@@ -820,6 +820,45 @@ def log_processing_summary(newly_processed_series_uids=None):
     
     logger.info("="*80)
 
+def update_data_pull_start_datetime_after_success(current_date_filter):
+    """
+    Update data_pull_start_datetime to 7 days (7*24*60*60 seconds) BEFORE current time
+    This should only be called after a SUCCESSFUL run
+    
+    Args:
+        current_date_filter: The datetime that was used for this successful run (for logging only)
+    
+    Returns:
+        The new datetime value that was set
+    """
+    try:
+        # Calculate new datetime: NOW - 7 days
+        seven_days_seconds = 7 * 24 * 60 * 60
+        current_time = timezone.now()
+        new_datetime = current_time - timedelta(seconds=seven_days_seconds)
+        
+        # Update system configuration
+        system_config = SystemConfiguration.get_singleton()
+        if system_config:
+            old_datetime = system_config.data_pull_start_datetime
+            system_config.data_pull_start_datetime = new_datetime
+            system_config.save()
+            
+            logger.info(f"✅ Updated data_pull_start_datetime after successful run:")
+            logger.info(f"   Previous: {old_datetime}")
+            logger.info(f"   Current time: {current_time}")
+            logger.info(f"   New: {new_datetime} (7 days before current time)")
+            logger.info(f"   Set to: 7 days ago ({seven_days_seconds} seconds)")
+            
+            return new_datetime
+        else:
+            logger.error("Failed to update data_pull_start_datetime: SystemConfiguration not found")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error updating data_pull_start_datetime: {str(e)}")
+        return None
+
 def read_dicom_from_storage():
     """
     Main entry point - calls the optimized series-aware implementation
@@ -848,8 +887,12 @@ def read_dicom_from_storage_series_aware():
             logger.info(f"Configured folder does not exist: {mask_sensitive_data(folder_path, 'folder_path')}")
             return {"status": "error", "message": "Configured folder does not exist"}
         
-        # Get date filter if configured
+        # Get date filter - REQUIRED for processing
         date_filter = system_config.data_pull_start_datetime
+        if not date_filter:
+            logger.error("Data pull start datetime is not configured in SystemConfiguration. Processing cannot proceed.")
+            return {"status": "error", "message": "Data pull start datetime not configured. Please set data_pull_start_datetime in System Configuration."}
+        
         current_time = timezone.now()
         ten_minutes_ago = current_time - timedelta(minutes=10)
         
@@ -946,16 +989,23 @@ def read_dicom_from_storage_series_aware():
         
         # ⭐ Log comprehensive processing summary with ONLY newly processed series
         log_processing_summary(newly_processed_series_uids)
-
+        
+        # ⭐ Update data_pull_start_datetime after successful run
+        # Advance by 7 days (7*24*60*60 seconds) for next run
+        new_datetime = update_data_pull_start_datetime_after_success(date_filter)
+        
         return {
             "status": "success",
             "processed_files": processed_files,
             "skipped_files": skipped_files,
             "error_files": error_files,
-            "series_data": series_data
+            "series_data": series_data,
+            "previous_date_filter": str(date_filter),
+            "new_date_filter": str(new_datetime) if new_datetime else None
         }
         
     except Exception as e:
         logger.error(f"Critical error in DICOM reading task: {str(e)}")
+        logger.info("⚠️  data_pull_start_datetime NOT updated due to failed run")
         return {"status": "error", "message": str(e)}
 
