@@ -561,6 +561,9 @@ def deidentify_series(task2_output):
                     
                     # Generate output path
                     filename = os.path.basename(instance.instance_path)
+                    # Ensure .dcm extension is present
+                    if not filename.lower().endswith('.dcm'):
+                        filename = filename + '.dcm'
                     output_path = os.path.join(series_output_dir, filename)
                     
                     # Deidentify the file
