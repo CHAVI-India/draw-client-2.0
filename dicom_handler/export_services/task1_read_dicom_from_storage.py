@@ -451,7 +451,7 @@ def process_single_file_and_group(file_info, series_in_progress, existing_sop_ui
     Process a single file and group by series UID
     Returns: Statistics dict with processed/skipped/error counts
     """
-    stats = {'processed': 0, 'skipped': 0, 'errors': 0}
+    stats = {'processed': 0, 'skipped': 0, 'errors': 0, 'skip_reason': None}
     
     try:
         result = process_single_file(file_info)
@@ -461,6 +461,7 @@ def process_single_file_and_group(file_info, series_in_progress, existing_sop_ui
             stats['processed'] += 1
         elif result['status'] == 'skipped':
             stats['skipped'] += 1
+            stats['skip_reason'] = result.get('reason', 'unknown')
         else:
             stats['errors'] += 1
             return stats
@@ -477,6 +478,7 @@ def process_single_file_and_group(file_info, series_in_progress, existing_sop_ui
         if sop_uid in existing_sop_uids:
             stats['skipped'] += 1
             stats['processed'] -= 1
+            stats['skip_reason'] = 'already_in_database'
             return stats
         
         existing_sop_uids.add(sop_uid)
@@ -924,6 +926,7 @@ def read_dicom_from_storage_series_aware():
         processed_files = 0
         skipped_files = 0
         error_files = 0
+        skip_reasons = {}  # Track skip reasons for debugging
         
         # ⭐ Single pass through filesystem with series grouping
         for root, dirs, files in os.walk(folder_path):
@@ -956,6 +959,11 @@ def read_dicom_from_storage_series_aware():
                 skipped_files += stats['skipped']
                 error_files += stats['errors']
                 
+                # Track skip reasons for debugging
+                if stats.get('skip_reason'):
+                    reason = stats['skip_reason']
+                    skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+                
                 # Log progress every 100 files
                 if total_files_discovered % 100 == 0:
                     logger.info(f"Progress: {total_files_discovered} files discovered, {processed_files} processed")
@@ -982,6 +990,13 @@ def read_dicom_from_storage_series_aware():
             flush_completed_series_to_db(series_completed)
         
         logger.info(f"DICOM reading completed. Files discovered: {total_files_discovered}, Processed: {processed_files}, Skipped: {skipped_files}, Errors: {error_files}")
+        
+        # Log skip reasons breakdown for debugging
+        if skip_reasons:
+            logger.info("Skip reasons breakdown:")
+            for reason, count in skip_reasons.items():
+                logger.info(f"  - {reason}: {count} files")
+        
         logger.info(f"Newly processed series in this run: {len(newly_processed_series_uids)}")
         
         # Get final series data for next task
