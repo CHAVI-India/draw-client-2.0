@@ -869,13 +869,11 @@ def read_dicom_from_storage():
 
 def read_dicom_from_storage_series_aware():
     """
-    Optimized series-aware DICOM file reading with efficient file discovery
-    Phase 1: Collect all file paths from filesystem
-    Phase 2: Query database once for existing paths
-    Phase 3: Process only new files
+    Optimized series-aware DICOM file reading with single-pass processing
+    Groups files by series and only marks series as complete when ALL files are processed
     Returns: Dictionary containing processing results and series information for next task
     """
-    logger.info("Starting DICOM file reading task (optimized with batch file discovery)")
+    logger.info("Starting DICOM file reading task (series-aware single-pass processing)")
     
     try:
         # Get system configuration
@@ -902,172 +900,82 @@ def read_dicom_from_storage_series_aware():
         
         logger.info(f"Date filter: {date_filter}, Current time: {current_time}")
         
-        # ⭐ PHASE 1: Collect all file paths from filesystem
-        logger.info("Phase 1: Collecting all file paths from filesystem...")
-        phase1_start = timezone.now()
-        all_file_paths = {}  # {file_path: root_directory}
-        total_files_discovered = 0
-        
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                all_file_paths[file_path] = root
-                total_files_discovered += 1
-                
-                # Log progress every 1000 files
-                if total_files_discovered % 1000 == 0:
-                    logger.info(f"Discovered {total_files_discovered} files...")
-        
-        phase1_end = timezone.now()
-        phase1_duration = (phase1_end - phase1_start).total_seconds()
-        logger.info(f"Phase 1 complete: Discovered {total_files_discovered} total files in {phase1_duration:.2f}s")
-        
-        # ⭐ PHASE 2: Query database once for all existing file paths
-        logger.info("Phase 2: Querying database for existing file paths...")
-        phase2_start = timezone.now()
-        existing_file_paths = set(
-            DICOMInstance.objects.values_list('instance_path', flat=True)
-        )
-        phase2_end = timezone.now()
-        phase2_duration = (phase2_end - phase2_start).total_seconds()
-        logger.info(f"Found {len(existing_file_paths)} existing file paths in database ({phase2_duration:.2f}s)")
-        
-        # ⭐ PHASE 3: Filter to only new files
-        new_file_paths = {path: root for path, root in all_file_paths.items() 
-                          if path not in existing_file_paths}
-        logger.info(f"Phase 2 complete: {len(new_file_paths)} new files to process")
-        
-        if not new_file_paths:
-            logger.info("No new files to process")
-            return {
-                "status": "success",
-                "processed_files": 0,
-                "skipped_files": 0,
-                "error_files": 0,
-                "series_data": get_series_for_next_task(),
-                "previous_date_filter": str(date_filter),
-                "new_date_filter": str(date_filter)
-            }
-        
         # ⭐ Series-aware processing: Track series being built
         series_in_progress = {}  # {series_uid: {'files': [], 'last_seen': timestamp, 'root_path': str}}
         series_completed = []     # List of completed series ready for DB insert
-        finalized_series_uids = set()  # Track which series have been finalized to prevent re-adding
-        newly_processed_series_uids = set()  # Track series UIDs processed in THIS run for summary logging
+        finalized_series_uids = set()  # ⭐ Track which series have been finalized to prevent re-adding
+        newly_processed_series_uids = set()  # ⭐ Track series UIDs processed in THIS run for summary logging
         
         # Configuration for series completion detection
         max_series_in_memory = 50  # Flush to DB when this many series accumulated
         
-        logger.info("Phase 3: Processing new files and grouping by series...")
-        phase3_start = timezone.now()
+        # Statistics
+        total_files_discovered = 0
         
-        # Load existing SOP Instance UIDs to prevent duplicates
-        logger.info("Loading existing SOP Instance UIDs to prevent duplicates...")
+        logger.info("Phase 1: Discovering and grouping files by series (single-pass, single process)...")
+        
+        last_directory = None
+        
+        # Check for existing SOP Instance UIDs to avoid duplicates
         existing_sop_uids = set(
             DICOMInstance.objects.values_list('sop_instance_uid', flat=True)
         )
-        logger.info(f"Found {len(existing_sop_uids)} existing SOP Instance UIDs")
-        
-        # Group files by directory for efficient series detection
-        files_by_directory = {}
-        for file_path, root_dir in new_file_paths.items():
-            if root_dir not in files_by_directory:
-                files_by_directory[root_dir] = []
-            files_by_directory[root_dir].append(file_path)
-        
-        logger.info(f"Files organized into {len(files_by_directory)} directories")
+        logger.info(f"Found {len(existing_sop_uids)} existing SOP Instance UIDs in database")
+        logger.info(f"Processing files sequentially (single process)")
         
         processed_files = 0
         skipped_files = 0
         error_files = 0
         skip_reasons = {}  # Track skip reasons for debugging
         
-        # Process files directory by directory
-        for directory_idx, (root_dir, file_paths) in enumerate(files_by_directory.items(), 1):
-            dir_start = timezone.now()
-            logger.info(f"Processing directory {directory_idx}/{len(files_by_directory)}: {len(file_paths)} files")
+        # ⭐ Single pass through filesystem with series grouping
+        for root, dirs, files in os.walk(folder_path):
+            # Check if we moved to a new directory - finalize series from previous directory
+            if last_directory and last_directory != root:
+                check_and_finalize_series_by_directory(
+                    series_in_progress, 
+                    series_completed,
+                    finalized_series_uids,
+                    last_directory,
+                    current_time
+                )
             
-            # Process all files in this directory
-            for file_path in file_paths:
+            last_directory = root
+            
+            # Process files from this directory one at a time
+            for file in files:
+                file_path = os.path.join(root, file)
+                total_files_discovered += 1
+                
                 # Process single file
-                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago)
-                result = process_single_file(file_info)
+                file_info = (file_path, root, date_filter, current_time, ten_minutes_ago)
+                stats = process_single_file_and_group(
+                    file_info,
+                    series_in_progress,
+                    existing_sop_uids,
+                    finalized_series_uids
+                )
+                processed_files += stats['processed']
+                skipped_files += stats['skipped']
+                error_files += stats['errors']
                 
-                # Count by status
-                if result['status'] == 'success':
-                    processed_files += 1
-                elif result['status'] == 'skipped':
-                    skipped_files += 1
-                    skip_reasons[result.get('reason', 'unknown')] = skip_reasons.get(result.get('reason', 'unknown'), 0) + 1
-                    continue
-                else:
-                    error_files += 1
-                    continue
+                # Track skip reasons for debugging
+                if stats.get('skip_reason'):
+                    reason = stats['skip_reason']
+                    skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
                 
-                # Group by series
-                metadata = result['metadata']
-                series_uid = metadata['series_instance_uid']
-                sop_uid = metadata['sop_instance_uid']
+                # Log progress every 100 files
+                if total_files_discovered % 100 == 0:
+                    logger.info(f"Progress: {total_files_discovered} files discovered, {processed_files} processed")
                 
-                # Skip if SOP Instance UID already exists (duplicate file)
-                if sop_uid in existing_sop_uids:
-                    skipped_files += 1
-                    processed_files -= 1
-                    skip_reasons['duplicate_sop_uid'] = skip_reasons.get('duplicate_sop_uid', 0) + 1
-                    continue
-                
-                # Add to existing SOP UIDs set to prevent duplicates within this run
-                existing_sop_uids.add(sop_uid)
-                
-                # Skip if series already finalized
-                if series_uid in finalized_series_uids:
-                    logger.warning(f"Skipping file from already finalized series: {mask_sensitive_data(series_uid, 'series_uid')}")
-                    continue
-                
-                # Group by series
-                if series_uid not in series_in_progress:
-                    series_in_progress[series_uid] = {
-                        'files': [],
-                        'last_seen': timezone.now(),
-                        'series_root_path': metadata['series_root_path'],
-                        'first_file_metadata': metadata
-                    }
-                
-                # Add file to series group
-                series_in_progress[series_uid]['files'].append(result)
-                series_in_progress[series_uid]['last_seen'] = timezone.now()
-            
-            # After processing all files in a directory, finalize series from that directory
-            check_and_finalize_series_by_directory(
-                series_in_progress, 
-                series_completed,
-                finalized_series_uids,
-                root_dir,
-                current_time
-            )
-            
-            dir_end = timezone.now()
-            dir_duration = (dir_end - dir_start).total_seconds()
-            logger.info(f"Directory {directory_idx} completed in {dir_duration:.2f}s")
-            
-            # Flush completed series to database periodically
-            if len(series_completed) >= max_series_in_memory:
-                flush_start = timezone.now()
-                logger.info(f"Flushing {len(series_completed)} completed series to database...")
-                for series_data in series_completed:
-                    newly_processed_series_uids.add(series_data['series_uid'])
-                flush_completed_series_to_db(series_completed)
-                flush_end = timezone.now()
-                flush_duration = (flush_end - flush_start).total_seconds()
-                logger.info(f"Flush completed in {flush_duration:.2f}s")
-                series_completed = []
-            
-            # Log progress
-            if directory_idx % 10 == 0:
-                elapsed = (timezone.now() - phase3_start).total_seconds()
-                logger.info(f"Progress: {directory_idx}/{len(files_by_directory)} directories, "
-                           f"{processed_files} processed, {skipped_files} skipped, {error_files} errors "
-                           f"(elapsed: {elapsed:.2f}s)")
+                # Flush completed series to database periodically
+                if len(series_completed) >= max_series_in_memory:
+                    logger.info(f"Flushing {len(series_completed)} completed series to database...")
+                    # Track newly processed series UIDs
+                    for series_data in series_completed:
+                        newly_processed_series_uids.add(series_data['series_uid'])
+                    flush_completed_series_to_db(series_completed)
+                    series_completed = []
         
         # Finalize all remaining series (end of directory walk)
         logger.info(f"Finalizing {len(series_in_progress)} remaining series...")
@@ -1075,21 +983,13 @@ def read_dicom_from_storage_series_aware():
         
         # Final flush to database
         if series_completed:
-            flush_start = timezone.now()
             logger.info(f"Final flush: {len(series_completed)} completed series to database")
+            # Track newly processed series UIDs
             for series_data in series_completed:
                 newly_processed_series_uids.add(series_data['series_uid'])
             flush_completed_series_to_db(series_completed)
-            flush_end = timezone.now()
-            flush_duration = (flush_end - flush_start).total_seconds()
-            logger.info(f"Final flush completed in {flush_duration:.2f}s")
         
-        phase3_end = timezone.now()
-        phase3_duration = (phase3_end - phase3_start).total_seconds()
-        logger.info(f"Phase 3 complete: Processing finished in {phase3_duration:.2f}s")
-        
-        total_duration = (timezone.now() - current_time).total_seconds()
-        logger.info(f"DICOM reading completed in {total_duration:.2f}s. Files discovered: {total_files_discovered}, Processed: {processed_files}, Skipped: {skipped_files}, Errors: {error_files}")
+        logger.info(f"DICOM reading completed. Files discovered: {total_files_discovered}, Processed: {processed_files}, Skipped: {skipped_files}, Errors: {error_files}")
         
         # Log skip reasons breakdown for debugging
         if skip_reasons:
