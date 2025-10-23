@@ -312,7 +312,7 @@ class Patient(models.Model):
     This is a model to store data about the patients.
     '''
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    patient_id = models.CharField(max_length=256,null=True,blank=True)
+    patient_id = models.CharField(max_length=256,null=True,blank=True, unique=True)
     deidentified_patient_id = models.CharField(max_length=256,null=True,blank=True)
     patient_name = models.CharField(max_length=100,null=True,blank=True)
     patient_gender = models.CharField(max_length=10,null=True,blank=True)
