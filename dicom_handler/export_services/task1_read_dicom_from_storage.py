@@ -95,7 +95,7 @@ def process_single_file(file_info):
     Process a single DICOM file - designed for threading
     Returns: Dictionary with file processing results
     """
-    file_path, series_root_path, date_filter, current_time, ten_minutes_ago = file_info
+    file_path, series_root_path, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled = file_info
     
     try:
         # Check file modification time conditions
@@ -144,6 +144,23 @@ def process_single_file(file_info):
                 'file_path': file_path,
                 'series_root_path': series_root_path
             }
+            
+            # Apply study date-based filtering if enabled
+            if study_date_filtering_enabled and date_filter:
+                study_date_str = dicom_metadata['study_date']
+                if study_date_str:
+                    try:
+                        # Convert study date string (YYYYMMDD) to datetime for comparison
+                        study_date = datetime.strptime(str(study_date_str), '%Y%m%d')
+                        study_date = study_date.replace(tzinfo=timezone.get_current_timezone())
+                        
+                        # Skip if study date is before data_pull_start_datetime
+                        if study_date < date_filter:
+                            return {"status": "skipped", "reason": "study_date_before_filter", "file_path": file_path}
+                    except (ValueError, TypeError) as e:
+                        # If study date parsing fails, log and continue processing
+                        logger.warning(f"Failed to parse study date '{study_date_str}' for file {mask_sensitive_data(file_path, 'file_path')}: {e}")
+            
             return {"status": "success", "metadata": dicom_metadata}
             
         except Exception as e:
@@ -897,10 +914,14 @@ def read_dicom_from_storage_series_aware():
             logger.error("Data pull start datetime is not configured in SystemConfiguration. Processing cannot proceed.")
             return {"status": "error", "message": "Data pull start datetime not configured. Please set data_pull_start_datetime in System Configuration."}
         
+        # Get study date-based filtering setting
+        study_date_filtering_enabled = system_config.study_date_based_filtering
+        
         current_time = timezone.now()
         ten_minutes_ago = current_time - timedelta(minutes=10)
         
         logger.info(f"Date filter: {date_filter}, Current time: {current_time}")
+        logger.info(f"Study date-based filtering: {'Enabled' if study_date_filtering_enabled else 'Disabled'}")
         
         # ⭐ PHASE 1: Collect all file paths from filesystem
         logger.info("Phase 1: Collecting all file paths from filesystem...")
@@ -990,7 +1011,7 @@ def read_dicom_from_storage_series_aware():
             # Process all files in this directory
             for file_path in file_paths:
                 # Process single file
-                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago)
+                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled)
                 result = process_single_file(file_info)
                 
                 # Count by status

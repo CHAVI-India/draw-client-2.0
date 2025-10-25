@@ -3,6 +3,9 @@
 Real API Transfer Test for task4_export_series_to_api.py
 This script tests actual file transfer to a real DRAW API server.
 Configure the API endpoints and tokens in SystemConfiguration before running.
+
+IMPORTANT: This test uses a SEPARATE TEST DATABASE that is automatically created
+and destroyed. Your production database will NOT be affected.
 """
 
 import os
@@ -12,6 +15,7 @@ import tempfile
 import zipfile
 import json
 from pathlib import Path
+from datetime import timedelta
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
@@ -33,6 +37,60 @@ from dicom_handler.export_services.task4_export_series_to_api import (
 from dicom_handler.utils.proxy_configuration import get_session_with_proxy
 from django.utils import timezone
 from django.db import transaction
+from django.test.utils import setup_test_environment, teardown_test_environment
+from django.db import connections
+from django.conf import settings
+
+# Global variable to track test database
+_test_db_name = None
+
+def create_test_database():
+    """
+    Create a separate test database for testing
+    Returns the test database name
+    """
+    global _test_db_name
+    
+    print("\n" + "="*70)
+    print("CREATING SEPARATE TEST DATABASE")
+    print("="*70)
+    
+    setup_test_environment()
+    connection = connections['default']
+    _test_db_name = connection.creation.create_test_db(
+        verbosity=1,
+        autoclobber=True,
+        keepdb=False
+    )
+    
+    print(f"✓ Test database created: {_test_db_name}")
+    print(f"✓ Production database is safe and untouched")
+    print("="*70)
+    
+    return _test_db_name
+
+def destroy_test_database():
+    """
+    Destroy the test database after testing
+    """
+    global _test_db_name
+    
+    if _test_db_name is None:
+        return
+    
+    print("\n" + "="*70)
+    print("DESTROYING TEST DATABASE")
+    print("="*70)
+    
+    connection = connections['default']
+    connection.creation.destroy_test_db(_test_db_name, verbosity=1)
+    teardown_test_environment()
+    
+    print(f"✓ Test database destroyed: {_test_db_name}")
+    print(f"✓ Production database remains unchanged")
+    print("="*70)
+    
+    _test_db_name = None
 
 def create_test_zip_file():
     """
@@ -308,49 +366,69 @@ def main():
     Main function to run real API transfer tests
     """
     print("🚀 Starting Real API Transfer Tests")
+    print("Using SEPARATE TEST DATABASE (production DB is safe)")
     print("=" * 60)
     
-    # Check configuration first
-    config = check_configuration()
-    if not config:
-        print("\n❌ Configuration check failed. Please ensure:")
-        print("1. SystemConfiguration has draw_base_url set")
-        print("2. Bearer token (draw_bearer_token) is configured")
-        print("3. Refresh token (draw_refresh_token) is configured")
-        print("\nExample configuration:")
-        print("config = SystemConfiguration.load()")
-        print("config.draw_base_url = 'https://your-api-server.com'")
-        print("config.draw_bearer_token = 'your_bearer_token'")
-        print("config.draw_refresh_token = 'your_refresh_token'")
-        print("config.save()")
-        return
+    # Create test database
+    test_db_name = None
+    try:
+        test_db_name = create_test_database()
+        
+        # Check configuration first
+        config = check_configuration()
+        if not config:
+            print("\n❌ Configuration check failed. Please ensure:")
+            print("1. SystemConfiguration has draw_base_url set")
+            print("2. Bearer token (draw_bearer_token) is configured")
+            print("3. Refresh token (draw_refresh_token) is configured")
+            print("\nExample configuration:")
+            print("config = SystemConfiguration.load()")
+            print("config.draw_base_url = 'https://your-api-server.com'")
+            print("config.draw_bearer_token = 'your_bearer_token'")
+            print("config.draw_refresh_token = 'your_refresh_token'")
+            print("config.save()")
+            return
+        
+        print("\n✅ Configuration check passed")
+        
+        # Run tests
+        tests_passed = 0
+        total_tests = 3
+        
+        # Test 1: API Health Check
+        if test_real_api_health_check():
+            tests_passed += 1
+        
+        # Test 2: File Upload
+        if test_real_file_upload():
+            tests_passed += 1
+        
+        # Test 3: Full Workflow
+        if test_full_real_workflow():
+            tests_passed += 1
+        
+        print("\n" + "=" * 60)
+        print(f"Real API Transfer Tests Results: {tests_passed}/{total_tests} passed")
+        
+        if tests_passed == total_tests:
+            print("✅ All real API transfer tests passed!")
+            print("The functionality is working correctly with the real API server.")
+        else:
+            print("⚠️  Some tests failed. Check the API server configuration and network connectivity.")
     
-    print("\n✅ Configuration check passed")
-    
-    # Run tests
-    tests_passed = 0
-    total_tests = 3
-    
-    # Test 1: API Health Check
-    if test_real_api_health_check():
-        tests_passed += 1
-    
-    # Test 2: File Upload
-    if test_real_file_upload():
-        tests_passed += 1
-    
-    # Test 3: Full Workflow
-    if test_full_real_workflow():
-        tests_passed += 1
-    
-    print("\n" + "=" * 60)
-    print(f"Real API Transfer Tests Results: {tests_passed}/{total_tests} passed")
-    
-    if tests_passed == total_tests:
-        print("✅ All real API transfer tests passed!")
-        print("The functionality is working correctly with the real API server.")
-    else:
-        print("⚠️  Some tests failed. Check the API server configuration and network connectivity.")
+    except Exception as e:
+        print(f"\n❌ Test execution failed with error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Always destroy test database
+        if test_db_name:
+            destroy_test_database()
+        
+        print("\n" + "="*70)
+        print("TEST COMPLETED")
+        print("Your production database was NOT modified")
+        print("="*70)
 
 if __name__ == "__main__":
     main()

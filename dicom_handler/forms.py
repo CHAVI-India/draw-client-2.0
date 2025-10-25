@@ -226,7 +226,7 @@ class SystemConfigurationForm(forms.ModelForm):
             'draw_base_url', 'client_id', 'draw_upload_endpoint', 'draw_status_endpoint',
             'draw_download_endpoint', 'draw_notify_endpoint', 'draw_token_refresh_endpoint',
             'draw_bearer_token', 'draw_refresh_token', 'draw_bearer_token_validaty',
-            'folder_configuration', 'data_pull_start_datetime'
+            'folder_configuration', 'data_pull_start_datetime', 'study_date_based_filtering'
         ]
         widgets = {
             'draw_base_url': forms.URLInput(attrs={
@@ -276,6 +276,9 @@ class SystemConfigurationForm(forms.ModelForm):
             'data_pull_start_datetime': forms.DateTimeInput(attrs={
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
                 'type': 'datetime-local'
+            }),
+            'study_date_based_filtering': forms.CheckboxInput(attrs={
+                'class': 'sr-only peer'
             })
         }
 

@@ -3,6 +3,9 @@
 Test script for task3_deidentify_series.py
 This script tests the DICOM deidentification functionality.
 Runs after the template matching test to use matched series data.
+
+IMPORTANT: This test uses a SEPARATE TEST DATABASE that is automatically created
+and destroyed. Your production database will NOT be affected.
 """
 
 import os
@@ -31,8 +34,72 @@ from dicom_handler.export_services.task3_deidentify_series import (
 )
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils import timezone
+from django.test.utils import setup_test_environment, teardown_test_environment
+from django.db import connections
+from django.conf import settings
+
+# Global variable to track test database
+_test_db_name = None
+
+def create_test_database():
+    """
+    Create a separate test database for testing
+    Returns the test database name
+    """
+    global _test_db_name
+    
+    print("\n" + "="*70)
+    print("CREATING SEPARATE TEST DATABASE")
+    print("="*70)
+    
+    # Setup test environment
+    setup_test_environment()
+    
+    # Get the default database connection
+    connection = connections['default']
+    
+    # Create test database
+    _test_db_name = connection.creation.create_test_db(
+        verbosity=1,
+        autoclobber=True,
+        keepdb=False
+    )
+    
+    print(f"✓ Test database created: {_test_db_name}")
+    print(f"✓ Production database is safe and untouched")
+    print("="*70)
+    
+    return _test_db_name
+
+def destroy_test_database():
+    """
+    Destroy the test database after testing
+    """
+    global _test_db_name
+    
+    if _test_db_name is None:
+        return
+    
+    print("\n" + "="*70)
+    print("DESTROYING TEST DATABASE")
+    print("="*70)
+    
+    # Get the default database connection
+    connection = connections['default']
+    
+    # Destroy test database
+    connection.creation.destroy_test_db(_test_db_name, verbosity=1)
+    
+    # Teardown test environment
+    teardown_test_environment()
+    
+    print(f"✓ Test database destroyed: {_test_db_name}")
+    print(f"✓ Production database remains unchanged")
+    print("="*70)
+    
+    _test_db_name = None
 
 def check_matched_series():
     """
@@ -419,9 +486,13 @@ def main():
     """
     print("="*60)
     print("TESTING DICOM DEIDENTIFICATION - task3")
+    print("Using SEPARATE TEST DATABASE (production DB is safe)")
     print("="*60)
     
+    # Create test database
+    test_db_name = None
     try:
+        test_db_name = create_test_database()
         # Check if we have matched series data from task2
         if not check_matched_series():
             print("Please run the task2 test first to create matched series data.")
@@ -471,6 +542,15 @@ def main():
         if keep_files not in ['y', 'yes']:
             cleanup_deidentified_data()
             print("✓ Cleaned up deidentified files")
+        
+        # Always destroy test database
+        if test_db_name:
+            destroy_test_database()
+        
+        print("\n" + "="*70)
+        print("TEST COMPLETED")
+        print("Your production database was NOT modified")
+        print("="*70)
 
 if __name__ == "__main__":
     main()

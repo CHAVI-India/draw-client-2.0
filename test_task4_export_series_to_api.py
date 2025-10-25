@@ -3,6 +3,9 @@
 Test script for task4_export_series_to_api.py
 This script tests the DICOM series export to API server functionality.
 Tests API health checks, bearer token authentication, token refresh, and file upload.
+
+IMPORTANT: This test uses a SEPARATE TEST DATABASE that is automatically created
+and destroyed. Your production database will NOT be affected.
 """
 
 import os
@@ -36,6 +39,60 @@ from dicom_handler.export_services.task4_export_series_to_api import (
 )
 from django.utils import timezone
 from django.db import transaction
+from django.test.utils import setup_test_environment, teardown_test_environment
+from django.db import connections
+from django.conf import settings
+
+# Global variable to track test database
+_test_db_name = None
+
+def create_test_database():
+    """
+    Create a separate test database for testing
+    Returns the test database name
+    """
+    global _test_db_name
+    
+    print("\n" + "="*70)
+    print("CREATING SEPARATE TEST DATABASE")
+    print("="*70)
+    
+    setup_test_environment()
+    connection = connections['default']
+    _test_db_name = connection.creation.create_test_db(
+        verbosity=1,
+        autoclobber=True,
+        keepdb=False
+    )
+    
+    print(f"✓ Test database created: {_test_db_name}")
+    print(f"✓ Production database is safe and untouched")
+    print("="*70)
+    
+    return _test_db_name
+
+def destroy_test_database():
+    """
+    Destroy the test database after testing
+    """
+    global _test_db_name
+    
+    if _test_db_name is None:
+        return
+    
+    print("\n" + "="*70)
+    print("DESTROYING TEST DATABASE")
+    print("="*70)
+    
+    connection = connections['default']
+    connection.creation.destroy_test_db(_test_db_name, verbosity=1)
+    teardown_test_environment()
+    
+    print(f"✓ Test database destroyed: {_test_db_name}")
+    print(f"✓ Production database remains unchanged")
+    print("="*70)
+    
+    _test_db_name = None
 
 def create_test_zip_file():
     """
@@ -554,10 +611,14 @@ def main():
     Main test function
     """
     print("🚀 Starting Task 4 Export Series to API Tests")
+    print("Using SEPARATE TEST DATABASE (production DB is safe)")
     print("=" * 60)
     
+    # Create test database
+    test_db_name = None
     config = None
     try:
+        test_db_name = create_test_database()
         # Run individual component tests
         test_calculate_file_checksum()
         test_api_health_check()
@@ -584,6 +645,15 @@ def main():
         # Always restore original configuration
         if config:
             restore_original_configuration(config)
+        
+        # Always destroy test database
+        if test_db_name:
+            destroy_test_database()
+        
+        print("\n" + "="*70)
+        print("TEST COMPLETED")
+        print("Your production database was NOT modified")
+        print("="*70)
 
 if __name__ == "__main__":
     main()

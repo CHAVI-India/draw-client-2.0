@@ -3,6 +3,9 @@
 Incremental test script for task1_read_dicom_from_storage.py
 Tests both implementations WITHOUT clearing the database.
 This simulates real-world incremental runs where most files are already processed.
+
+IMPORTANT: This test uses a SEPARATE TEST DATABASE that is automatically created
+and destroyed. Your production database will NOT be affected.
 """
 
 import os
@@ -19,11 +22,75 @@ sys.path.insert(0, str(project_root))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
 django.setup()
 
-# Now import Django models
+# Now import Django models and test utilities
 from dicom_handler.models import SystemConfiguration, Patient, DICOMStudy, DICOMSeries, DICOMInstance
-from datetime import datetime
+from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import connection
+from django.test.utils import setup_test_environment, teardown_test_environment
+from django.db import connections
+from django.conf import settings
+
+# Global variable to track test database
+_test_db_name = None
+
+def create_test_database():
+    """
+    Create a separate test database for testing
+    Returns the test database name
+    """
+    global _test_db_name
+    
+    print("\n" + "="*70)
+    print("CREATING SEPARATE TEST DATABASE")
+    print("="*70)
+    
+    # Setup test environment
+    setup_test_environment()
+    
+    # Get the default database connection
+    connection = connections['default']
+    
+    # Create test database
+    _test_db_name = connection.creation.create_test_db(
+        verbosity=1,
+        autoclobber=True,  # Automatically remove old test database if exists
+        keepdb=False
+    )
+    
+    print(f"✓ Test database created: {_test_db_name}")
+    print(f"✓ Production database is safe and untouched")
+    print("="*70)
+    
+    return _test_db_name
+
+def destroy_test_database():
+    """
+    Destroy the test database after testing
+    """
+    global _test_db_name
+    
+    if _test_db_name is None:
+        return
+    
+    print("\n" + "="*70)
+    print("DESTROYING TEST DATABASE")
+    print("="*70)
+    
+    # Get the default database connection
+    connection = connections['default']
+    
+    # Destroy test database
+    connection.creation.destroy_test_db(_test_db_name, verbosity=1)
+    
+    # Teardown test environment
+    teardown_test_environment()
+    
+    print(f"✓ Test database destroyed: {_test_db_name}")
+    print(f"✓ Production database remains unchanged")
+    print("="*70)
+    
+    _test_db_name = None
 
 def print_database_state():
     """
@@ -188,20 +255,294 @@ def print_comparison(results):
    
     print("="*70)
 
+def test_study_date_filtering(original_date_filter):
+    """
+    Test study date-based filtering feature
+    Prompts user for a cutoff date and compares results with filtering ON vs OFF
+    
+    Args:
+        original_date_filter: Original date filter to restore after test
+    """
+    print("\n" + "="*70)
+    print("STUDY DATE FILTERING TEST")
+    print("="*70)
+    
+    from dicom_handler.export_services.task1_read_dicom_from_storage import read_dicom_from_storage
+    from datetime import datetime
+    
+    config = SystemConfiguration.get_singleton()
+    
+    # Prompt user for cutoff date
+    print("\nEnter the STUDY DATE cutoff for filtering.")
+    print("Studies with DICOM Study Dates BEFORE this cutoff will be filtered out.")
+    print("\nOptions:")
+    print("  1. Enter number of days ago (e.g., 210 for 7 months)")
+    print("  2. Enter specific date (YYYY-MM-DD format)")
+    print("  3. Press Enter to use 7 months ago (210 days)")
+    
+    user_input = input("\nYour choice: ").strip()
+    
+    if not user_input:
+        # Default: 7 months ago
+        cutoff_date = timezone.now() - timedelta(days=210)
+        print(f"Using default: 7 months ago")
+    elif user_input.isdigit():
+        # User entered number of days
+        days = int(user_input)
+        cutoff_date = timezone.now() - timedelta(days=days)
+        print(f"Using: {days} days ago")
+    else:
+        # User entered a specific date
+        try:
+            parsed_date = datetime.strptime(user_input, '%Y-%m-%d')
+            cutoff_date = timezone.make_aware(parsed_date)
+            print(f"Using specific date: {user_input}")
+        except ValueError:
+            print(f"Invalid date format. Using default: 7 months ago")
+            cutoff_date = timezone.now() - timedelta(days=210)
+    
+    # Set data_pull_start_datetime to year 2000 to allow all files through
+    # This is the same approach used in the main incremental test
+    very_old_date = timezone.make_aware(datetime(2000, 1, 1))
+    config.data_pull_start_datetime = very_old_date
+    config.save()
+    
+    print(f"\n📅 File modification time filter set to: {very_old_date.date()}")
+    print(f"   (This ensures ALL files pass the modification time check)")
+    print(f"\n📅 Study Date cutoff will be: {cutoff_date.date()}")
+    print(f"   (We'll compare study dates against this cutoff)")
+    
+    # Store the cutoff_date for later use in study date comparison
+    # We'll need to temporarily change data_pull_start_datetime before each test run
+    study_date_cutoff = cutoff_date
+    
+    # Clear the database for a fresh run
+    print("\n" + "-"*70)
+    print("CLEARING DATABASE FOR FRESH TEST RUN")
+    print("-"*70)
+    
+    initial_counts = {
+        'patients': Patient.objects.count(),
+        'studies': DICOMStudy.objects.count(),
+        'series': DICOMSeries.objects.count(),
+        'instances': DICOMInstance.objects.count()
+    }
+    
+    print(f"\nBefore clearing:")
+    print(f"  Patients: {initial_counts['patients']}")
+    print(f"  Studies: {initial_counts['studies']}")
+    print(f"  Series: {initial_counts['series']}")
+    print(f"  Instances: {initial_counts['instances']}")
+    
+    # Delete all records
+    DICOMInstance.objects.all().delete()
+    DICOMSeries.objects.all().delete()
+    DICOMStudy.objects.all().delete()
+    Patient.objects.all().delete()
+    
+    print(f"\n✓ Database cleared - ready for fresh test run")
+    
+    # Store initial database state (should be 0 for all)
+    initial_state = {
+        'patients': Patient.objects.count(),
+        'studies': DICOMStudy.objects.count(),
+        'series': DICOMSeries.objects.count(),
+        'instances': DICOMInstance.objects.count()
+    }
+    
+    print(f"\nInitial database state (after clearing):")
+    print(f"  Patients: {initial_state['patients']}")
+    print(f"  Studies: {initial_state['studies']}")
+    print(f"  Series: {initial_state['series']}")
+    print(f"  Instances: {initial_state['instances']}")
+    
+    # ===== TEST 1: Filtering DISABLED =====
+    print("\n" + "-"*70)
+    print("TEST 1: Study Date Filtering DISABLED")
+    print("-"*70)
+    
+    # For TEST 1: Keep data_pull_start_datetime at year 2000
+    # This allows all files through (no filtering)
+    config.study_date_based_filtering = False
+    config.save()
+    print(f"Study date filtering: {config.study_date_based_filtering}")
+    print(f"Date filter: {config.data_pull_start_datetime.date()} (year 2000 - allows all files)")
+    
+    print("\nRunning task...")
+    start_time = time.time()
+    result_without_filter = read_dicom_from_storage()
+    time_without_filter = time.time() - start_time
+    
+    print(f"\n⏱️  Processing time: {time_without_filter:.2f} seconds")
+    print(f"✅ Status: {result_without_filter.get('status')}")
+    print(f"📁 Processed files: {result_without_filter.get('processed_files', 0)}")
+    print(f"⏭️  Skipped files: {result_without_filter.get('skipped_files', 0)}")
+    print(f"❌ Error files: {result_without_filter.get('error_files', 0)}")
+    
+    state_without_filter = {
+        'patients': Patient.objects.count(),
+        'studies': DICOMStudy.objects.count(),
+        'series': DICOMSeries.objects.count(),
+        'instances': DICOMInstance.objects.count()
+    }
+    
+    print(f"\nDatabase state after processing:")
+    print(f"  Patients: {state_without_filter['patients']} (added: {state_without_filter['patients'] - initial_state['patients']})")
+    print(f"  Studies: {state_without_filter['studies']} (added: {state_without_filter['studies'] - initial_state['studies']})")
+    print(f"  Series: {state_without_filter['series']} (added: {state_without_filter['series'] - initial_state['series']})")
+    print(f"  Instances: {state_without_filter['instances']} (added: {state_without_filter['instances'] - initial_state['instances']})")
+    
+    # ===== TEST 2: Filtering ENABLED =====
+    print("\n" + "-"*70)
+    print("TEST 2: Study Date Filtering ENABLED")
+    print("-"*70)
+    
+    # Reset to initial state by deleting newly added records
+    print("\nResetting database to initial state...")
+    if state_without_filter['instances'] > initial_state['instances']:
+        # Get newly added instances and delete them
+        new_instances = DICOMInstance.objects.all()[initial_state['instances']:]
+        new_instances.delete()
+        
+        # Clean up orphaned records
+        DICOMSeries.objects.filter(dicominstance__isnull=True).delete()
+        DICOMStudy.objects.filter(dicomseries__isnull=True).delete()
+        Patient.objects.filter(dicomstudy__isnull=True).delete()
+        
+        print(f"✓ Database reset to initial state")
+    
+    # For TEST 2: Change data_pull_start_datetime to the study_date_cutoff
+    # This will be used for study date comparison
+    config.data_pull_start_datetime = study_date_cutoff
+    config.study_date_based_filtering = True
+    config.save()
+    print(f"Study date filtering: {config.study_date_based_filtering}")
+    print(f"Date filter changed to: {config.data_pull_start_datetime.date()}")
+    print(f"Cutoff: Studies with dates before {study_date_cutoff.date()} will be filtered")
+    
+    print("\nRunning task...")
+    start_time = time.time()
+    result_with_filter = read_dicom_from_storage()
+    time_with_filter = time.time() - start_time
+    
+    print(f"\n⏱️  Processing time: {time_with_filter:.2f} seconds")
+    print(f"✅ Status: {result_with_filter.get('status')}")
+    print(f"📁 Processed files: {result_with_filter.get('processed_files', 0)}")
+    print(f"⏭️  Skipped files: {result_with_filter.get('skipped_files', 0)}")
+    print(f"❌ Error files: {result_with_filter.get('error_files', 0)}")
+    
+    state_with_filter = {
+        'patients': Patient.objects.count(),
+        'studies': DICOMStudy.objects.count(),
+        'series': DICOMSeries.objects.count(),
+        'instances': DICOMInstance.objects.count()
+    }
+    
+    print(f"\nDatabase state after processing:")
+    print(f"  Patients: {state_with_filter['patients']} (added: {state_with_filter['patients'] - initial_state['patients']})")
+    print(f"  Studies: {state_with_filter['studies']} (added: {state_with_filter['studies'] - initial_state['studies']})")
+    print(f"  Series: {state_with_filter['series']} (added: {state_with_filter['series'] - initial_state['series']})")
+    print(f"  Instances: {state_with_filter['instances']} (added: {state_with_filter['instances'] - initial_state['instances']})")
+    
+    # ===== COMPARISON =====
+    print("\n" + "="*70)
+    print("STUDY DATE FILTERING - COMPARISON RESULTS")
+    print("="*70)
+    
+    print(f"\n{'Metric':<30} {'Without Filter':<20} {'With Filter':<20} {'Difference'}")
+    print("-"*70)
+    print(f"{'Processing Time':<30} {time_without_filter:.2f}s{'':<14} {time_with_filter:.2f}s{'':<14} {time_with_filter - time_without_filter:+.2f}s")
+    print(f"{'Files Processed':<30} {result_without_filter.get('processed_files', 0):<20} {result_with_filter.get('processed_files', 0):<20} {result_with_filter.get('processed_files', 0) - result_without_filter.get('processed_files', 0):+d}")
+    print(f"{'Files Skipped':<30} {result_without_filter.get('skipped_files', 0):<20} {result_with_filter.get('skipped_files', 0):<20} {result_with_filter.get('skipped_files', 0) - result_without_filter.get('skipped_files', 0):+d}")
+    print(f"{'Instances Added to DB':<30} {state_without_filter['instances'] - initial_state['instances']:<20} {state_with_filter['instances'] - initial_state['instances']:<20} {(state_with_filter['instances'] - initial_state['instances']) - (state_without_filter['instances'] - initial_state['instances']):+d}")
+    
+    # Analysis
+    print("\n" + "="*70)
+    print("ANALYSIS")
+    print("="*70)
+    
+    additional_skipped = result_with_filter.get('skipped_files', 0) - result_without_filter.get('skipped_files', 0)
+    instances_filtered = (state_without_filter['instances'] - initial_state['instances']) - (state_with_filter['instances'] - initial_state['instances'])
+    
+    if additional_skipped > 0:
+        print(f"\n✅ Study date filtering is working!")
+        print(f"   {additional_skipped} additional files were skipped due to old study dates")
+    
+    if instances_filtered > 0:
+        print(f"\n✅ Database contains fewer records with filtering enabled")
+        print(f"   {instances_filtered} instances were filtered out based on study date")
+    
+    if additional_skipped == 0 and instances_filtered == 0:
+        print(f"\n⚠️  No files were filtered by study date")
+        print(f"   This could mean all studies in the test data are after {cutoff_date.date()}")
+        print(f"   Or the DICOM files don't have study dates older than the cutoff")
+        print(f"   Try using an older cutoff date to see the filtering effect")
+    
+    # Restore original configuration
+    config.data_pull_start_datetime = original_date_filter
+    config.study_date_based_filtering = False
+    config.save()
+    
+    print(f"\n✅ Configuration restored:")
+    print(f"   Date filter: {config.data_pull_start_datetime}")
+    print(f"   Study date filtering: {config.study_date_based_filtering}")
+    
+    print("\n" + "="*70)
+    print("STUDY DATE FILTERING TEST COMPLETED")
+    print("="*70)
+
 def main():
     """
     Main test function
     """
     print("="*70)
     print("DICOM FILE READER - INCREMENTAL RUN TEST")
-    print("Testing on existing database WITHOUT clearing data")
+    print("Using SEPARATE TEST DATABASE (production DB is safe)")
     print("="*70)
    
+    # Create test database
+    test_db_name = None
     try:
-        # Check system configuration
-        config = SystemConfiguration.get_singleton()
-        if not config or not config.folder_configuration:
-            print("❌ No system configuration found. Please configure the system first.")
+        # First, get the folder configuration from production database BEFORE creating test DB
+        print("\n" + "="*70)
+        print("READING PRODUCTION DATABASE CONFIGURATION")
+        print("="*70)
+        
+        prod_config = SystemConfiguration.get_singleton()
+        if not prod_config or not prod_config.folder_configuration:
+            print("❌ No system configuration found in production database.")
+            print("   Please configure the folder_configuration in System Configuration first.")
+            return
+        
+        # Store the folder path from production
+        folder_path = prod_config.folder_configuration
+        date_filter = prod_config.data_pull_start_datetime or (timezone.now() - timedelta(days=30))
+        study_date_filtering = prod_config.study_date_based_filtering
+        
+        print(f"✓ Read from production DB:")
+        print(f"  - Folder: {folder_path}")
+        print(f"  - Date filter: {date_filter}")
+        print(f"  - Study date filtering: {study_date_filtering}")
+        
+        # Now create test database
+        test_db_name = create_test_database()
+        
+        # Create system configuration in test database using production values
+        print("\n" + "="*70)
+        print("SETTING UP TEST CONFIGURATION")
+        print("="*70)
+        
+        config = SystemConfiguration.objects.create(
+            id=1,
+            folder_configuration=folder_path,
+            data_pull_start_datetime=date_filter,
+            study_date_based_filtering=study_date_filtering
+        )
+        print("✓ Created test SystemConfiguration with production values")
+        
+        # Verify folder exists
+        if not config.folder_configuration:
+            print("❌ No folder configuration set.")
             return
        
         print(f"\n✓ Configured folder: {config.folder_configuration}")
@@ -229,6 +570,7 @@ def main():
        
         # Save original date filter to restore after tests
         original_date_filter = config.data_pull_start_datetime
+        original_study_filtering = config.study_date_based_filtering
        
         results = []
        
@@ -250,11 +592,42 @@ def main():
         print(f"\n" + "="*70)
         print("INCREMENTAL TEST COMPLETED")
         print("="*70)
+        
+        # Ask user if they want to run study date filtering test
+        print("\n" + "="*70)
+        print("ADDITIONAL TEST AVAILABLE")
+        print("="*70)
+        print("\nWould you like to run the Study Date Filtering test?")
+        print("This will test the new study_date_based_filtering feature.")
+        print("(Sets date filter to 5 weeks ago and compares results)")
+        
+        response = input("\nRun study date filtering test? (y/n): ").strip().lower()
+        
+        if response == 'y' or response == 'yes':
+            test_study_date_filtering(original_date_filter)
+        else:
+            print("\nSkipping study date filtering test.")
+        
+        # Final restore
+        config.refresh_from_db()
+        config.data_pull_start_datetime = original_date_filter
+        config.study_date_based_filtering = original_study_filtering
+        config.save()
+        print(f"\n✅ All settings restored to original values")
        
     except Exception as e:
         print(f"\n❌ Test failed with error: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        # Always destroy test database, even if test fails
+        if test_db_name:
+            destroy_test_database()
+        
+        print("\n" + "="*70)
+        print("TEST COMPLETED")
+        print("Your production database was NOT modified")
+        print("="*70)
 
 if __name__ == "__main__":
     main()
