@@ -51,7 +51,7 @@
                 <span class="text-gray-600 font-medium">Export Date:</span>
                 <p class="text-gray-900">
                     {% if rt_data.rt_import.reidentified_rt_structure_file_export_datetime %}
-                        {{ rt_data.rt_import.reidentified_rt_structure_file_export_datetime|date:"M d, Y H:i" }}
+                        {{ rt_data.rt_import.reidentified_rt_structure_file_export_datetime|date:"d F Y H:i" }}
                     {% else %}
                         N/A
                     {% endif %}
@@ -80,7 +80,7 @@
                     <span class="text-gray-600 font-medium">Review Date:</span>
                     <p class="text-gray-900">
                         {% if rt_data.rt_import.date_contour_reviewed %}
-                            {{ rt_data.rt_import.date_contour_reviewed|date:"M d, Y" }}
+                            {{ rt_data.rt_import.date_contour_reviewed|date:"d F Y" }}
                         {% else %}
                             N/A
                         {% endif %}

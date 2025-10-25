@@ -219,7 +219,7 @@
                     <div>
                         <span class="text-gray-500">Study Date:</span>
                         <span class="text-gray-900 font-medium ml-1">
-                            {% if series.study_date %}{{ series.study_date|date:"d/m/y" }}{% else %}N/A{% endif %}
+                            {% if series.study_date %}{{ series.study_date|date:"d F Y" }}{% else %}N/A{% endif %}
                         </span>
                     </div>
                     <div>
@@ -251,7 +251,7 @@
                     {% if series.export_info.server_segmentation_updated %}
                     <div>
                         <span class="text-gray-500">Seg Updated:</span>
-                        <span class="text-gray-900 font-medium ml-1">{{ series.export_info.server_segmentation_updated|date:"m/d/y H:i" }}</span>
+                        <span class="text-gray-900 font-medium ml-1">{{ series.export_info.server_segmentation_updated|date:"d F Y H:i" }}</span>
                     </div>
                     {% endif %}
                     {% if series.matched_rulesets != 'None' %}
@@ -424,22 +424,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Bulk action button is now handled by the manual autosegmentation JavaScript
-
-    // Auto-submit form on filter changes
-    const filterSelects = document.querySelectorAll('#gender, #modality, #protocol, #status');
-    const dateInputs = document.querySelectorAll('#study_date_from, #study_date_to, #updated_date_from, #updated_date_to');
     
-    filterSelects.forEach(select => {
-        select.addEventListener('change', function() {
-            document.getElementById('filter-form').submit();
-        });
-    });
-
-    dateInputs.forEach(input => {
-        input.addEventListener('change', function() {
-            document.getElementById('filter-form').submit();
-        });
-    });
+    // Note: Filters are applied only when user clicks "Apply Filters" or "Search" button
+    // This prevents premature form submission while user is selecting date ranges
 
     function updateSelectAllState() {
         const checkedCount = Array.from(seriesCheckboxes).filter(cb => cb.checked).length;

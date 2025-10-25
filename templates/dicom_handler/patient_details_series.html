@@ -37,7 +37,7 @@
             <div>
                 <span class="text-gray-600 font-medium">Series Date:</span>
                 <p class="text-gray-900">
-                    {% if series_data.series.series_date %}{{ series_data.series.series_date|date:"F d, Y" }}{% else %}N/A{% endif %}
+                    {% if series_data.series.series_date %}{{ series_data.series.series_date|date:"d F Y" }}{% else %}N/A{% endif %}
                 </p>
             </div>
             <div>
@@ -115,7 +115,7 @@
                     <div>
                         <span class="text-gray-600 font-medium">Transfer Date:</span>
                         <p class="text-gray-900">
-                            {% if export.deidentified_zip_file_transfer_datetime %}{{ export.deidentified_zip_file_transfer_datetime|date:"m/d/y H:i" }}{% else %}N/A{% endif %}
+                            {% if export.deidentified_zip_file_transfer_datetime %}{{ export.deidentified_zip_file_transfer_datetime|date:"d F Y H:i" }}{% else %}N/A{% endif %}
                         </p>
                     </div>
                 </div>

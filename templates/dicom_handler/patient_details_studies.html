@@ -24,7 +24,7 @@
                 <div>
                     <span class="text-gray-600 font-medium">Study Date:</span>
                     <p class="text-gray-900">
-                        {% if study_data.study.study_date %}{{ study_data.study.study_date|date:"F d, Y" }}{% else %}N/A{% endif %}
+                        {% if study_data.study.study_date %}{{ study_data.study.study_date|date:"d F Y" }}{% else %}N/A{% endif %}
                     </p>
                 </div>
                 <div>
