@@ -1,0 +1,132 @@
+<div class="mb-6 last:mb-0 border border-gray-200 rounded-lg overflow-hidden">
+    <!-- Series Header -->
+    <div class="bg-blue-50 px-4 py-3 border-b border-blue-200">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center">
+                <svg class="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                </svg>
+                <h4 class="text-lg font-semibold text-gray-900">Series #{{ forloop.counter }}</h4>
+            </div>
+            <span class="inline-flex px-3 py-1 text-xs font-medium rounded-full 
+                {% if series_data.series.series_processsing_status == 'RULE_MATCHED' or series_data.series.series_processsing_status == 'DEIDENTIFIED_SUCCESSFULLY' or series_data.series.series_processsing_status == 'SENT_TO_DRAW_SERVER' or series_data.series.series_processsing_status == 'RTSTRUCTURE_RECEIVED' or series_data.series.series_processsing_status == 'RTSTRUCTURE_EXPORTED' %}bg-green-100 text-green-800
+                {% elif series_data.series.series_processsing_status == 'RULE_NOT_MATCHED' or series_data.series.series_processsing_status == 'DEIDENTIFICATION_FAILED' or series_data.series.series_processsing_status == 'FAILED_TRANSFER_TO_DRAW_SERVER' or series_data.series.series_processsing_status == 'INVALID_RTSTRUCTURE_RECEIVED' or series_data.series.series_processsing_status == 'RTSTRUCTURE_EXPORT_FAILED' %}bg-red-100 text-red-800
+                {% elif series_data.series.series_processsing_status == 'MULTIPLE_RULES_MATCHED' or series_data.series.series_processsing_status == 'PENDING_TRANSFER_TO_DRAW_SERVER' %}bg-yellow-100 text-yellow-800
+                {% elif series_data.series.series_processsing_status == 'UNPROCESSED' %}bg-gray-100 text-gray-800
+                {% else %}bg-blue-100 text-blue-800{% endif %}">
+                {{ series_data.series.get_series_processsing_status_display }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Series Information -->
+    <div class="px-4 py-3 bg-white">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm mb-3">
+            <div>
+                <span class="text-gray-600 font-medium">Series Instance UID:</span>
+                <p class="text-gray-900 font-mono text-xs break-all">{{ series_data.series.series_instance_uid }}</p>
+            </div>
+            <div>
+                <span class="text-gray-600 font-medium">Frame of Reference UID:</span>
+                <p class="text-gray-900 font-mono text-xs break-all">{{ series_data.series.frame_of_reference_uid|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-gray-600 font-medium">Series Description:</span>
+                <p class="text-gray-900">{{ series_data.series.series_description|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-gray-600 font-medium">Series Date:</span>
+                <p class="text-gray-900">
+                    {% if series_data.series.series_date %}{{ series_data.series.series_date|date:"F d, Y" }}{% else %}N/A{% endif %}
+                </p>
+            </div>
+            <div>
+                <span class="text-gray-600 font-medium">Instance Count:</span>
+                <p class="text-gray-900">{{ series_data.series.instance_count|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-gray-600 font-medium">Series Root Path:</span>
+                <p class="text-gray-900 font-mono text-xs break-all">{{ series_data.series.series_root_path|default:"N/A" }}</p>
+            </div>
+        </div>
+
+        <!-- Matched Rulesets and Templates -->
+        {% if series_data.matched_rulesets or series_data.matched_templates %}
+        <div class="border-t border-gray-200 pt-3 mt-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                {% if series_data.matched_rulesets %}
+                <div>
+                    <span class="text-gray-600 font-medium">Matched Rulesets:</span>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                        {% for ruleset in series_data.matched_rulesets %}
+                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800">
+                            {{ ruleset.ruleset_name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% if series_data.matched_templates %}
+                <div>
+                    <span class="text-gray-600 font-medium">Matched Templates:</span>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                        {% for template in series_data.matched_templates %}
+                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-800">
+                            {{ template.template_name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- File Export Information -->
+        {% if series_data.file_exports %}
+        <div class="border-t border-gray-200 pt-3 mt-3">
+            <h5 class="text-sm font-semibold text-gray-700 mb-2 flex items-center">
+                <svg class="w-4 h-4 mr-1 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                File Export History
+            </h5>
+            {% for export in series_data.file_exports %}
+            <div class="bg-gray-50 rounded p-3 mb-2 last:mb-0">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                    <div>
+                        <span class="text-gray-600 font-medium">Task ID:</span>
+                        <p class="text-gray-900 font-mono">{{ export.task_id|default:"N/A" }}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-medium">Transfer Status:</span>
+                        <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded 
+                            {% if export.deidentified_zip_file_transfer_status == 'COMPLETED' or export.deidentified_zip_file_transfer_status == 'RTSTRUCT_RECEIVED' %}bg-green-100 text-green-800
+                            {% elif export.deidentified_zip_file_transfer_status == 'FAILED' or export.deidentified_zip_file_transfer_status == 'CHECKSUM_MATCH_FAILED' or export.deidentified_zip_file_transfer_status == 'INVALID_RTSTRUCT_FILE' %}bg-red-100 text-red-800
+                            {% elif export.deidentified_zip_file_transfer_status == 'PENDING' or export.deidentified_zip_file_transfer_status == 'IN_PROGRESS' %}bg-yellow-100 text-yellow-800
+                            {% else %}bg-gray-100 text-gray-800{% endif %}">
+                            {{ export.get_deidentified_zip_file_transfer_status_display }}
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-medium">Server Status:</span>
+                        <p class="text-gray-900">{{ export.server_segmentation_status|default:"N/A" }}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-medium">Transfer Date:</span>
+                        <p class="text-gray-900">
+                            {% if export.deidentified_zip_file_transfer_datetime %}{{ export.deidentified_zip_file_transfer_datetime|date:"m/d/y H:i" }}{% else %}N/A{% endif %}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- RT Structure Sets -->
+        {% if series_data.rt_structures %}
+        {% include 'dicom_handler/patient_details_rt_structures.html' with series_data=series_data %}
+        {% endif %}
+    </div>
+</div>

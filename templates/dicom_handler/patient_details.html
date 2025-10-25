@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block title %}Patient Details - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-full mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Patient Details</h1>
+                <p class="text-gray-600">Comprehensive view of patient data with hierarchical relationships</p>
+            </div>
+            <a href="{% url 'dicom_handler:series_processing_status' %}" 
+               class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Processing Status
+            </a>
+        </div>
+    </div>
+
+    <!-- Patient Information Card -->
+    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-sm border border-blue-200 p-6 mb-6">
+        <div class="flex items-center mb-4">
+            <svg class="w-10 h-10 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+            </svg>
+            <h2 class="text-2xl font-semibold text-gray-900">Patient Information</h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+                <span class="text-sm text-gray-600 font-medium">Patient Name:</span>
+                <p class="text-lg font-semibold text-gray-900">{{ patient.patient_name }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-600 font-medium">Patient ID:</span>
+                <p class="text-lg font-semibold text-gray-900">{{ patient.patient_id }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-600 font-medium">Gender:</span>
+                <p class="text-lg font-semibold text-gray-900">{{ patient.patient_gender|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-600 font-medium">Date of Birth:</span>
+                <p class="text-lg font-semibold text-gray-900">
+                    {% if patient.patient_date_of_birth %}{{ patient.patient_date_of_birth|date:"F d, Y" }}{% else %}N/A{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary Statistics -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-blue-100 rounded-lg p-3">
+                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Total Studies</p>
+                    <p class="text-3xl font-bold text-gray-900">{{ total_studies }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-green-100 rounded-lg p-3">
+                    <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Total Series</p>
+                    <p class="text-3xl font-bold text-gray-900">{{ total_series }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
+            <div class="flex items-center">
+                <div class="flex-shrink-0 bg-purple-100 rounded-lg p-3">
+                    <svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">RT Structures</p>
+                    <p class="text-3xl font-bold text-gray-900">{{ total_rt_structures }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Studies List -->
+    {% include 'dicom_handler/patient_details_studies.html' %}
+</div>
+{% endblock %}

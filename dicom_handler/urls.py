@@ -57,6 +57,9 @@ urlpatterns = [
     path('rate-contour/<str:series_uid>/', views.rate_contour_quality, name='rate_contour_quality'),
     path('view-ratings/<str:series_uid>/', views.view_series_ratings, name='view_series_ratings'),
     
+    # Patient Details
+    path('patient/<uuid:patient_uuid>/', views.patient_details, name='patient_details'),
+    
     # Manual Autosegmentation API URLs
     path('api/manual-autosegmentation/series-info/', ManualAutosegmentationSeriesInfoView.as_view(), name='manual_autosegmentation_series_info'),
     path('api/manual-autosegmentation/validate/', ManualAutosegmentationValidateView.as_view(), name='manual_autosegmentation_validate'),

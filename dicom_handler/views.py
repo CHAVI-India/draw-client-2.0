@@ -9,7 +9,7 @@ from .forms import (TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetH
                     RTStructureReviewForm, VOIRatingFormSet)
 from .models import (SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, 
                      RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics,
-                     RTStructureFileImport, RTStructureFileVOIData)
+                     RTStructureFileImport, RTStructureFileVOIData, DICOMFileExport, DICOMFileTransferStatus)
 from .vr_validators import VRValidator
 import requests
 import json
@@ -1171,6 +1171,7 @@ def series_processing_status(request):
         series_info = {
             'id': series.id,
             'series_instance_uid': series.series_instance_uid,  # Add the missing field
+            'patient_uuid': series.study.patient.id,  # UUID primary key for patient details link
             'patient_id': series.study.patient.patient_id or 'N/A',
             'patient_name': series.study.patient.patient_name or 'N/A',
             'gender': series.study.patient.patient_gender or 'N/A',
@@ -1752,3 +1753,85 @@ def check_api_health(request):
             'status': 'error',
             'message': str(e)
         }, status=500)
+
+@login_required
+def patient_details(request, patient_uuid):
+    """
+    View for displaying comprehensive patient details with hierarchical data:
+    Patient -> Studies -> Series -> RT Structure Sets -> VOI Data
+    """
+    # Get patient by UUID (primary key) - no special character issues
+    patient = get_object_or_404(Patient, id=patient_uuid)
+    
+    # Get all studies for this patient
+    studies = DICOMStudy.objects.filter(patient=patient).order_by('-study_date')
+    
+    # Build hierarchical data structure
+    studies_data = []
+    for study in studies:
+        # Get all series for this study
+        series_list = DICOMSeries.objects.filter(study=study).order_by('-series_date')
+        
+        series_data = []
+        for series in series_list:
+            # Get file export information for this series
+            file_exports = DICOMFileExport.objects.filter(
+                deidentified_series_instance_uid=series
+            ).order_by('-created_at')
+            
+            # Get RT Structure imports for this series
+            rt_structures = RTStructureFileImport.objects.filter(
+                deidentified_series_instance_uid=series
+            ).order_by('-created_at')
+            
+            rt_structure_data = []
+            for rt_struct in rt_structures:
+                # Get VOI data for this RT structure
+                voi_data = RTStructureFileVOIData.objects.filter(
+                    rt_structure_file_import=rt_struct
+                ).order_by('volume_name')
+                
+                # Check if this RT structure has been rated
+                has_rating = (
+                    rt_struct.date_contour_reviewed is not None or
+                    rt_struct.contour_modification_time_required is not None or
+                    rt_struct.overall_rating is not None
+                )
+                
+                rt_structure_data.append({
+                    'rt_import': rt_struct,
+                    'voi_list': voi_data,
+                    'voi_count': voi_data.count(),
+                    'has_rating': has_rating,
+                })
+            
+            # Get matched rulesets and templates
+            matched_rulesets = series.matched_rule_sets.all()
+            matched_templates = series.matched_templates.all()
+            
+            series_data.append({
+                'series': series,
+                'file_exports': file_exports,
+                'rt_structures': rt_structure_data,
+                'rt_structure_count': len(rt_structure_data),
+                'matched_rulesets': matched_rulesets,
+                'matched_templates': matched_templates,
+            })
+        
+        studies_data.append({
+            'study': study,
+            'series_list': series_data,
+            'series_count': len(series_data),
+        })
+    
+    context = {
+        'patient': patient,
+        'studies_data': studies_data,
+        'total_studies': studies.count(),
+        'total_series': DICOMSeries.objects.filter(study__patient=patient).count(),
+        'total_rt_structures': RTStructureFileImport.objects.filter(
+            deidentified_series_instance_uid__study__patient=patient
+        ).count(),
+    }
+    
+    return render(request, 'dicom_handler/patient_details.html', context)

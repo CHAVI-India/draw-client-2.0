@@ -156,8 +156,16 @@
                     <div class="flex items-center space-x-2">
                         <input type="checkbox" class="series-checkbox rounded border-gray-300 text-primary-600 focus:ring-primary-500" 
                                value="{{ series.series_instance_uid }}" data-series-uid="{{ series.series_instance_uid }}" data-series-id="{{ series.id }}">
-                        <div>
+                        <div class="flex items-center space-x-2">
                             <h3 class="text-base font-semibold text-gray-900">{{ series.patient_name }} <span class="text-sm font-normal text-gray-600">({{ series.patient_id }})</span></h3>
+                            <a href="{% url 'dicom_handler:patient_details' series.patient_uuid %}" 
+                               class="inline-flex items-center px-2 py-1 bg-gray-600 text-white text-xs font-medium rounded hover:bg-gray-700 transition-colors"
+                               title="View Patient Details">
+                                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                                Details
+                            </a>
                         </div>
                     </div>
                     <div class="flex items-center space-x-2">
