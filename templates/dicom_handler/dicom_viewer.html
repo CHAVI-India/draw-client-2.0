@@ -1,0 +1,686 @@
+{% extends 'base.html' %}
+
+{% block title %}DICOM Viewer - {{ series.series_instance_uid }} - DRAW v2.0{% endblock %}
+
+{% block extra_css %}
+<style>
+    #viewer-container {
+        position: relative;
+        background: #000;
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+    
+    #dicom-image {
+        width: 100%;
+        height: auto;
+        display: block;
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+    }
+    
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #9333ea;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .roi-checkbox {
+        cursor: pointer;
+    }
+    
+    .roi-checkbox:hover {
+        background-color: #f3f4f6;
+    }
+    
+    .slice-info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 14px;
+        z-index: 5;
+    }
+    
+    /* Vertical slider styling */
+    #slice-slider {
+        -webkit-appearance: slider-vertical;
+        appearance: slider-vertical;
+        width: 8px;
+        height: 400px;
+        writing-mode: bt-lr;
+        direction: rtl;
+        background: linear-gradient(to top, #9333ea 0%, #9333ea 0%) no-repeat, #e5e7eb;
+        background-size: 8px 0%;
+        border-radius: 4px;
+        outline: none;
+        cursor: pointer;
+    }
+    
+    #slice-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        background: #9333ea;
+        cursor: pointer;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    #slice-slider::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        background: #9333ea;
+        cursor: pointer;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    #slice-slider::-webkit-slider-runnable-track {
+        width: 8px;
+        height: 400px;
+        background: #e5e7eb;
+        border-radius: 4px;
+    }
+    
+    #slice-slider::-moz-range-track {
+        width: 8px;
+        height: 400px;
+        background: #e5e7eb;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-full mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Viewer with RT Structure Overlay</h1>
+                <p class="text-gray-600">Interactive viewer for DICOM images with contour visualization</p>
+            </div>
+            <a href="{% url 'dicom_handler:view_rt_structure_list' series.series_instance_uid %}" 
+               class="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to RT Structure List
+            </a>
+        </div>
+    </div>
+
+    <!-- Patient Information -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+                <span class="text-gray-500">Patient:</span>
+                <span class="text-gray-900 font-medium ml-1">{{ patient_name }} ({{ patient_id }})</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Study Date:</span>
+                <span class="text-gray-900 font-medium ml-1">
+                    {% if study_date %}{{ study_date|date:"d M Y" }}{% else %}N/A{% endif %}
+                </span>
+            </div>
+            <div>
+                <span class="text-gray-500">Series:</span>
+                <span class="text-gray-900 font-medium ml-1">{{ series_description|default:"N/A" }}</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Instances:</span>
+                <span class="text-gray-900 font-medium ml-1">{{ instance_count }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <!-- Viewer Panel (Left - 3/4 width) -->
+        <div class="lg:col-span-3">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                <div class="flex gap-4">
+                    <!-- Slice Navigation Controls (Left Side) -->
+                    <div class="flex flex-col items-center space-y-4" style="width: 80px;">
+                        <button id="next-slice" class="w-full px-2 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors" disabled>
+                            <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+                            </svg>
+                        </button>
+                        
+                        <div class="flex-1 flex items-center justify-center py-4 relative group">
+                            <input type="range" id="slice-slider" min="0" max="0" value="0" disabled orient="vertical">
+                            <!-- Help tooltip -->
+                            <div class="absolute left-full ml-2 hidden group-hover:block bg-gray-800 text-white text-xs rounded py-2 px-3 whitespace-nowrap z-20 shadow-lg">
+                                <div class="mb-1">💡 <strong>Navigation Tips:</strong></div>
+                                <div>• Click & drag slider</div>
+                                <div>• Use ↑↓ arrow keys</div>
+                                <div>• Mouse wheel on image</div>
+                                <div class="absolute right-full top-1/2 -translate-y-1/2 mr-[-6px]">
+                                    <div class="w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-gray-800"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button id="prev-slice" class="w-full px-2 py-3 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors" disabled>
+                            <svg class="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        
+                        <div class="text-xs text-center text-gray-600 mt-2">
+                            <div><span id="current-slice">0</span></div>
+                            <div class="text-gray-400">/</div>
+                            <div><span id="total-slices">0</span></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Viewer Container (Center) -->
+                    <div class="flex-1">
+                        <div id="viewer-container" class="relative flex items-center justify-center" style="height: 600px; background: #000;">
+                            <div class="loading-overlay" id="loading-overlay" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+                                <div class="text-center text-white" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 250px;">
+                                    <div class="spinner mx-auto mb-3"></div>
+                                    <p id="loading-text" style="white-space: nowrap;">Loading DICOM data...</p>
+                                </div>
+                            </div>
+                            <img id="dicom-image" src="" alt="DICOM Image" style="display: none; max-height: 600px; max-width: 100%; height: auto; width: auto;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Panel (Right - 1/4 width) -->
+        <div class="lg:col-span-1">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sticky top-4 space-y-6">
+                <!-- Window/Level Controls -->
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-3">Window/Level</h3>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label for="window-center" class="block text-sm font-medium text-gray-700 mb-1">
+                                Center: <span id="wc-value" class="font-semibold">40</span>
+                            </label>
+                            <input type="range" id="window-center" class="w-full" min="-1000" max="1000" value="40" step="1">
+                        </div>
+                        <div>
+                            <label for="window-width" class="block text-sm font-medium text-gray-700 mb-1">
+                                Width: <span id="ww-value" class="font-semibold">400</span>
+                            </label>
+                            <input type="range" id="window-width" class="w-full" min="1" max="2000" value="400" step="1">
+                        </div>
+                    </div>
+
+                    <!-- Preset Window/Level Buttons -->
+                    <div class="mt-3 grid grid-cols-2 gap-2">
+                        <button class="preset-btn px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs" data-wc="40" data-ww="400">
+                            Soft Tissue
+                        </button>
+                        <button class="preset-btn px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs" data-wc="-600" data-ww="1500">
+                            Lung
+                        </button>
+                        <button class="preset-btn px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs" data-wc="400" data-ww="1800">
+                            Bone
+                        </button>
+                        <button class="preset-btn px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs" data-wc="50" data-ww="350">
+                            Brain
+                        </button>
+                        <button class="preset-btn px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-xs" data-wc="60" data-ww="360">
+                            Liver
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- RT Structure Selection -->
+                <div class="pt-4 border-t border-gray-200">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-3">RT Structures</h3>
+                    
+                    <div class="mb-3 grid grid-cols-2 gap-2">
+                        <button id="select-all-roi" class="px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 text-xs font-medium transition-colors">
+                            Select All
+                        </button>
+                        <button id="deselect-all-roi" class="px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-xs font-medium transition-colors">
+                            Deselect All
+                        </button>
+                    </div>
+
+                    <div id="roi-list" class="space-y-2 max-h-64 overflow-y-auto mb-3">
+                        <p class="text-sm text-gray-500 text-center py-4">Loading ROI names...</p>
+                    </div>
+
+                    <button id="apply-overlay" class="w-full px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium transition-colors">
+                        Apply Overlay
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// CSRF Token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+const csrftoken = getCookie('csrftoken');
+
+// Viewer State
+const viewerState = {
+    currentSlice: 0,
+    totalSlices: 0,
+    windowCenter: 40,
+    windowWidth: 400,
+    roiNames: [],
+    selectedROIs: [],
+    isLoading: false,
+};
+
+// DOM Elements
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingText = document.getElementById('loading-text');
+const dicomImage = document.getElementById('dicom-image');
+const currentSliceSpan = document.getElementById('current-slice');
+const totalSlicesSpan = document.getElementById('total-slices');
+const sliceSlider = document.getElementById('slice-slider');
+const prevSliceBtn = document.getElementById('prev-slice');
+const nextSliceBtn = document.getElementById('next-slice');
+const windowCenterInput = document.getElementById('window-center');
+const windowWidthInput = document.getElementById('window-width');
+const wcValueSpan = document.getElementById('wc-value');
+const wwValueSpan = document.getElementById('ww-value');
+const roiList = document.getElementById('roi-list');
+const selectAllBtn = document.getElementById('select-all-roi');
+const deselectAllBtn = document.getElementById('deselect-all-roi');
+const applyOverlayBtn = document.getElementById('apply-overlay');
+
+// Initialize Viewer
+async function initializeViewer() {
+    try {
+        loadingText.textContent = 'Loading DICOM data...';
+        
+        const response = await fetch('{% url "dicom_handler:load_dicom_data" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify({
+                series_uid: '{{ series_uid }}',
+                rt_structure_id: '{{ rt_structure_id }}',
+            }),
+        });
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load DICOM data');
+        }
+
+        viewerState.totalSlices = data.instance_count;
+        viewerState.roiNames = data.roi_names || [];
+        
+        // Update UI
+        totalSlicesSpan.textContent = viewerState.totalSlices;
+        sliceSlider.max = viewerState.totalSlices - 1;
+        sliceSlider.disabled = false;
+        
+        // Populate ROI list
+        populateROIList();
+        
+        // Load first slice
+        await loadSlice(0);
+        
+        // Enable controls
+        prevSliceBtn.disabled = false;
+        nextSliceBtn.disabled = false;
+        
+    } catch (error) {
+        console.error('Error initializing viewer:', error);
+        loadingText.textContent = 'Error: ' + error.message;
+    }
+}
+
+// Populate ROI List
+function populateROIList() {
+    if (viewerState.roiNames.length === 0) {
+        roiList.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">No ROI structures found</p>';
+        return;
+    }
+
+    // Generate consistent colors for all ROIs (matching backend matplotlib rainbow colormap)
+    const totalROIs = viewerState.roiNames.length;
+    const roiColors = viewerState.roiNames.map((_, index) => {
+        // Matplotlib rainbow colormap approximation
+        const t = index / Math.max(totalROIs - 1, 1);
+        let r, g, b;
+        
+        if (t < 0.25) {
+            r = 0;
+            g = 4 * t;
+            b = 1;
+        } else if (t < 0.5) {
+            r = 0;
+            g = 1;
+            b = 1 - 4 * (t - 0.25);
+        } else if (t < 0.75) {
+            r = 4 * (t - 0.5);
+            g = 1;
+            b = 0;
+        } else {
+            r = 1;
+            g = 1 - 4 * (t - 0.75);
+            b = 0;
+        }
+        
+        // Convert to RGB 0-255
+        r = Math.round(r * 255);
+        g = Math.round(g * 255);
+        b = Math.round(b * 255);
+        
+        return `rgb(${r}, ${g}, ${b})`;
+    });
+
+    roiList.innerHTML = '';
+    viewerState.roiNames.forEach((roiName, index) => {
+        const div = document.createElement('div');
+        div.className = 'roi-checkbox flex items-center p-2 rounded border border-gray-200';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `roi-${index}`;
+        checkbox.value = roiName;
+        checkbox.className = 'rounded border-gray-300 text-purple-600 focus:ring-purple-500 mr-2';
+        
+        // Color indicator box
+        const colorBox = document.createElement('div');
+        colorBox.className = 'w-4 h-4 rounded mr-2 border border-gray-300';
+        colorBox.style.backgroundColor = roiColors[index];
+        colorBox.title = `Color for ${roiName}`;
+        
+        const label = document.createElement('label');
+        label.htmlFor = `roi-${index}`;
+        label.textContent = roiName;
+        label.className = 'text-sm text-gray-700 cursor-pointer flex-1';
+        
+        div.appendChild(checkbox);
+        div.appendChild(colorBox);
+        div.appendChild(label);
+        roiList.appendChild(div);
+    });
+}
+
+// Load DICOM Slice
+async function loadSlice(sliceIndex) {
+    if (viewerState.isLoading) return;
+    
+    viewerState.isLoading = true;
+    loadingOverlay.style.display = 'flex';
+    
+    try {
+        // Get selected ROIs
+        const selectedROIs = Array.from(document.querySelectorAll('#roi-list input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
+        
+        const response = await fetch('{% url "dicom_handler:get_dicom_slice" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify({
+                slice_index: sliceIndex,
+                window_center: viewerState.windowCenter,
+                window_width: viewerState.windowWidth,
+                selected_rois: selectedROIs,
+            }),
+        });
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load slice');
+        }
+
+        // Update image
+        dicomImage.src = 'data:image/png;base64,' + data.image;
+        dicomImage.style.display = 'block';
+        
+        // Update slice info
+        viewerState.currentSlice = sliceIndex;
+        currentSliceSpan.textContent = sliceIndex + 1;
+        
+        // Update slider position (only if not currently being dragged)
+        if (!isSliderDragging) {
+            sliceSlider.value = sliceIndex;
+            updateSliderBackground();
+        }
+        
+        // Show warning for failed ROIs
+        if (data.failed_rois && data.failed_rois.length > 0) {
+            updateFailedROIsIndicator(data.failed_rois);
+        }
+        
+        loadingOverlay.style.display = 'none';
+        
+    } catch (error) {
+        console.error('Error loading slice:', error);
+        loadingText.textContent = 'Error: ' + error.message;
+    } finally {
+        viewerState.isLoading = false;
+    }
+}
+
+// Update slider background fill
+function updateSliderBackground() {
+    const value = sliceSlider.value;
+    const max = sliceSlider.max;
+    const percentage = max > 0 ? (value / max) * 100 : 0;
+    sliceSlider.style.backgroundSize = `8px ${percentage}%`;
+}
+
+// Update failed ROIs indicator
+function updateFailedROIsIndicator(failedRois) {
+    failedRois.forEach(roiName => {
+        // Find the checkbox for this ROI
+        const checkboxes = document.querySelectorAll('#roi-list input[type="checkbox"]');
+        checkboxes.forEach(cb => {
+            if (cb.value === roiName) {
+                const parentDiv = cb.closest('.roi-checkbox');
+                if (parentDiv && !parentDiv.querySelector('.failed-indicator')) {
+                    // Add warning indicator
+                    const warning = document.createElement('span');
+                    warning.className = 'failed-indicator ml-2 text-red-600 text-xs';
+                    warning.innerHTML = '⚠️';
+                    warning.title = `Cannot display: Invalid contour data`;
+                    parentDiv.appendChild(warning);
+                    
+                    // Also add a red border
+                    parentDiv.style.borderColor = '#dc2626';
+                    parentDiv.style.backgroundColor = '#fef2f2';
+                }
+            }
+        });
+    });
+}
+
+// Event Listeners
+let isSliderDragging = false;
+sliceSlider.addEventListener('input', (e) => {
+    updateSliderBackground();
+    if (!isSliderDragging) {
+        isSliderDragging = true;
+        loadSlice(parseInt(e.target.value)).finally(() => {
+            isSliderDragging = false;
+        });
+    }
+});
+
+prevSliceBtn.addEventListener('click', () => {
+    if (viewerState.currentSlice > 0) {
+        loadSlice(viewerState.currentSlice - 1);
+    }
+});
+
+nextSliceBtn.addEventListener('click', () => {
+    if (viewerState.currentSlice < viewerState.totalSlices - 1) {
+        loadSlice(viewerState.currentSlice + 1);
+    }
+});
+
+// Mouse wheel scrolling - only when hovering over the image
+let isMouseOverImage = false;
+
+dicomImage.addEventListener('mouseenter', () => {
+    isMouseOverImage = true;
+});
+
+dicomImage.addEventListener('mouseleave', () => {
+    isMouseOverImage = false;
+});
+
+document.getElementById('viewer-container').addEventListener('wheel', (e) => {
+    // Only prevent default and scroll slices if mouse is over the image
+    if (isMouseOverImage) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Scroll up = increase slice number (move up through body)
+        if (e.deltaY < 0 && viewerState.currentSlice < viewerState.totalSlices - 1) {
+            loadSlice(viewerState.currentSlice + 1);
+        } 
+        // Scroll down = decrease slice number (move down through body)
+        else if (e.deltaY > 0 && viewerState.currentSlice > 0) {
+            loadSlice(viewerState.currentSlice - 1);
+        }
+    }
+}, { passive: false });
+
+// Window/Level controls
+windowCenterInput.addEventListener('input', (e) => {
+    viewerState.windowCenter = parseInt(e.target.value);
+    wcValueSpan.textContent = viewerState.windowCenter;
+});
+
+windowWidthInput.addEventListener('input', (e) => {
+    viewerState.windowWidth = parseInt(e.target.value);
+    wwValueSpan.textContent = viewerState.windowWidth;
+});
+
+windowCenterInput.addEventListener('change', () => {
+    loadSlice(viewerState.currentSlice);
+});
+
+windowWidthInput.addEventListener('change', () => {
+    loadSlice(viewerState.currentSlice);
+});
+
+// Preset buttons
+document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const wc = parseInt(btn.dataset.wc);
+        const ww = parseInt(btn.dataset.ww);
+        
+        viewerState.windowCenter = wc;
+        viewerState.windowWidth = ww;
+        
+        windowCenterInput.value = wc;
+        windowWidthInput.value = ww;
+        wcValueSpan.textContent = wc;
+        wwValueSpan.textContent = ww;
+        
+        loadSlice(viewerState.currentSlice);
+    });
+});
+
+// ROI selection
+selectAllBtn.addEventListener('click', () => {
+    document.querySelectorAll('#roi-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+});
+
+deselectAllBtn.addEventListener('click', () => {
+    document.querySelectorAll('#roi-list input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+});
+
+applyOverlayBtn.addEventListener('click', () => {
+    loadSlice(viewerState.currentSlice);
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', async () => {
+    await fetch('{% url "dicom_handler:cleanup_temp_files" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrftoken,
+        },
+    });
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+    // Only handle arrow keys if not typing in an input
+    if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+    
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (viewerState.currentSlice < viewerState.totalSlices - 1) {
+            loadSlice(viewerState.currentSlice + 1);
+        }
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (viewerState.currentSlice > 0) {
+            loadSlice(viewerState.currentSlice - 1);
+        }
+    }
+});
+
+// Initialize viewer on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeViewer();
+});
+</script>
+{% endblock %}

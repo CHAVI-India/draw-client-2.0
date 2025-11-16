@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block title %}RT Structure Sets - {{ series.series_instance_uid }} - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">RT Structure Sets</h1>
+                <p class="text-gray-600">View and interact with RT Structure sets for this DICOM series</p>
+            </div>
+            <a href="{% url 'dicom_handler:series_processing_status' %}" 
+               class="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Series List
+            </a>
+        </div>
+    </div>
+
+    <!-- Patient and Series Information -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Series Information</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+                <span class="text-sm text-gray-500">Patient Name:</span>
+                <p class="text-base font-medium text-gray-900">{{ patient_name }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Patient ID:</span>
+                <p class="text-base font-medium text-gray-900">{{ patient_id }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Study Date:</span>
+                <p class="text-base font-medium text-gray-900">
+                    {% if study_date %}{{ study_date|date:"d F Y" }}{% else %}N/A{% endif %}
+                </p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Series Description:</span>
+                <p class="text-base font-medium text-gray-900">{{ series_description|default:"N/A" }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Series Instance UID:</span>
+                <p class="text-base font-medium text-gray-900 break-all">{{ series.series_instance_uid }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Instance Count:</span>
+                <p class="text-base font-medium text-gray-900">{{ instance_count }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- RT Structure Sets List -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">
+            Available RT Structure Sets ({{ rt_structures|length }})
+        </h2>
+
+        {% if rt_structures %}
+            <div class="space-y-4">
+                {% for rt_struct in rt_structures %}
+                <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3 mb-2">
+                                <h3 class="text-lg font-semibold text-gray-900">
+                                    RT Structure Set #{{ forloop.counter }}
+                                </h3>
+                                {% if rt_struct.segmentation_status %}
+                                <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full 
+                                    {% if 'COMPLETED' in rt_struct.segmentation_status %}bg-green-100 text-green-800
+                                    {% elif 'FAILED' in rt_struct.segmentation_status %}bg-red-100 text-red-800
+                                    {% else %}bg-blue-100 text-blue-800{% endif %}">
+                                    {{ rt_struct.segmentation_status }}
+                                </span>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <span class="text-gray-500">Created:</span>
+                                    <span class="text-gray-900 font-medium ml-1">
+                                        {{ rt_struct.created_at|date:"d M Y H:i" }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-500">VOI Count:</span>
+                                    <span class="text-gray-900 font-medium ml-1">
+                                        {{ rt_struct.voi_count }} structures
+                                    </span>
+                                </div>
+                                {% if rt_struct.reidentified_path %}
+                                <div class="col-span-2">
+                                    <span class="text-gray-500">File Path:</span>
+                                    <p class="text-gray-900 font-mono text-xs mt-1 break-all">
+                                        {{ rt_struct.reidentified_path }}
+                                    </p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="ml-4">
+                            <a href="{% url 'dicom_handler:dicom_viewer' series.series_instance_uid rt_struct.id %}" 
+                               class="inline-flex items-center px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                                Open Viewer
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p class="text-lg font-medium text-gray-900 mb-2">No RT Structure Sets Found</p>
+                <p class="text-gray-500">No RT Structure sets are available for this series yet.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

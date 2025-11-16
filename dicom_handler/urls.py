@@ -11,6 +11,13 @@ from .manual_autosegmentation_views import (
     get_available_templates_view,
     test_api_endpoint
 )
+from .dicom_viewer_views import (
+    view_rt_structure_list,
+    dicom_viewer,
+    load_dicom_data,
+    get_dicom_slice,
+    cleanup_temp_files
+)
 
 app_name = 'dicom_handler'
 
@@ -69,4 +76,11 @@ urlpatterns = [
     path('api/manual-autosegmentation/cancel/', ManualAutosegmentationCancelView.as_view(), name='manual_autosegmentation_cancel'),
     path('api/manual-autosegmentation/templates/', get_available_templates_view, name='manual_autosegmentation_templates'),
     path('api/test/', test_api_endpoint, name='test_api_endpoint'),
+    
+    # DICOM Viewer URLs
+    path('rt-structures/<str:series_uid>/', view_rt_structure_list, name='view_rt_structure_list'),
+    path('dicom-viewer/<str:series_uid>/<uuid:rt_structure_id>/', dicom_viewer, name='dicom_viewer'),
+    path('api/dicom-viewer/load-data/', load_dicom_data, name='load_dicom_data'),
+    path('api/dicom-viewer/get-slice/', get_dicom_slice, name='get_dicom_slice'),
+    path('api/dicom-viewer/cleanup/', cleanup_temp_files, name='cleanup_temp_files'),
 ]
