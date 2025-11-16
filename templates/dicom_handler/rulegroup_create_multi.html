@@ -1,0 +1,515 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+
+{% block title %}Create Rule Group - DRAW v2.0{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Create New Rule Group</h1>
+                    <p class="text-gray-600 mt-1">Define a rule group with multiple rulesets and rules</p>
+                </div>
+                <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                    </svg>
+                    Back to Rule Groups
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Form -->
+    <form method="post" id="rulegroup-form" class="space-y-6">
+        {% csrf_token %}
+        
+        <!-- RuleGroup Information -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">Rule Group Information</h2>
+                <p class="text-sm text-gray-600 mt-1">Basic information about the rule group and associated template</p>
+            </div>
+            <div class="px-6 py-4">
+                <div class="mb-6">
+                    <label for="{{ rulegroup_form.rulegroup_name.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ rulegroup_form.rulegroup_name.label }}
+                        <span class="text-red-500">*</span>
+                    </label>
+                    {{ rulegroup_form.rulegroup_name }}
+                    {% if rulegroup_form.rulegroup_name.errors %}
+                        <div class="mt-1 text-sm text-red-600">
+                            {{ rulegroup_form.rulegroup_name.errors.0 }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div>
+                    <label for="{{ rulegroup_form.associated_autosegmentation_template.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ rulegroup_form.associated_autosegmentation_template.label }}
+                        <span class="text-red-500">*</span>
+                    </label>
+                    {{ rulegroup_form.associated_autosegmentation_template }}
+                    {% if rulegroup_form.associated_autosegmentation_template.errors %}
+                        <div class="mt-1 text-sm text-red-600">
+                            {{ rulegroup_form.associated_autosegmentation_template.errors.0 }}
+                        </div>
+                    {% endif %}
+                    <p class="mt-1 text-sm text-gray-500">Select the template to use when this rule group matches</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- RuleSets Container -->
+        <div id="rulesets-container" class="space-y-6">
+            <!-- RuleSets will be added here dynamically -->
+        </div>
+
+        <!-- Add RuleSet Button -->
+        <div class="flex justify-center">
+            <button type="button" id="add-ruleset" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                Add RuleSet
+            </button>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex justify-end space-x-3">
+            <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                Cancel
+            </a>
+            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Create Rule Group
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- RuleSet Template (hidden) -->
+<template id="ruleset-template">
+    <div class="ruleset-container bg-white rounded-lg shadow-sm border-2 border-indigo-200" data-ruleset-index="__RULESET_NUM_INDEX__">
+        <div class="px-6 py-4 border-b border-indigo-200 bg-indigo-50">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-indigo-900">RuleSet __RULESET_NUM__</h3>
+                <button type="button" class="remove-ruleset text-red-600 hover:text-red-800 text-sm font-medium">
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    Remove RuleSet
+                </button>
+            </div>
+        </div>
+        <div class="px-6 py-4">
+            <!-- RuleSet Fields -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        RuleSet Name <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" name="ruleset_name___RULESET_INDEX__" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                           placeholder="Enter ruleset name" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        RuleSet Combination <span class="text-red-500">*</span>
+                    </label>
+                    <select name="ruleset_combination_type___RULESET_INDEX__" 
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                        <option value="AND">And</option>
+                        <option value="OR">Or</option>
+                    </select>
+                    <p class="mt-1 text-sm text-gray-500">How this ruleset combines with other rulesets</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Order <span class="text-red-500">*</span>
+                    </label>
+                    <input type="number" name="rulset_order___RULESET_INDEX__" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                           min="1" value="__RULESET_NUM__" required>
+                </div>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Description <span class="text-red-500">*</span>
+                </label>
+                <textarea name="ruleset_description___RULESET_INDEX__" 
+                          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                          rows="2" placeholder="Enter ruleset description" required></textarea>
+            </div>
+
+            <!-- Rules Container -->
+            <div class="border-t border-gray-200 pt-4">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-md font-semibold text-gray-900">Rules</h4>
+                    <button type="button" class="add-rule inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700" 
+                            data-ruleset-index="__RULESET_NUM_INDEX__">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                        </svg>
+                        Add Rule
+                    </button>
+                </div>
+                <div class="rules-container space-y-4" data-ruleset-index="__RULESET_NUM_INDEX__">
+                    <!-- Rules will be added here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Rule Template (hidden) -->
+<template id="rule-template">
+    <div class="rule-form border border-gray-200 rounded-lg p-4 bg-gray-50" data-rule-index="__RULE_NUM_INDEX__">
+        <div class="flex items-center justify-between mb-4">
+            <h5 class="text-sm font-medium text-gray-900">Rule __RULE_NUM__</h5>
+            <button type="button" class="remove-rule text-red-600 hover:text-red-800 text-sm font-medium">
+                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                </svg>
+                Remove
+            </button>
+        </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-6">
+            <div class="md:col-span-1">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Order <span class="text-red-500">*</span></label>
+                <input type="number" name="rule_order___RULESET_INDEX_____RULE_INDEX__" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                       min="1" value="__RULE_NUM__" required>
+            </div>
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-2">DICOM Tag <span class="text-red-500">*</span></label>
+                <select name="dicom_tag_type___RULESET_INDEX_____RULE_INDEX__" 
+                        class="dicom-tag-select w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                        data-placeholder="Search for DICOM tag..." required>
+                    <option value="">Search for DICOM tag...</option>
+                </select>
+            </div>
+            <div class="md:col-span-1">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Operator <span class="text-red-500">*</span></label>
+                <select name="operator_type___RULESET_INDEX_____RULE_INDEX__" 
+                        class="operator-select w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                        onchange="validateOperatorValue(this)" required>
+                    <option value="">Select...</option>
+                    <option value="EQUALS">Equals</option>
+                    <option value="NOT_EQUALS">Not Equals</option>
+                    <option value="GREATER_THAN">Greater Than</option>
+                    <option value="LESS_THAN">Less Than</option>
+                    <option value="GREATER_THAN_OR_EQUAL_TO">Greater Than Or Equal To</option>
+                    <option value="LESS_THAN_OR_EQUAL_TO">Less Than Or Equal To</option>
+                    <option value="CASE_SENSITIVE_STRING_CONTAINS">Case Sensitive String Contains</option>
+                    <option value="CASE_INSENSITIVE_STRING_CONTAINS">Case Insensitive String Contains</option>
+                    <option value="CASE_SENSITIVE_STRING_DOES_NOT_CONTAIN">Case Sensitive String Does Not Contain</option>
+                    <option value="CASE_INSENSITIVE_STRING_DOES_NOT_CONTAIN">Case Insensitive String Does Not Contain</option>
+                    <option value="CASE_SENSITIVE_STRING_EXACT_MATCH">Case Sensitive String Exact Match</option>
+                    <option value="CASE_INSENSITIVE_STRING_EXACT_MATCH">Case Insensitive String Exact Match</option>
+                </select>
+            </div>
+            <div class="md:col-span-1">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Value <span class="text-red-500">*</span></label>
+                <input type="text" name="tag_value_to_evaluate___RULESET_INDEX_____RULE_INDEX__" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" 
+                       placeholder="Enter value" required>
+            </div>
+            <div class="md:col-span-1">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Combine <span class="text-red-500">*</span></label>
+                <select name="rule_combination_type___RULESET_INDEX_____RULE_INDEX__" 
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500" required>
+                    <option value="AND">AND</option>
+                    <option value="OR">OR</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500">With next rule</p>
+            </div>
+        </div>
+        
+        <!-- VR Guidance Display -->
+        <div class="vr-guidance mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md" style="display: none;">
+            <div class="flex items-start">
+                <svg class="w-5 h-5 text-blue-400 mt-0.5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <div class="text-sm">
+                    <p class="font-medium text-blue-800">VR Guidance</p>
+                    <div class="vr-content text-blue-700 mt-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+{% endblock %}
+
+{% block extra_js %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<style>
+    .select2-container--default .select2-selection--single {
+        height: 42px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+        padding: 0.5rem 0.75rem !important;
+    }
+    
+    .select2-container {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 26px !important;
+        padding-left: 0 !important;
+        color: #374151 !important;
+    }
+    
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 40px !important;
+        right: 8px !important;
+    }
+    
+    .select2-container--default.select2-container--focus .select2-selection--single {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) !important;
+    }
+    
+    .select2-dropdown {
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+    }
+    
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+        background-color: #3b82f6 !important;
+    }
+</style>
+
+<script>
+$(document).ready(function() {
+    let rulesetIndex = 0;
+    let ruleIndexes = {};  // Track rule indexes for each ruleset
+
+    // Add first ruleset on page load
+    addRuleSet();
+
+    // Add RuleSet button
+    $('#add-ruleset').click(function() {
+        addRuleSet();
+    });
+
+    // Remove RuleSet
+    $(document).on('click', '.remove-ruleset', function() {
+        if ($('.ruleset-container').length > 1) {
+            $(this).closest('.ruleset-container').remove();
+            updateRuleSetNumbers();
+        } else {
+            alert('You must have at least one ruleset.');
+        }
+    });
+
+    // Add Rule button
+    $(document).on('click', '.add-rule', function() {
+        const rulesetIdx = $(this).data('ruleset-index');
+        addRule(rulesetIdx);
+    });
+
+    // Remove Rule
+    $(document).on('click', '.remove-rule', function() {
+        const rulesContainer = $(this).closest('.rules-container');
+        if (rulesContainer.find('.rule-form').length > 1) {
+            $(this).closest('.rule-form').remove();
+            updateRuleNumbers(rulesContainer);
+        } else {
+            alert('You must have at least one rule per ruleset.');
+        }
+    });
+
+    function addRuleSet() {
+        const template = $('#ruleset-template').html();
+        const rulesetNum = rulesetIndex + 1;
+        const newRuleset = template
+            .replace(/__RULESET_INDEX__/g, '___' + rulesetIndex)
+            .replace(/__RULESET_NUM_INDEX__/g, rulesetIndex)
+            .replace(/__RULESET_NUM__/g, rulesetNum);
+        
+        $('#rulesets-container').append(newRuleset);
+        
+        // Initialize rule index for this ruleset
+        ruleIndexes[rulesetIndex] = 0;
+        
+        // Add first rule to this ruleset
+        addRule(rulesetIndex);
+        
+        rulesetIndex++;
+        updateRuleSetNumbers();
+    }
+
+    function addRule(rulesetIdx) {
+        const template = $('#rule-template').html();
+        const ruleIdx = ruleIndexes[rulesetIdx] || 0;
+        const ruleNum = ruleIdx + 1;
+        
+        const newRule = template
+            .replace(/__RULESET_INDEX__/g, '___' + rulesetIdx)
+            .replace(/__RULE_INDEX__/g, '___' + ruleIdx)
+            .replace(/__RULE_NUM_INDEX__/g, ruleIdx)
+            .replace(/__RULE_NUM__/g, ruleNum);
+        
+        $(`.rules-container[data-ruleset-index="${rulesetIdx}"]`).append(newRule);
+        
+        // Initialize Select2 for the new DICOM tag select
+        const $newSelect = $(`.rules-container[data-ruleset-index="${rulesetIdx}"] .rule-form[data-rule-index="${ruleIdx}"] .dicom-tag-select`);
+        initializeSelect2($newSelect);
+        
+        ruleIndexes[rulesetIdx] = ruleIdx + 1;
+        updateRuleNumbers($(`.rules-container[data-ruleset-index="${rulesetIdx}"]`));
+    }
+
+    function initializeSelect2($select) {
+        $select.select2({
+            placeholder: 'Search for DICOM tag...',
+            allowClear: true,
+            ajax: {
+                url: '{% url "dicom_handler:search_dicom_tags" %}',
+                dataType: 'json',
+                delay: 250,
+                data: function (params) {
+                    return {
+                        q: params.term,
+                        page: params.page
+                    };
+                },
+                processResults: function (data, params) {
+                    return {
+                        results: data.tags.map(function(tag) {
+                            return {
+                                id: tag.id,
+                                text: tag.name + ' - ' + tag.description,
+                                vr: tag.vr
+                            };
+                        })
+                    };
+                },
+                cache: true
+            },
+            minimumInputLength: 2,
+            templateResult: function(tag) {
+                if (tag.loading) return tag.text;
+                
+                var $container = $(
+                    "<div class='select2-result-tag'>" +
+                        "<div class='select2-result-tag__title'>" + tag.text + "</div>" +
+                        (tag.vr ? "<div class='select2-result-tag__vr text-xs text-gray-500'>VR: " + tag.vr + "</div>" : "") +
+                    "</div>"
+                );
+                return $container;
+            }
+        });
+        
+        // Handle tag change for VR guidance
+        $select.on('change', function() {
+            handleTagChange(this);
+        });
+    }
+
+    function updateRuleSetNumbers() {
+        $('.ruleset-container').each(function(index) {
+            $(this).find('h3').first().text('RuleSet ' + (index + 1));
+            $(this).find('input[name^="rulset_order"]').val(index + 1);
+        });
+    }
+
+    function updateRuleNumbers(rulesContainer) {
+        rulesContainer.find('.rule-form').each(function(index) {
+            $(this).find('h5').first().text('Rule ' + (index + 1));
+            $(this).find('input[name^="rule_order"]').val(index + 1);
+        });
+    }
+});
+
+// Handle tag change to fetch VR guidance
+function handleTagChange(selectElement) {
+    var $select = $(selectElement);
+    var tagId = $select.val();
+    var $ruleForm = $select.closest('.rule-form');
+    var $vrGuidance = $ruleForm.find('.vr-guidance');
+    var $vrContent = $vrGuidance.find('.vr-content');
+    var $operatorSelect = $ruleForm.find('.operator-select');
+    
+    if (tagId) {
+        // Fetch VR guidance
+        $.ajax({
+            url: '{% url "dicom_handler:get_vr_guidance" "00000000-0000-0000-0000-000000000000" %}'.replace('00000000-0000-0000-0000-000000000000', tagId),
+            method: 'GET',
+            success: function(data) {
+                if (data.vr_code) {
+                    var guidanceHtml = '<strong>VR Code:</strong> ' + data.vr_code;
+                    if (data.vr_name) {
+                        guidanceHtml += ' (' + data.vr_name + ')';
+                    }
+                    if (data.guidance) {
+                        guidanceHtml += '<br><strong>Format:</strong> ' + data.guidance;
+                    }
+                    if (data.compatible_operators && data.compatible_operators.length > 0) {
+                        guidanceHtml += '<br><strong>Compatible Operators:</strong> ' + data.compatible_operators.join(', ');
+                    }
+                    $vrContent.html(guidanceHtml);
+                    
+                    // Update operator options based on compatibility
+                    if (data.compatible_operators) {
+                        updateOperatorOptions($operatorSelect, data.compatible_operators);
+                    }
+                } else {
+                    $vrContent.html('<strong>VR Code:</strong> Unknown<br><em>No guidance available</em>');
+                }
+                $vrGuidance.show();
+            },
+            error: function() {
+                $vrGuidance.hide();
+            }
+        });
+    } else {
+        $vrGuidance.hide();
+        // Reset operator options
+        resetOperatorOptions($operatorSelect);
+    }
+}
+
+function updateOperatorOptions($operatorSelect, compatibleOperators) {
+    // Store original options if not already stored
+    if (!$operatorSelect.data('original-options')) {
+        $operatorSelect.data('original-options', $operatorSelect.html());
+    }
+    
+    // Filter options based on compatibility
+    $operatorSelect.find('option').each(function() {
+        var optionValue = $(this).val();
+        if (optionValue && compatibleOperators.indexOf(optionValue) === -1) {
+            $(this).hide();
+        } else {
+            $(this).show();
+        }
+    });
+}
+
+function resetOperatorOptions($operatorSelect) {
+    // Restore original options
+    var originalOptions = $operatorSelect.data('original-options');
+    if (originalOptions) {
+        $operatorSelect.html(originalOptions);
+    }
+}
+
+// Validate operator and value combination
+function validateOperatorValue(element) {
+    // Add validation logic if needed
+}
+</script>
+{% endblock %}

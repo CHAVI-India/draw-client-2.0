@@ -15,23 +15,23 @@
                         {% endif %}
                         <p class="mt-1 text-xs text-gray-500">Created: {{ template.created_at|date:"F d, Y \a\t g:i A" }}</p>
                         
-                        <!-- Related RuleSet -->
+                        <!-- Related RuleGroup -->
                         <div class="mt-3">
-                            {% if related_ruleset %}
+                            {% if related_rulegroup %}
                                 <div class="flex items-center space-x-2">
-                                    <span class="text-sm text-gray-500">Associated RuleSet:</span>
-                                    <a href="{% url 'dicom_handler:ruleset_detail' related_ruleset.id %}" 
+                                    <span class="text-sm text-gray-500">Associated RuleGroup:</span>
+                                    <a href="{% url 'dicom_handler:rulegroup_detail' related_rulegroup.id %}" 
                                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 hover:bg-purple-200">
-                                        {{ related_ruleset.ruleset_name }}
+                                        {{ related_rulegroup.rulegroup_name }}
                                     </a>
                                 </div>
                             {% else %}
                                 <div class="flex items-center space-x-2">
-                                    <span class="text-sm text-gray-500">No RuleSet associated.</span>
+                                    <span class="text-sm text-gray-500">No RuleGroup associated.</span>
                                     {% if perms.dicom_handler.add_ruleset %}
-                                        <a href="{% url 'dicom_handler:ruleset_create' %}?template={{ template.id }}" 
+                                        <a href="{% url 'dicom_handler:rulegroup_create' %}?template={{ template.id }}" 
                                            class="text-sm text-primary-600 hover:text-primary-800 underline">
-                                            Create RuleSet for this template
+                                            Create RuleGroup for this template
                                         </a>
                                     {% endif %}
                                 </div>

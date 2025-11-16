@@ -17,7 +17,7 @@
                     <a href="{% url 'dicom_handler:template_list' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Templates</a>
                 {% endif %}
                 {% if perms.dicom_handler.view_ruleset %}
-                    <a href="{% url 'dicom_handler:ruleset_list' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">RuleSets</a>
+                    <a href="{% url 'dicom_handler:ruleset_list' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Rule Groups</a>
                 {% endif %}
                 {% if perms.dicom_handler.view_dicomseries %}
                     <a href="{% url 'dicom_handler:series_processing_status' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Processing Status</a>
@@ -84,7 +84,7 @@
                 {% endif %}
                 {% if perms.dicom_handler.view_ruleset %}
                     <a href="{% url 'dicom_handler:ruleset_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
-                        RuleSets
+                        Rule Groups
                     </a>
                 {% endif %}
                 {% if perms.dicom_handler.view_dicomseries %}

@@ -31,29 +31,49 @@
             {% endfor %}
         {% endif %}
 
+        <!-- Rule Group Information -->
+        {% if rulegroup %}
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-bold text-indigo-900 mb-4">Rule Group: {{ rulegroup.rulegroup_name }}</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-sm font-medium text-indigo-700 uppercase tracking-wide mb-2">Associated Template</h3>
+                    {% if rulegroup.associated_autosegmentation_template %}
+                        <a href="{% url 'dicom_handler:template_detail' rulegroup.associated_autosegmentation_template.id %}"
+                           class="text-primary-600 hover:text-primary-900 hover:underline font-medium">
+                            {{ rulegroup.associated_autosegmentation_template.template_name }}
+                        </a>
+                    {% else %}
+                        <span class="text-gray-400">No template assigned</span>
+                    {% endif %}
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-indigo-700 uppercase tracking-wide mb-2">Created</h3>
+                    <div class="text-indigo-900 font-medium">
+                        {{ rulegroup.created_at|date:"M d, Y" }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- RuleSet Information -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="bg-gray-50 p-6 rounded-lg">
                 <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Rule Combination</h3>
                 <div class="flex items-center">
                     <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
-                        {% if ruleset.rule_combination_type == 'AND' %}bg-blue-100 text-blue-800{% else %}bg-green-100 text-green-800{% endif %}">
-                        {{ ruleset.get_rule_combination_type_display }}
+                        {% if ruleset.ruleset_combination_type == 'AND' %}bg-blue-100 text-blue-800{% else %}bg-green-100 text-green-800{% endif %}">
+                        {{ ruleset.get_ruleset_combination_type_display }}
                     </span>
+                    <span class="ml-2 text-xs text-gray-500">for rules</span>
                 </div>
             </div>
 
             <div class="bg-gray-50 p-6 rounded-lg">
-                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Associated Template</h3>
-                <div>
-                    {% if ruleset.associated_autosegmentation_template %}
-                        <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}"
-                           class="text-primary-600 hover:text-primary-900 hover:underline font-medium">
-                            {{ ruleset.associated_autosegmentation_template.template_name }}
-                        </a>
-                    {% else %}
-                        <span class="text-gray-400">No template assigned</span>
-                    {% endif %}
+                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">RuleSet Order</h3>
+                <div class="text-gray-900 font-medium text-lg">
+                    {{ ruleset.rulset_order }}
                 </div>
             </div>
 
@@ -75,13 +95,22 @@
                     {% for rule in rules %}
                         <div class="bg-gray-50 border border-gray-200 rounded-lg p-6">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg font-medium text-gray-900">Rule {{ forloop.counter }}</h3>
+                                <h3 class="text-lg font-medium text-gray-900">Rule {{ forloop.counter }} (Order: {{ rule.rule_order }})</h3>
                                 <span class="text-sm text-gray-500">
                                     Created {{ rule.created_at|date:"M d, Y" }}
                                 </span>
                             </div>
                             
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">Order</h4>
+                                    <div class="bg-white p-3 rounded border">
+                                        <span class="text-lg font-bold text-gray-900">
+                                            {{ rule.rule_order }}
+                                        </span>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <h4 class="text-sm font-medium text-gray-700 mb-2">DICOM Tag</h4>
                                     <div class="bg-white p-3 rounded border">
@@ -125,24 +154,33 @@
                 
                 <!-- Overall Logic Summary -->
                 <div class="mt-8 p-6 bg-indigo-50 border border-indigo-200 rounded-lg">
-                    <h3 class="text-lg font-medium text-indigo-900 mb-3">RuleSet Logic Summary</h3>
-                    <p class="text-indigo-800">
-                        This ruleset will match DICOM series when 
-                        <strong>
-                            {% if ruleset.rule_combination_type == 'AND' %}
-                                ALL
-                            {% else %}
-                                ANY
-                            {% endif %}
-                        </strong>
-                        of the above {{ rules.count }} rule{{ rules.count|pluralize }} 
-                        {% if ruleset.rule_combination_type == 'AND' %}are{% else %}is{% endif %} satisfied.
-                        {% if ruleset.associated_autosegmentation_template %}
-                            When matched, the template 
-                            <strong>{{ ruleset.associated_autosegmentation_template.template_name }}</strong> 
-                            will be applied for automatic segmentation.
+                    <h3 class="text-lg font-medium text-indigo-900 mb-3">Hierarchical Logic Summary</h3>
+                    <div class="space-y-3 text-indigo-800">
+                        {% if rulegroup %}
+                        <p>
+                            <strong>Rule Group:</strong> {{ rulegroup.rulegroup_name }}<br>
+                            <strong>Template:</strong> {{ rulegroup.associated_autosegmentation_template.template_name }}
+                        </p>
                         {% endif %}
-                    </p>
+                        <p>
+                            <strong>RuleSet:</strong> {{ ruleset.ruleset_name }} (Order: {{ ruleset.rulset_order }})<br>
+                            This ruleset will match when 
+                            <strong>
+                                {% if ruleset.ruleset_combination_type == 'AND' %}
+                                    ALL
+                                {% else %}
+                                    ANY
+                                {% endif %}
+                            </strong>
+                            of the {{ rules.count }} rule{{ rules.count|pluralize }} below 
+                            {% if ruleset.ruleset_combination_type == 'AND' %}are{% else %}is{% endif %} satisfied.
+                        </p>
+                        {% if rulegroup %}
+                        <p class="text-sm">
+                            <em>Note: Multiple rulesets in the same rule group are evaluated sequentially based on their order and combination types.</em>
+                        </p>
+                        {% endif %}
+                    </div>
                 </div>
             {% else %}
                 <div class="text-center py-12">
@@ -171,8 +209,8 @@
                 Back to RuleSets
             </a>
             
-            {% if ruleset.associated_autosegmentation_template %}
-                <a href="{% url 'dicom_handler:template_detail' ruleset.associated_autosegmentation_template.id %}" 
+            {% if rulegroup and rulegroup.associated_autosegmentation_template %}
+                <a href="{% url 'dicom_handler:template_detail' rulegroup.associated_autosegmentation_template.id %}" 
                    class="inline-flex items-center text-primary-600 hover:text-primary-900">
                     View Associated Template
                     <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

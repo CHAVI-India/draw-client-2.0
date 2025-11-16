@@ -2,7 +2,7 @@ from django import forms
 from django.forms import inlineformset_factory, modelformset_factory
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Submit, Row, Column, Fieldset, Div, HTML
-from .models import (RuleSet, Rule, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, 
+from .models import (RuleSet, Rule, RuleGroup, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, 
                      OperatorType, SystemConfiguration, RTStructureFileImport, RTStructureFileVOIData,
                      ContourModificationChoices, ContourModificationTypeChoices)
 import uuid
@@ -27,16 +27,30 @@ class TemplateCreationForm(forms.Form):
         label='Template Description'
     )
 
+class RuleGroupForm(forms.ModelForm):
+    class Meta:
+        model = RuleGroup
+        fields = ['rulegroup_name', 'associated_autosegmentation_template']
+        widgets = {
+            'rulegroup_name': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter rule group name'
+            }),
+            'associated_autosegmentation_template': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+            })
+        }
+
 class RuleSetForm(forms.ModelForm):
     class Meta:
         model = RuleSet
-        fields = ['ruleset_name', 'rule_combination_type', 'ruleset_description', 'associated_autosegmentation_template']
+        fields = ['ruleset_name', 'ruleset_combination_type', 'ruleset_description', 'rulset_order']
         widgets = {
             'ruleset_name': forms.TextInput(attrs={
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
                 'placeholder': 'Enter ruleset name'
             }),
-            'rule_combination_type': forms.Select(attrs={
+            'ruleset_combination_type': forms.Select(attrs={
                 'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
             }),
             'ruleset_description': forms.Textarea(attrs={
@@ -44,8 +58,9 @@ class RuleSetForm(forms.ModelForm):
                 'rows': 3,
                 'placeholder': 'Enter ruleset description'
             }),
-            'associated_autosegmentation_template': forms.Select(attrs={
-                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+            'rulset_order': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'min': '1'
             })
         }
 
@@ -58,11 +73,11 @@ class RuleSetForm(forms.ModelForm):
                 'RuleSet Information',
                 Row(
                     Column('ruleset_name', css_class='form-group col-md-6 mb-0'),
-                    Column('rule_combination_type', css_class='form-group col-md-6 mb-0'),
+                    Column('ruleset_combination_type', css_class='form-group col-md-6 mb-0'),
                     css_class='form-row'
                 ),
                 'ruleset_description',
-                'associated_autosegmentation_template',
+                'rulset_order',
                 css_class='mb-4'
             ),
             Submit('submit', 'Save RuleSet', css_class='btn btn-primary')
@@ -71,8 +86,13 @@ class RuleSetForm(forms.ModelForm):
 class RuleForm(forms.ModelForm):
     class Meta:
         model = Rule
-        fields = ['dicom_tag_type', 'operator_type', 'tag_value_to_evaluate']
+        fields = ['rule_order', 'dicom_tag_type', 'operator_type', 'tag_value_to_evaluate']
         widgets = {
+            'rule_order': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'min': '1',
+                'placeholder': 'Order'
+            }),
             'dicom_tag_type': forms.Select(attrs={
                 'class': 'dicom-tag-select w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
                 'data-placeholder': 'Search for DICOM tag...'
@@ -212,10 +232,22 @@ RuleFormSet = inlineformset_factory(
     RuleSet, 
     Rule, 
     form=RuleForm,
-    fields=['dicom_tag_type', 'operator_type', 'tag_value_to_evaluate'],
+    fields=['rule_order', 'dicom_tag_type', 'operator_type', 'tag_value_to_evaluate'],
     extra=1,  # Show 1 empty form initially
     can_delete=True,
     min_num=1,  # Require at least 1 rule
+    validate_min=True
+)
+
+# Create inline formset for RuleSets within a RuleGroup
+RuleSetFormSet = inlineformset_factory(
+    RuleGroup,
+    RuleSet,
+    form=RuleSetForm,
+    fields=['ruleset_name', 'ruleset_combination_type', 'ruleset_description', 'rulset_order'],
+    extra=1,  # Show 1 empty form initially
+    can_delete=True,
+    min_num=1,  # Require at least 1 ruleset
     validate_min=True
 )
 

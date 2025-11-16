@@ -5,10 +5,10 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db import models
-from .forms import (TemplateCreationForm, RuleSetForm, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm,
+from .forms import (TemplateCreationForm, RuleGroupForm, RuleSetForm, RuleSetFormSet, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm,
                     RTStructureReviewForm, VOIRatingFormSet)
 from .models import (SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, 
-                     RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics,
+                     RuleGroup, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics,
                      RTStructureFileImport, RTStructureFileVOIData, DICOMFileExport, DICOMFileTransferStatus)
 from .vr_validators import VRValidator
 import requests
@@ -442,72 +442,445 @@ def save_template(request):
 @permission_required('dicom_handler.view_ruleset', raise_exception=True)
 def ruleset_list(request):
     """
-    View to display all rulesets
+    View to list all rulegroups with their rulesets
     """
-    rulesets = RuleSet.objects.all().order_by('-created_at')
+    from .models import RuleGroup
     
-    # Add rule count for each ruleset
-    for ruleset in rulesets:
-        rule_count = Rule.objects.filter(ruleset=ruleset).count()
-        ruleset.rule_count = rule_count
+    rulegroups = RuleGroup.objects.all().select_related('associated_autosegmentation_template').order_by('-created_at')
     
-    return render(request, 'dicom_handler/ruleset_list.html', {
-        'rulesets': rulesets
+    # Add ruleset and rule counts for each rulegroup
+    for rulegroup in rulegroups:
+        rulesets = RuleSet.objects.filter(rulegroup=rulegroup).order_by('rulset_order')
+        rulegroup.rulesets = rulesets
+        rulegroup.ruleset_count = rulesets.count()
+        
+        # Count total rules across all rulesets
+        total_rules = 0
+        for ruleset in rulesets:
+            total_rules += Rule.objects.filter(ruleset=ruleset).count()
+        rulegroup.total_rules = total_rules
+    
+    return render(request, 'dicom_handler/rulegroup_list.html', {
+        'rulegroups': rulegroups
     })
 
 @login_required
 @permission_required('dicom_handler.add_ruleset', raise_exception=True)
-def ruleset_create(request):
+def rulegroup_create(request):
     """
-    View to create a new ruleset with inline rules
+    View to create a new rulegroup with multiple rulesets and inline rules
+    Handles dynamic form submission with multiple rulesets
     """
+    from .models import RuleGroup, DICOMTagType
+    
     # Get template_id from URL parameter if provided
     template_id = request.GET.get('template')
-    initial_data = {}
+    rulegroup_initial = {}
     
     if template_id:
         try:
             template = AutosegmentationTemplate.objects.get(id=template_id)
-            initial_data['associated_autosegmentation_template'] = template
+            rulegroup_initial['associated_autosegmentation_template'] = template
         except AutosegmentationTemplate.DoesNotExist:
             messages.warning(request, 'The specified template was not found.')
     
     if request.method == 'POST':
-        form = RuleSetForm(request.POST)
-        formset = RuleFormSet(request.POST)
+        rulegroup_form = RuleGroupForm(request.POST)
         
-        # Debug: Print formset data
-        print(f"POST data: {request.POST}")
-        print(f"Formset is valid: {formset.is_valid()}")
-        if not formset.is_valid():
-            print(f"Formset errors: {formset.errors}")
-            print(f"Formset non-form errors: {formset.non_form_errors}")
-        
-        if form.is_valid() and formset.is_valid():
-            # Create the ruleset
-            ruleset = form.save(commit=False)
-            ruleset.id = uuid.uuid4()
-            ruleset.save()
+        if rulegroup_form.is_valid():
+            # Create the rulegroup first
+            rulegroup = rulegroup_form.save(commit=False)
+            rulegroup.id = uuid.uuid4()
+            rulegroup.save()
             
-            # Save the rules
-            formset.instance = ruleset
-            formset.save()
+            # Parse the POST data to extract rulesets and rules
+            # Field naming: ruleset_name___0, ruleset_name___1, etc.
+            # Rule naming: rule_order___0___0, dicom_tag_type___0___0, etc.
             
-            messages.success(request, f'RuleSet "{ruleset.ruleset_name}" created successfully!')
+            # Debug: Log POST data
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"POST data keys: {[k for k in request.POST.keys() if k.startswith(('ruleset_', 'rule_'))]}")
+            
+            rulesets_data = {}
+            for key, value in request.POST.items():
+                if key.startswith('ruleset_name___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['name'] = value
+                elif key.startswith('ruleset_combination_type___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['combination_type'] = value
+                elif key.startswith('rulset_order___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['order'] = value
+                elif key.startswith('ruleset_description___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['description'] = value
+                elif key.startswith('rule_order___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['order'] = value
+                elif key.startswith('dicom_tag_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['tag_type'] = value
+                elif key.startswith('operator_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['operator'] = value
+                elif key.startswith('tag_value_to_evaluate___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['value'] = value
+                elif key.startswith('rule_combination_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['combination'] = value
+            
+            # Create rulesets and rules
+            for ruleset_idx, ruleset_data in rulesets_data.items():
+                if 'name' in ruleset_data:  # Only process if we have a name
+                    ruleset = RuleSet()
+                    ruleset.id = uuid.uuid4()
+                    ruleset.rulegroup = rulegroup
+                    ruleset.ruleset_name = ruleset_data.get('name', '')
+                    ruleset.ruleset_combination_type = ruleset_data.get('combination_type', 'AND')
+                    ruleset.rulset_order = int(ruleset_data.get('order', 1))
+                    ruleset.ruleset_description = ruleset_data.get('description', '')
+                    ruleset.save()
+                    
+                    # Create rules for this ruleset
+                    for rule_idx, rule_data in ruleset_data.get('rules', {}).items():
+                        if 'tag_type' in rule_data:  # Only process if we have a tag
+                            rule = Rule()
+                            rule.id = uuid.uuid4()
+                            rule.ruleset = ruleset
+                            rule.rule_order = int(rule_data.get('order', 1))
+                            rule.dicom_tag_type = DICOMTagType.objects.get(id=rule_data['tag_type'])
+                            rule.operator_type = rule_data.get('operator', 'EQUALS')
+                            rule.tag_value_to_evaluate = rule_data.get('value', '')
+                            rule.rule_combination_type = rule_data.get('combination', 'AND')
+                            rule.save()
+            
+            if len(rulesets_data) == 0:
+                messages.warning(request, f'Rule Group "{rulegroup.rulegroup_name}" created, but no RuleSets were added. Please click "Add RuleSet" button to add rulesets and rules.')
+            else:
+                messages.success(request, f'Rule Group "{rulegroup.rulegroup_name}" with {len(rulesets_data)} RuleSet(s) created successfully!')
             return redirect('dicom_handler:ruleset_list')
         else:
-            messages.error(request, 'Please correct the errors below.')
+            messages.error(request, 'Please correct the errors in the rule group form.')
     else:
-        form = RuleSetForm(initial=initial_data)
-        formset = RuleFormSet()
+        rulegroup_form = RuleGroupForm(initial=rulegroup_initial)
     
-    # Add helper to formset for Crispy Forms
-    formset_helper = RuleFormSetHelper()
+    return render(request, 'dicom_handler/rulegroup_create_multi.html', {
+        'rulegroup_form': rulegroup_form,
+    })
+
+@login_required
+@permission_required('dicom_handler.view_ruleset', raise_exception=True)
+def rulegroup_detail(request, rulegroup_id):
+    """
+    View to display detailed information about a specific rulegroup with all its rulesets and rules
+    """
+    from .models import RuleGroup
     
-    return render(request, 'dicom_handler/ruleset_create.html', {
-        'form': form,
-        'formset': formset,
-        'formset_helper': formset_helper
+    rulegroup = get_object_or_404(RuleGroup, id=rulegroup_id)
+    rulesets = RuleSet.objects.filter(rulegroup=rulegroup).order_by('rulset_order')
+    
+    # Get rules for each ruleset
+    rulesets_with_rules = []
+    for ruleset in rulesets:
+        rules = Rule.objects.filter(ruleset=ruleset).select_related('dicom_tag_type').order_by('rule_order')
+        rulesets_with_rules.append({
+            'ruleset': ruleset,
+            'rules': rules
+        })
+    
+    return render(request, 'dicom_handler/rulegroup_detail.html', {
+        'rulegroup': rulegroup,
+        'rulesets_with_rules': rulesets_with_rules
+    })
+
+@login_required
+@permission_required('dicom_handler.change_ruleset', raise_exception=True)
+def rulegroup_edit(request, rulegroup_id):
+    """
+    View to edit an existing rulegroup with all its rulesets and rules
+    """
+    from .models import RuleGroup
+    
+    rulegroup = get_object_or_404(RuleGroup, id=rulegroup_id)
+    
+    if request.method == 'POST':
+        rulegroup_form = RuleGroupForm(request.POST, instance=rulegroup)
+        
+        if rulegroup_form.is_valid():
+            rulegroup_form.save()
+            
+            # Parse the POST data to extract rulesets and rules
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"POST data keys: {[k for k in request.POST.keys() if k.startswith(('ruleset_', 'rule_'))]}")
+            
+            # Get existing rulesets to track deletions
+            existing_ruleset_ids = set(str(rs.id) for rs in RuleSet.objects.filter(rulegroup=rulegroup))
+            submitted_ruleset_ids = set()
+            
+            rulesets_data = {}
+            for key, value in request.POST.items():
+                if key.startswith('ruleset_id___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['id'] = value
+                    submitted_ruleset_ids.add(value)
+                elif key.startswith('ruleset_name___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['name'] = value
+                elif key.startswith('ruleset_combination_type___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['combination_type'] = value
+                elif key.startswith('rulset_order___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['order'] = value
+                elif key.startswith('ruleset_description___'):
+                    ruleset_idx = key.split('___')[1]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    rulesets_data[ruleset_idx]['description'] = value
+                elif key.startswith('rule_id___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['id'] = value
+                elif key.startswith('rule_order___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['order'] = value
+                elif key.startswith('dicom_tag_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['tag_type'] = value
+                elif key.startswith('operator_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['operator'] = value
+                elif key.startswith('tag_value_to_evaluate___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['value'] = value
+                elif key.startswith('rule_combination_type___'):
+                    parts = key.split('___')
+                    ruleset_idx = parts[1]
+                    rule_idx = parts[2]
+                    if ruleset_idx not in rulesets_data:
+                        rulesets_data[ruleset_idx] = {'rules': {}}
+                    if rule_idx not in rulesets_data[ruleset_idx]['rules']:
+                        rulesets_data[ruleset_idx]['rules'][rule_idx] = {}
+                    rulesets_data[ruleset_idx]['rules'][rule_idx]['combination'] = value
+            
+            # Delete rulesets that were removed
+            rulesets_to_delete = existing_ruleset_ids - submitted_ruleset_ids
+            if rulesets_to_delete:
+                RuleSet.objects.filter(id__in=rulesets_to_delete).delete()
+            
+            # Create or update rulesets and rules
+            for ruleset_idx, ruleset_data in rulesets_data.items():
+                if 'name' in ruleset_data:
+                    ruleset_id = ruleset_data.get('id')
+                    if ruleset_id and ruleset_id != 'new':
+                        # Update existing ruleset
+                        try:
+                            ruleset = RuleSet.objects.get(id=ruleset_id)
+                            ruleset.ruleset_name = ruleset_data.get('name', '')
+                            ruleset.ruleset_combination_type = ruleset_data.get('combination_type', 'AND')
+                            ruleset.rulset_order = int(ruleset_data.get('order', 1))
+                            ruleset.ruleset_description = ruleset_data.get('description', '')
+                            ruleset.save()
+                        except RuleSet.DoesNotExist:
+                            # Create new if not found
+                            ruleset = RuleSet()
+                            ruleset.id = uuid.uuid4()
+                            ruleset.rulegroup = rulegroup
+                            ruleset.ruleset_name = ruleset_data.get('name', '')
+                            ruleset.ruleset_combination_type = ruleset_data.get('combination_type', 'AND')
+                            ruleset.rulset_order = int(ruleset_data.get('order', 1))
+                            ruleset.ruleset_description = ruleset_data.get('description', '')
+                            ruleset.save()
+                    else:
+                        # Create new ruleset
+                        ruleset = RuleSet()
+                        ruleset.id = uuid.uuid4()
+                        ruleset.rulegroup = rulegroup
+                        ruleset.ruleset_name = ruleset_data.get('name', '')
+                        ruleset.ruleset_combination_type = ruleset_data.get('combination_type', 'AND')
+                        ruleset.rulset_order = int(ruleset_data.get('order', 1))
+                        ruleset.ruleset_description = ruleset_data.get('description', '')
+                        ruleset.save()
+                    
+                    # Get existing rules for this ruleset
+                    existing_rule_ids = set(str(r.id) for r in Rule.objects.filter(ruleset=ruleset))
+                    submitted_rule_ids = set()
+                    
+                    # Create or update rules for this ruleset
+                    for rule_idx, rule_data in ruleset_data.get('rules', {}).items():
+                        if 'tag_type' in rule_data:
+                            rule_id = rule_data.get('id')
+                            if rule_id:
+                                submitted_rule_ids.add(rule_id)
+                            
+                            if rule_id and rule_id != 'new':
+                                # Update existing rule
+                                try:
+                                    rule = Rule.objects.get(id=rule_id)
+                                    rule.rule_order = int(rule_data.get('order', 1))
+                                    rule.dicom_tag_type = DICOMTagType.objects.get(id=rule_data['tag_type'])
+                                    rule.operator_type = rule_data.get('operator', 'EQUALS')
+                                    rule.tag_value_to_evaluate = rule_data.get('value', '')
+                                    rule.rule_combination_type = rule_data.get('combination', 'AND')
+                                    rule.save()
+                                except Rule.DoesNotExist:
+                                    # Create new if not found
+                                    rule = Rule()
+                                    rule.id = uuid.uuid4()
+                                    rule.ruleset = ruleset
+                                    rule.rule_order = int(rule_data.get('order', 1))
+                                    rule.dicom_tag_type = DICOMTagType.objects.get(id=rule_data['tag_type'])
+                                    rule.operator_type = rule_data.get('operator', 'EQUALS')
+                                    rule.tag_value_to_evaluate = rule_data.get('value', '')
+                                    rule.rule_combination_type = rule_data.get('combination', 'AND')
+                                    rule.save()
+                            else:
+                                # Create new rule
+                                rule = Rule()
+                                rule.id = uuid.uuid4()
+                                rule.ruleset = ruleset
+                                rule.rule_order = int(rule_data.get('order', 1))
+                                rule.dicom_tag_type = DICOMTagType.objects.get(id=rule_data['tag_type'])
+                                rule.operator_type = rule_data.get('operator', 'EQUALS')
+                                rule.tag_value_to_evaluate = rule_data.get('value', '')
+                                rule.rule_combination_type = rule_data.get('combination', 'AND')
+                                rule.save()
+                    
+                    # Delete rules that were removed
+                    rules_to_delete = existing_rule_ids - submitted_rule_ids
+                    if rules_to_delete:
+                        Rule.objects.filter(id__in=rules_to_delete).delete()
+            
+            messages.success(request, f'Rule Group "{rulegroup.rulegroup_name}" updated successfully!')
+            return redirect('dicom_handler:rulegroup_detail', rulegroup_id=rulegroup.id)
+        else:
+            messages.error(request, 'Please correct the errors in the rule group form.')
+    else:
+        rulegroup_form = RuleGroupForm(instance=rulegroup)
+    
+    # Get existing rulesets and rules
+    import json
+    rulesets = RuleSet.objects.filter(rulegroup=rulegroup).order_by('rulset_order')
+    rulesets_with_rules = []
+    rulesets_json = []
+    
+    for ruleset in rulesets:
+        rules = Rule.objects.filter(ruleset=ruleset).select_related('dicom_tag_type').order_by('rule_order')
+        rulesets_with_rules.append({
+            'ruleset': ruleset,
+            'rules': list(rules)
+        })
+        
+        # Create JSON-serializable version
+        rules_json = []
+        for rule in rules:
+            rules_json.append({
+                'id': str(rule.id),
+                'rule_order': rule.rule_order,
+                'dicom_tag_type': {
+                    'id': str(rule.dicom_tag_type.id),
+                    'tag_name': rule.dicom_tag_type.tag_name
+                },
+                'operator_type': rule.operator_type,
+                'tag_value_to_evaluate': rule.tag_value_to_evaluate,
+                'rule_combination_type': rule.rule_combination_type
+            })
+        
+        rulesets_json.append({
+            'ruleset': {
+                'id': str(ruleset.id),
+                'ruleset_name': ruleset.ruleset_name,
+                'ruleset_combination_type': ruleset.ruleset_combination_type,
+                'rulset_order': ruleset.rulset_order,
+                'ruleset_description': ruleset.ruleset_description or ''
+            },
+            'rules': rules_json
+        })
+    
+    return render(request, 'dicom_handler/rulegroup_edit.html', {
+        'rulegroup_form': rulegroup_form,
+        'rulegroup': rulegroup,
+        'rulesets_with_rules': rulesets_with_rules,
+        'rulesets_json': json.dumps(rulesets_json)
     })
 
 @login_required
@@ -517,11 +890,13 @@ def ruleset_detail(request, ruleset_id):
     View to display detailed information about a specific ruleset
     """
     ruleset = get_object_or_404(RuleSet, id=ruleset_id)
-    rules = Rule.objects.filter(ruleset=ruleset).select_related('dicom_tag_type')
+    rules = Rule.objects.filter(ruleset=ruleset).select_related('dicom_tag_type').order_by('rule_order')
+    rulegroup = ruleset.rulegroup
     
     return render(request, 'dicom_handler/ruleset_detail.html', {
         'ruleset': ruleset,
-        'rules': rules
+        'rules': rules,
+        'rulegroup': rulegroup
     })
 
 @login_required
@@ -531,13 +906,21 @@ def ruleset_edit(request, ruleset_id):
     View to edit an existing ruleset
     """
     ruleset = get_object_or_404(RuleSet, id=ruleset_id)
+    rulegroup = ruleset.rulegroup
     
     if request.method == 'POST':
-        form = RuleSetForm(request.POST, instance=ruleset)
+        rulegroup_form = RuleGroupForm(request.POST, instance=rulegroup) if rulegroup else None
+        ruleset_form = RuleSetForm(request.POST, instance=ruleset)
         formset = RuleFormSet(request.POST, instance=ruleset)
         
-        if form.is_valid() and formset.is_valid():
-            form.save()
+        forms_valid = ruleset_form.is_valid() and formset.is_valid()
+        if rulegroup_form:
+            forms_valid = forms_valid and rulegroup_form.is_valid()
+        
+        if forms_valid:
+            if rulegroup_form:
+                rulegroup_form.save()
+            ruleset_form.save()
             formset.save()
             
             messages.success(request, f'RuleSet "{ruleset.ruleset_name}" updated successfully!')
@@ -545,17 +928,20 @@ def ruleset_edit(request, ruleset_id):
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
-        form = RuleSetForm(instance=ruleset)
+        rulegroup_form = RuleGroupForm(instance=rulegroup) if rulegroup else None
+        ruleset_form = RuleSetForm(instance=ruleset)
         formset = RuleFormSet(instance=ruleset)
     
     # Add helper to formset for Crispy Forms
     formset_helper = RuleFormSetHelper()
     
     return render(request, 'dicom_handler/ruleset_edit.html', {
-        'form': form,
+        'rulegroup_form': rulegroup_form,
+        'form': ruleset_form,
         'formset': formset,
         'formset_helper': formset_helper,
-        'ruleset': ruleset
+        'ruleset': ruleset,
+        'rulegroup': rulegroup
     })
 
 @login_required
@@ -592,14 +978,14 @@ def template_list(request):
         model_count = AutosegmentationModel.objects.filter(
             autosegmentation_template_name=template
         ).count()
-        # Get related ruleset
-        related_ruleset = RuleSet.objects.filter(
+        # Get related rulegroup
+        related_rulegroup = RuleGroup.objects.filter(
             associated_autosegmentation_template=template
         ).first()
         
         template.structure_count = structure_count
         template.model_count = model_count
-        template.related_ruleset = related_ruleset
+        template.related_rulegroup = related_rulegroup
     
     return render(request, 'dicom_handler/template_list.html', {
         'templates': templates
@@ -617,15 +1003,15 @@ def template_detail(request, template_id):
             autosegmentation_template_name=template
         ).prefetch_related('autosegmentationstructure_set')
         
-        # Get related ruleset
-        related_ruleset = RuleSet.objects.filter(
+        # Get related rulegroup
+        related_rulegroup = RuleGroup.objects.filter(
             associated_autosegmentation_template=template
         ).first()
         
         return render(request, 'dicom_handler/template_detail.html', {
             'template': template,
             'models': models,
-            'related_ruleset': related_ruleset
+            'related_rulegroup': related_rulegroup
         })
     except AutosegmentationTemplate.DoesNotExist:
         messages.error(request, 'Template not found.')
@@ -1149,8 +1535,9 @@ def series_processing_status(request):
     # Prepare data for template
     series_data = []
     for series in page_obj:
-        # Get matched rulesets and templates
-        matched_rulesets = list(series.matched_rule_sets.values_list('ruleset_name', flat=True))
+        # Get matched rulegroups (via rulesets) and templates
+        matched_rulesets = series.matched_rule_sets.select_related('rulegroup').all()
+        matched_rulegroups = list(set([rs.rulegroup.rulegroup_name for rs in matched_rulesets if rs.rulegroup]))
         matched_templates = list(series.matched_templates.values_list('template_name', flat=True))
         
         # Get the most recent DICOMFileExport for this series if it exists
@@ -1180,7 +1567,7 @@ def series_processing_status(request):
             'study_protocol': series.study.study_protocol or 'N/A',
             'study_modality': series.study.study_modality or 'N/A',
             'instance_count': series.instance_count or 0,
-            'matched_rulesets': ', '.join(matched_rulesets) if matched_rulesets else 'None',
+            'matched_rulesets': ', '.join(matched_rulegroups) if matched_rulegroups else 'None',
             'matched_templates': ', '.join(matched_templates) if matched_templates else 'None',
             'processing_status': series.get_series_processsing_status_display(),
             'updated_at': series.updated_at,

@@ -23,7 +23,7 @@
                 
                 <!-- Description Section -->
                 <div class="mb-4">
-                    <p class="text-gray-600 text-sm">Autosegmentation templates define the AI models and anatomical structures that will be automatically segmented when DICOM images are processed. Each template contains a collection of AI models, each targeting specific anatomical structures or organs. Templates are linked to rulesets which determine when they should be applied based on DICOM metadata such as protocol names, modalities, or other imaging parameters.</p>
+                    <p class="text-gray-600 text-sm">Autosegmentation templates define the AI models and anatomical structures that will be automatically segmented when DICOM images are processed. Each template contains a collection of AI models, each targeting specific anatomical structures or organs. Templates are linked to rulegroups which determine when they should be applied based on DICOM metadata such as protocol names, modalities, or other imaging parameters.</p>
                     <p class="text-gray-600 text-sm mt-4">To create a new template click on the "Create New Template" button above. View all available templates below.</p>
                 </div>
             </div>
@@ -66,16 +66,16 @@
                                     </span>
                                 </div>
                                 
-                                <!-- Associated RuleSet -->
+                                <!-- Associated RuleGroup -->
                                 <div class="pt-2">
-                                    <p class="text-xs text-gray-500 mb-1">Associated RuleSet:</p>
-                                    {% if template.related_ruleset %}
-                                        <a href="{% url 'dicom_handler:ruleset_detail' template.related_ruleset.id %}" 
+                                    <p class="text-xs text-gray-500 mb-1">Associated RuleGroup:</p>
+                                    {% if template.related_rulegroup %}
+                                        <a href="{% url 'dicom_handler:rulegroup_detail' template.related_rulegroup.id %}" 
                                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 hover:bg-purple-200 break-words">
-                                            {{ template.related_ruleset.ruleset_name }}
+                                            {{ template.related_rulegroup.rulegroup_name }}
                                         </a>
                                     {% else %}
-                                        <span class="text-sm text-gray-400 italic">No RuleSet assigned</span>
+                                        <span class="text-sm text-gray-400 italic">No RuleGroup assigned</span>
                                     {% endif %}
                                 </div>
                             </div>

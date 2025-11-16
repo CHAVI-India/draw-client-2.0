@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from .search_views import search_structures
+from .views_rulegroup import rulegroup_create_with_rulesets, rulegroup_add_ruleset
 from .manual_autosegmentation_views import (
     ManualAutosegmentationSeriesInfoView,
     ManualAutosegmentationValidateView,
@@ -36,12 +37,17 @@ urlpatterns = [
     path('templates/<uuid:template_id>/update-info/', views.update_template_info, name='update_template_info'),
     path('search-structures/', search_structures, name='search_structures'),
     
-    # RuleSet URLs
+    # RuleSet URLs (legacy - individual rulesets are now managed within RuleGroups)
     path('rulesets/', views.ruleset_list, name='ruleset_list'),
-    path('rulesets/create/', views.ruleset_create, name='ruleset_create'),
     path('rulesets/<uuid:ruleset_id>/', views.ruleset_detail, name='ruleset_detail'),
     path('rulesets/<uuid:ruleset_id>/edit/', views.ruleset_edit, name='ruleset_edit'),
     path('rulesets/<uuid:ruleset_id>/delete/', views.ruleset_delete, name='ruleset_delete'),
+    
+    # RuleGroup URLs
+    path('rulegroups/create/', views.rulegroup_create, name='rulegroup_create'),
+    path('rulegroups/<uuid:rulegroup_id>/', views.rulegroup_detail, name='rulegroup_detail'),
+    path('rulegroups/<uuid:rulegroup_id>/edit/', views.rulegroup_edit, name='rulegroup_edit'),
+    path('rulegroups/<uuid:rulegroup_id>/add-ruleset/', rulegroup_add_ruleset, name='rulegroup_add_ruleset'),
     
     # VR Validation AJAX URLs
     path('vr-guidance/<uuid:tag_id>/', views.get_vr_guidance, name='get_vr_guidance'),

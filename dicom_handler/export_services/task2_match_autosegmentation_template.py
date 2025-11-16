@@ -23,7 +23,7 @@ from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import json
 from ..models import (
-    RuleSet, Rule, DICOMSeries, DICOMInstance, ProcessingStatus,
+    RuleSet, Rule, RuleGroup, DICOMSeries, DICOMInstance, ProcessingStatus,
     OperatorType, RuleCombinationType, AutosegmentationTemplate, DICOMTagType
 )
 
@@ -53,51 +53,76 @@ def mask_sensitive_data(data, field_name=""):
     
     return str(data)
 
-def get_all_rulesets_and_rules():
+def get_all_rulegroups_rulesets_and_rules():
     """
-    Get all rulesets and their associated rules from the database
-    Returns: Dictionary with ruleset data organized for efficient processing
+    Get all rulegroups, rulesets and their associated rules from the database
+    Returns: Dictionary with rulegroup data organized for efficient hierarchical processing
+    Structure: RuleGroup -> RuleSet -> Rule
     """
     try:
-        logger.info("Loading all rulesets and rules from database")
+        logger.info("Loading all rulegroups, rulesets and rules from database")
         
-        rulesets_data = {}
+        rulegroups_data = {}
         
-        # Get all rulesets with their associated templates
-        rulesets = RuleSet.objects.select_related('associated_autosegmentation_template').all()
+        # Get all rulegroups
+        rulegroups = RuleGroup.objects.all()
         
-        for ruleset in rulesets:
-            # Get all rules for this ruleset
-            rules = Rule.objects.filter(ruleset=ruleset).select_related('dicom_tag_type')
+        for rulegroup in rulegroups:
+            # Get all rulesets for this rulegroup, ordered by rulset_order
+            rulesets = RuleSet.objects.filter(rulegroup=rulegroup).select_related(
+                'associated_autosegmentation_template'
+            ).order_by('rulset_order')
             
-            rules_data = []
-            for rule in rules:
-                rules_data.append({
-                    'id': str(rule.id),
-                    'dicom_tag_name': rule.dicom_tag_type.tag_name,
-                    'dicom_tag_id': rule.dicom_tag_type.tag_id,
-                    'operator_type': rule.operator_type,
-                    'tag_value_to_evaluate': rule.tag_value_to_evaluate,
-                    'value_representation': rule.dicom_tag_type.value_representation
+            rulesets_data = []
+            for ruleset in rulesets:
+                # Get all rules for this ruleset, ordered by rule_order
+                rules = Rule.objects.filter(ruleset=ruleset).select_related(
+                    'dicom_tag_type'
+                ).order_by('rule_order')
+                
+                rules_data = []
+                for rule in rules:
+                    rules_data.append({
+                        'id': str(rule.id),
+                        'rule_order': rule.rule_order,
+                        'dicom_tag_name': rule.dicom_tag_type.tag_name,
+                        'dicom_tag_id': rule.dicom_tag_type.tag_id,
+                        'operator_type': rule.operator_type,
+                        'tag_value_to_evaluate': rule.tag_value_to_evaluate,
+                        'value_representation': rule.dicom_tag_type.value_representation,
+                        'rule_combination_type': rule.rule_combination_type
+                    })
+                
+                rulesets_data.append({
+                    'id': str(ruleset.id),
+                    'name': ruleset.ruleset_name,
+                    'description': ruleset.ruleset_description,
+                    'rulset_order': ruleset.rulset_order,
+                    'ruleset_combination_type': ruleset.ruleset_combination_type,
+                    'associated_template': {
+                        'id': str(ruleset.associated_autosegmentation_template.id) if ruleset.associated_autosegmentation_template else None,
+                        'name': ruleset.associated_autosegmentation_template.template_name if ruleset.associated_autosegmentation_template else None
+                    },
+                    'rules': rules_data
                 })
             
-            rulesets_data[str(ruleset.id)] = {
-                'id': str(ruleset.id),
-                'name': ruleset.ruleset_name,
-                'description': ruleset.ruleset_description,
-                'combination_type': ruleset.rule_combination_type,
+            rulegroups_data[str(rulegroup.id)] = {
+                'id': str(rulegroup.id),
+                'name': rulegroup.rulegroup_name,
                 'associated_template': {
-                    'id': str(ruleset.associated_autosegmentation_template.id) if ruleset.associated_autosegmentation_template else None,
-                    'name': ruleset.associated_autosegmentation_template.template_name if ruleset.associated_autosegmentation_template else None
+                    'id': str(rulegroup.associated_autosegmentation_template.id) if rulegroup.associated_autosegmentation_template else None,
+                    'name': rulegroup.associated_autosegmentation_template.template_name if rulegroup.associated_autosegmentation_template else None
                 },
-                'rules': rules_data
+                'rulesets': rulesets_data
             }
         
-        logger.info(f"Loaded {len(rulesets_data)} rulesets with {sum(len(rs['rules']) for rs in rulesets_data.values())} total rules")
-        return rulesets_data
+        total_rulesets = sum(len(rg['rulesets']) for rg in rulegroups_data.values())
+        total_rules = sum(len(rs['rules']) for rg in rulegroups_data.values() for rs in rg['rulesets'])
+        logger.info(f"Loaded {len(rulegroups_data)} rulegroups with {total_rulesets} rulesets and {total_rules} total rules")
+        return rulegroups_data
         
     except Exception as e:
-        logger.error(f"Error loading rulesets and rules: {str(e)}")
+        logger.error(f"Error loading rulegroups, rulesets and rules: {str(e)}")
         return {}
 
 def read_dicom_metadata(file_path):
@@ -212,40 +237,108 @@ def evaluate_rule(rule_data, dicom_metadata):
 
 def evaluate_ruleset(ruleset_data, dicom_metadata):
     """
-    Evaluate a complete ruleset against DICOM metadata
+    Evaluate a complete ruleset against DICOM metadata with rule combination logic
+    Rules are evaluated in order based on rule_order field
+    Rules are combined based on each rule's rule_combination_type
     Returns: Boolean indicating if ruleset matches
     """
     try:
         rules = ruleset_data['rules']
-        combination_type = ruleset_data['combination_type']
         
         if not rules:
             logger.debug(f"Ruleset '{ruleset_data['name']}' has no rules")
             return False
         
-        rule_results = []
-        for rule in rules:
-            result = evaluate_rule(rule, dicom_metadata)
-            rule_results.append(result)
-            logger.debug(f"Rule result for '{rule['dicom_tag_name']}': {result}")
+        # Rules are already ordered by rule_order from the database query
+        # Evaluate rules in order and combine based on each rule's combination type
         
-        # Apply combination logic
-        if combination_type == RuleCombinationType.AND:
-            # All rules must match
-            ruleset_match = all(rule_results)
-        elif combination_type == RuleCombinationType.OR:
-            # At least one rule must match
-            ruleset_match = any(rule_results)
-        else:
-            logger.error(f"Unknown combination type: {combination_type}")
-            return False
+        # Start with the first rule's result
+        current_result = evaluate_rule(rules[0], dicom_metadata)
+        logger.debug(f"Rule 1 (order {rules[0]['rule_order']}) '{rules[0]['dicom_tag_name']}': {current_result}")
         
-        logger.info(f"Ruleset '{ruleset_data['name']}' ({combination_type}): {sum(rule_results)}/{len(rule_results)} rules passed, Result: {ruleset_match}")
-        return ruleset_match
+        # Process remaining rules in order
+        for i in range(1, len(rules)):
+            rule = rules[i]
+            rule_result = evaluate_rule(rule, dicom_metadata)
+            logger.debug(f"Rule {i+1} (order {rule['rule_order']}) '{rule['dicom_tag_name']}': {rule_result}")
+            
+            # The previous rule's combination type determines how to combine with current result
+            prev_rule_combination = rules[i-1]['rule_combination_type']
+            
+            if prev_rule_combination == RuleCombinationType.AND:
+                # AND: Both must be true
+                current_result = current_result and rule_result
+            elif prev_rule_combination == RuleCombinationType.OR:
+                # OR: At least one must be true
+                current_result = current_result or rule_result
+            else:
+                logger.error(f"Unknown rule combination type: {prev_rule_combination}")
+                return False
+            
+            logger.debug(f"Combined result after rule {i+1}: {current_result}")
+        
+        logger.info(f"Ruleset '{ruleset_data['name']}': Final result = {current_result}")
+        return current_result
         
     except Exception as e:
         logger.error(f"Error evaluating ruleset '{ruleset_data.get('name', 'unknown')}': {str(e)}")
         return False
+
+def evaluate_rulegroup(rulegroup_data, dicom_metadata):
+    """
+    Evaluate a complete rulegroup against DICOM metadata
+    Rulesets are evaluated in order based on rulset_order field
+    Rulesets are combined based on each ruleset's ruleset_combination_type
+    Returns: Tuple of (Boolean indicating if rulegroup matches, List of matched rulesets)
+    """
+    try:
+        rulesets = rulegroup_data['rulesets']
+        
+        if not rulesets:
+            logger.debug(f"Rulegroup '{rulegroup_data['id']}' has no rulesets")
+            return False, []
+        
+        # Rulesets are already ordered by rulset_order from the database query
+        matched_rulesets = []
+        
+        # Start with the first ruleset's result
+        first_ruleset_match = evaluate_ruleset(rulesets[0], dicom_metadata)
+        if first_ruleset_match:
+            matched_rulesets.append(rulesets[0])
+        
+        current_result = first_ruleset_match
+        logger.debug(f"Ruleset 1 (order {rulesets[0]['rulset_order']}) '{rulesets[0]['name']}': {current_result}")
+        
+        # Process remaining rulesets in order
+        for i in range(1, len(rulesets)):
+            ruleset = rulesets[i]
+            ruleset_result = evaluate_ruleset(ruleset, dicom_metadata)
+            if ruleset_result:
+                matched_rulesets.append(ruleset)
+            
+            logger.debug(f"Ruleset {i+1} (order {ruleset['rulset_order']}) '{ruleset['name']}': {ruleset_result}")
+            
+            # The previous ruleset's combination type determines how to combine with current result
+            prev_ruleset_combination = rulesets[i-1]['ruleset_combination_type']
+            
+            if prev_ruleset_combination == RuleCombinationType.AND:
+                # AND: Both must be true
+                current_result = current_result and ruleset_result
+            elif prev_ruleset_combination == RuleCombinationType.OR:
+                # OR: At least one must be true
+                current_result = current_result or ruleset_result
+            else:
+                logger.error(f"Unknown ruleset combination type: {prev_ruleset_combination}")
+                return False, []
+            
+            logger.debug(f"Combined result after ruleset {i+1}: {current_result}")
+        
+        logger.info(f"Rulegroup '{rulegroup_data['id']}': Final result = {current_result}, Matched {len(matched_rulesets)} rulesets")
+        return current_result, matched_rulesets
+        
+    except Exception as e:
+        logger.error(f"Error evaluating rulegroup '{rulegroup_data.get('id', 'unknown')}': {str(e)}")
+        return False, []
 
 def match_autosegmentation_template(task1_output):
     """
@@ -268,10 +361,10 @@ def match_autosegmentation_template(task1_output):
         
         logger.info(f"Processing {len(series_data)} series for rule matching")
         
-        # Load all rulesets and rules
-        rulesets_data = get_all_rulesets_and_rules()
-        if not rulesets_data:
-            logger.warning("No rulesets found in database")
+        # Load all rulegroups, rulesets and rules
+        rulegroups_data = get_all_rulegroups_rulesets_and_rules()
+        if not rulegroups_data:
+            logger.warning("No rulegroups found in database")
             # Update all series to RULE_NOT_MATCHED
             for series_info in series_data:
                 try:
@@ -305,73 +398,93 @@ def match_autosegmentation_template(task1_output):
                     logger.error(f"Could not read DICOM metadata for series: {mask_sensitive_data(series_uid, 'series_uid')}")
                     continue
                 
-                # Test each ruleset against this series
+                # Test each rulegroup against this series
+                # Collect all matched rulegroups with their rulesets
+                matched_rulegroups = []
+                
+                for rulegroup_id, rulegroup_data in rulegroups_data.items():
+                    rulegroup_match, matched_rulesets_in_group = evaluate_rulegroup(rulegroup_data, dicom_metadata)
+                    
+                    if rulegroup_match and matched_rulesets_in_group:
+                        logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')} matched rulegroup: {rulegroup_data['name']}")
+                        # Store rulegroup info with its matched rulesets
+                        matched_rulegroups.append({
+                            'rulegroup_id': rulegroup_data['id'],
+                            'rulegroup_name': rulegroup_data['name'],
+                            'matched_rulesets': matched_rulesets_in_group
+                        })
+                
+                # Flatten to get all matched rulesets for database updates
                 matched_rulesets = []
-                for ruleset_id, ruleset_data in rulesets_data.items():
-                    if evaluate_ruleset(ruleset_data, dicom_metadata):
-                        matched_rulesets.append(ruleset_data)
-                        logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')} matched ruleset: {ruleset_data['name']}")
+                for rg in matched_rulegroups:
+                    matched_rulesets.extend(rg['matched_rulesets'])
                 
                 # Update series status and relationships based on matches
                 with transaction.atomic():
                     try:
                         series = DICOMSeries.objects.get(series_instance_uid=series_uid)
                         
-                        if len(matched_rulesets) == 0:
+                        if len(matched_rulegroups) == 0:
                             # No matches
                             series.series_processsing_status = ProcessingStatus.RULE_NOT_MATCHED
                             series.matched_rule_sets.clear()
                             series.matched_templates.clear()
-                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: No rules matched")
+                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: No rulegroups matched")
                             
-                        elif len(matched_rulesets) == 1:
-                            # Single match
+                        elif len(matched_rulegroups) == 1:
+                            # Single rulegroup match
                             series.series_processsing_status = ProcessingStatus.RULE_MATCHED
                             
                             # Clear existing relationships
                             series.matched_rule_sets.clear()
                             series.matched_templates.clear()
                             
-                            # Add matched ruleset
-                            ruleset_obj = RuleSet.objects.get(id=matched_rulesets[0]['id'])
-                            series.matched_rule_sets.add(ruleset_obj)
+                            # Add all rulesets from the matched rulegroup
+                            rulegroup = matched_rulegroups[0]
+                            for matched_ruleset in rulegroup['matched_rulesets']:
+                                ruleset_obj = RuleSet.objects.get(id=matched_ruleset['id'])
+                                series.matched_rule_sets.add(ruleset_obj)
+                                
+                                # Add associated template if exists
+                                if ruleset_obj.associated_autosegmentation_template:
+                                    series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
                             
-                            # Add associated template if exists
-                            if ruleset_obj.associated_autosegmentation_template:
-                                series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
-                            
-                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Single rule matched")
+                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Single rulegroup matched: {rulegroup['rulegroup_name']}")
                             
                         else:
-                            # Multiple matches
+                            # Multiple rulegroups matched
                             series.series_processsing_status = ProcessingStatus.MULTIPLE_RULES_MATCHED
                             
                             # Clear existing relationships
                             series.matched_rule_sets.clear()
                             series.matched_templates.clear()
                             
-                            # Add all matched rulesets and templates
-                            for matched_ruleset in matched_rulesets:
-                                ruleset_obj = RuleSet.objects.get(id=matched_ruleset['id'])
-                                series.matched_rule_sets.add(ruleset_obj)
-                                
-                                if ruleset_obj.associated_autosegmentation_template:
-                                    series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
+                            # Add all rulesets from all matched rulegroups
+                            for rulegroup in matched_rulegroups:
+                                for matched_ruleset in rulegroup['matched_rulesets']:
+                                    ruleset_obj = RuleSet.objects.get(id=matched_ruleset['id'])
+                                    series.matched_rule_sets.add(ruleset_obj)
+                                    
+                                    if ruleset_obj.associated_autosegmentation_template:
+                                        series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
                             
-                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Multiple rules matched ({len(matched_rulesets)})")
+                            logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Multiple rulegroups matched ({len(matched_rulegroups)})")
                         
                         series.save()
                         
                         # Prepare data for next task if there are matches
-                        if matched_rulesets:
-                            for matched_ruleset in matched_rulesets:
+                        # Pass only RuleGroup info since template comes from RuleGroup
+                        if matched_rulegroups:
+                            for rulegroup in matched_rulegroups:
+                                # Get template from the RuleGroup (not from RuleSet)
+                                rulegroup_data = rulegroups_data[rulegroup['rulegroup_id']]
                                 matched_series_results.append({
                                     'series_instance_uid': series_uid,
                                     'series_root_path': series_root_path,
-                                    'matched_ruleset_id': matched_ruleset['id'],
-                                    'matched_ruleset_name': matched_ruleset['name'],
-                                    'associated_template_id': matched_ruleset['associated_template']['id'],
-                                    'associated_template_name': matched_ruleset['associated_template']['name'],
+                                    'matched_rulegroup_id': rulegroup['rulegroup_id'],
+                                    'matched_rulegroup_name': rulegroup['rulegroup_name'],
+                                    'associated_template_id': rulegroup_data['associated_template']['id'],
+                                    'associated_template_name': rulegroup_data['associated_template']['name'],
                                     'instance_count': series_info.get('instance_count', 0)
                                 })
                         

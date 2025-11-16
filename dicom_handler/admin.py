@@ -92,9 +92,9 @@ class DICOMTagTypeAdmin(admin.ModelAdmin):
 
 @admin.register(RuleSet)
 class RuleSetAdmin(admin.ModelAdmin):
-    list_display = ('ruleset_name', 'rule_combination_type', 'associated_autosegmentation_template', 'created_at')
+    list_display = ('ruleset_name', 'ruleset_combination_type', 'associated_autosegmentation_template', 'created_at')
     search_fields = ('ruleset_name', 'ruleset_description')
-    list_filter = ('rule_combination_type', 'associated_autosegmentation_template', 'created_at')
+    list_filter = ('ruleset_combination_type', 'associated_autosegmentation_template', 'created_at')
     autocomplete_fields = ['associated_autosegmentation_template']
     
     def get_readonly_fields(self, request, obj=None):

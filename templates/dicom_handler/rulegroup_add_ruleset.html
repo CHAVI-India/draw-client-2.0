@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load crispy_forms_tags %}
 
-{% block title %}Edit RuleSet - DRAW v2.0{% endblock %}
+{% block title %}Add RuleSet to Rule Group - DRAW v2.0{% endblock %}
 
 {% block content %}
 <div class="max-w-6xl mx-auto">
@@ -10,18 +10,33 @@
         <div class="px-6 py-4 border-b border-gray-200">
             <div class="flex items-center justify-between">
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-900">Edit RuleSet</h1>
-                    <p class="text-gray-600 mt-1">Modify rules to automatically match DICOM series with segmentation templates</p>
+                    <h1 class="text-2xl font-bold text-gray-900">Add RuleSet to: {{ rulegroup.rulegroup_name }}</h1>
+                    <p class="text-gray-600 mt-1">Template: {{ rulegroup.associated_autosegmentation_template.template_name }}</p>
                 </div>
-                <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                     </svg>
-                    Back to RuleSets
+                    Done
                 </a>
             </div>
         </div>
     </div>
+
+    <!-- Existing RuleSets Summary -->
+    {% if existing_rulesets %}
+    <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
+        <h3 class="text-sm font-medium text-indigo-900 mb-2">Existing RuleSets in this Rule Group ({{ existing_rulesets.count }})</h3>
+        <div class="space-y-1">
+            {% for rs in existing_rulesets %}
+            <div class="text-sm text-indigo-700">
+                <span class="font-medium">{{ rs.rulset_order }}.</span> {{ rs.ruleset_name }} 
+                <span class="text-indigo-500">({{ rs.ruleset_combination_type }})</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Form -->
     <form method="post" id="ruleset-form" class="space-y-6">
@@ -31,7 +46,7 @@
         <div class="bg-white rounded-lg shadow-sm border border-gray-200">
             <div class="px-6 py-4 border-b border-gray-200">
                 <h2 class="text-lg font-semibold text-gray-900">RuleSet Information</h2>
-                <p class="text-sm text-gray-600 mt-1">Basic information about the ruleset</p>
+                <p class="text-sm text-gray-600 mt-1">Define the ruleset and its rules</p>
             </div>
             <div class="px-6 py-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -48,17 +63,17 @@
                         {% endif %}
                     </div>
                     <div>
-                        <label for="{{ form.rule_combination_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
-                            {{ form.rule_combination_type.label }}
+                        <label for="{{ form.ruleset_combination_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.ruleset_combination_type.label }}
                             <span class="text-red-500">*</span>
                         </label>
-                        {{ form.rule_combination_type }}
-                        {% if form.rule_combination_type.errors %}
+                        {{ form.ruleset_combination_type }}
+                        {% if form.ruleset_combination_type.errors %}
                             <div class="mt-1 text-sm text-red-600">
-                                {{ form.rule_combination_type.errors.0 }}
+                                {{ form.ruleset_combination_type.errors.0 }}
                             </div>
                         {% endif %}
-                        <p class="mt-1 text-sm text-gray-500">Choose how multiple rules should be combined</p>
+                        <p class="mt-1 text-sm text-gray-500">How this ruleset combines with other rulesets in the group</p>
                     </div>
                 </div>
                 <div class="mt-6">
@@ -74,30 +89,30 @@
                     {% endif %}
                 </div>
                 <div class="mt-6">
-                    <label for="{{ form.associated_autosegmentation_template.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
-                        {{ form.associated_autosegmentation_template.label }}
+                    <label for="{{ form.rulset_order.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                        {{ form.rulset_order.label }}
                         <span class="text-red-500">*</span>
                     </label>
-                    {{ form.associated_autosegmentation_template }}
-                    {% if form.associated_autosegmentation_template.errors %}
+                    {{ form.rulset_order }}
+                    {% if form.rulset_order.errors %}
                         <div class="mt-1 text-sm text-red-600">
-                            {{ form.associated_autosegmentation_template.errors.0 }}
+                            {{ form.rulset_order.errors.0 }}
                         </div>
                     {% endif %}
-                    <p class="mt-1 text-sm text-gray-500">Select the template to use when this ruleset matches</p>
+                    <p class="mt-1 text-sm text-gray-500">Order in which this ruleset will be evaluated (lower numbers first)</p>
                 </div>
             </div>
         </div>
 
-        <!-- Rules Section -->
+        <!-- Rules Section (copied from ruleset_create.html) -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200">
             <div class="px-6 py-4 border-b border-gray-200">
                 <div class="flex items-center justify-between">
                     <div>
                         <h2 class="text-lg font-semibold text-gray-900">Rules</h2>
-                        <p class="text-sm text-gray-600 mt-1">Define conditions that DICOM series must meet</p>
+                        <p class="text-sm text-gray-600 mt-1">Define the conditions for this ruleset</p>
                     </div>
-                    <button type="button" id="add-rule" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <button type="button" id="add-rule" class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
                         <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
                         </svg>
@@ -106,31 +121,34 @@
                 </div>
             </div>
             <div class="px-6 py-4">
-                <div id="rule-formset">
+                <div id="rules-container">
                     {{ formset.management_form }}
                     {% for form in formset %}
                         <div class="rule-form border border-gray-200 rounded-lg p-4 mb-4" data-form-index="{{ forloop.counter0 }}">
                             <div class="flex items-center justify-between mb-4">
                                 <h3 class="text-md font-medium text-gray-900">Rule {{ forloop.counter }}</h3>
-                                <div class="flex items-center space-x-2">
-                                    {% if form.DELETE %}
-                                        <label class="inline-flex items-center">
-                                            {{ form.DELETE }}
-                                            <span class="ml-2 text-sm text-red-600">Delete</span>
-                                        </label>
-                                    {% endif %}
-                                    {% if not forloop.first %}
-                                        <button type="button" class="remove-rule text-red-600 hover:text-red-800 text-sm font-medium">
-                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                            </svg>
-                                            Remove
-                                        </button>
-                                    {% endif %}
-                                </div>
+                                {% if not forloop.first %}
+                                    <button type="button" class="remove-rule text-red-600 hover:text-red-800 text-sm font-medium">
+                                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                        Remove
+                                    </button>
+                                {% endif %}
                             </div>
                             
-                            <div class="grid grid-cols-1 gap-4 sm:gap-4 md:grid-cols-3">
+                            <div class="grid grid-cols-1 gap-4 sm:gap-4 md:grid-cols-4">
+                                <!-- Rule Order -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Order <span class="text-red-500">*</span>
+                                    </label>
+                                    {{ form.rule_order }}
+                                    {% if form.rule_order.errors %}
+                                        <div class="mt-1 text-sm text-red-600">{{ form.rule_order.errors.0 }}</div>
+                                    {% endif %}
+                                </div>
+
                                 <!-- DICOM Tag Selection -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -195,36 +213,35 @@
                         </div>
                     {% endfor %}
                 </div>
-                
-                <!-- Formset errors -->
-                {% if formset.non_form_errors %}
-                    <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
-                        <div class="text-sm text-red-700">
-                            {{ formset.non_form_errors }}
-                        </div>
-                    </div>
-                {% endif %}
             </div>
         </div>
 
-        <!-- Submit Button -->
-        <div class="flex justify-end space-x-3">
-            <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+        <!-- Submit Buttons -->
+        <div class="flex justify-between items-center">
+            <a href="{% url 'dicom_handler:ruleset_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
                 Cancel
             </a>
-            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-                Update RuleSet
-            </button>
+            <div class="flex space-x-3">
+                <button type="submit" name="add_another" class="inline-flex items-center px-4 py-2 border border-primary-600 rounded-md shadow-sm text-sm font-medium text-primary-600 bg-white hover:bg-primary-50">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                    </svg>
+                    Save & Add Another RuleSet
+                </button>
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Save & Finish
+                </button>
+            </div>
         </div>
     </form>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<!-- Select2 CSS and JS -->
+<!-- Include the same JavaScript from ruleset_create.html -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -270,18 +287,12 @@
 </style>
 
 <script>
+// Copy all the JavaScript from ruleset_create.html
 $(document).ready(function() {
     let formIndex = parseInt('{{ formset.total_form_count }}');
     
     // Initialize Select2 for existing DICOM tag selects
     initializeSelect2();
-    
-    // Show VR guidance for existing forms with selected tags
-    $('.dicom-tag-select').each(function() {
-        if ($(this).val()) {
-            handleTagChange(this);
-        }
-    });
     
     // Add new rule functionality
     $('#add-rule').click(function() {
@@ -341,62 +352,53 @@ $(document).ready(function() {
     }
     
     function addNewRuleForm() {
-        // Clone the first rule form
-        var newForm = $('.rule-form').first().clone();
+        var $container = $('#rules-container');
+        var $lastForm = $('.rule-form').last();
+        var newForm = $lastForm.clone();
         
         // Update form index
         newForm.attr('data-form-index', formIndex);
         
-        // Clear values and update names/ids
+        // Clear values
         newForm.find('input, select, textarea').each(function() {
             var name = $(this).attr('name');
-            var id = $(this).attr('id');
-            
             if (name) {
-                $(this).attr('name', name.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
-            }
-            if (id) {
-                $(this).attr('id', id.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
+                $(this).attr('name', name.replace(/-\d+-/, '-' + formIndex + '-'));
+                $(this).attr('id', 'id_' + name.replace(/-\d+-/, '-' + formIndex + '-'));
             }
             
-            // Clear values
             if ($(this).is('select')) {
-                $(this).val('').trigger('change');
+                $(this).val('');
+                // Destroy Select2 if it exists
+                if ($(this).hasClass('select2-hidden-accessible')) {
+                    $(this).select2('destroy');
+                }
             } else {
                 $(this).val('');
-            }
-        });
-        
-        // Update labels
-        newForm.find('label').each(function() {
-            var forAttr = $(this).attr('for');
-            if (forAttr) {
-                $(this).attr('for', forAttr.replace(/rule_set-\d+-/, 'rule_set-' + formIndex + '-'));
             }
         });
         
         // Update rule number
         newForm.find('h3').text('Rule ' + (formIndex + 1));
         
-        // Show remove button
-        newForm.find('.remove-rule').show();
+        // Add remove button if it doesn't exist
+        if (newForm.find('.remove-rule').length === 0) {
+            var removeBtn = $('<button type="button" class="remove-rule text-red-600 hover:text-red-800 text-sm font-medium">' +
+                '<svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>' +
+                '</svg>Remove</button>');
+            newForm.find('.flex.items-center.justify-between').first().append(removeBtn);
+        }
         
         // Hide VR guidance
         newForm.find('.vr-guidance').hide();
         
-        // Remove delete checkbox for new forms
-        newForm.find('input[type="checkbox"][name*="DELETE"]').closest('label').remove();
+        // Append new form
+        $container.append(newForm);
         
-        // Destroy existing Select2 and reinitialize
-        newForm.find('.select2-container').remove();
-        newForm.find('.dicom-tag-select').removeClass('select2-hidden-accessible');
-        
-        // Add to formset
-        $('#rule-formset').append(newForm);
-        
-        // Update total forms count
+        // Update management form
+        $('#id_form-TOTAL_FORMS').val(formIndex + 1);
         formIndex++;
-        $('#id_rule_set-TOTAL_FORMS').val(formIndex);
         
         // Initialize Select2 for new form
         initializeSelect2();
@@ -406,35 +408,35 @@ $(document).ready(function() {
     
     function updateFormNumbers() {
         $('.rule-form').each(function(index) {
-            $(this).find('h3').text('Rule ' + (index + 1));
+            $(this).find('h3').first().text('Rule ' + (index + 1));
+            $(this).attr('data-form-index', index);
         });
+        
+        // Update total forms count
+        $('#id_form-TOTAL_FORMS').val($('.rule-form').length);
     }
 });
 
-// Handle DICOM tag change to show VR guidance
+// Handle tag change to fetch VR guidance
 function handleTagChange(selectElement) {
     var $select = $(selectElement);
+    var tagId = $select.val();
     var $ruleForm = $select.closest('.rule-form');
     var $vrGuidance = $ruleForm.find('.vr-guidance');
-    var $vrContent = $ruleForm.find('.vr-content');
+    var $vrContent = $vrGuidance.find('.vr-content');
     var $operatorSelect = $ruleForm.find('select[name*="operator_type"]');
     
-    var selectedOption = $select.find('option:selected');
-    var vrCode = selectedOption.data('vr');
-    var tagId = $select.val();
-    
-    if (tagId && vrCode) {
-        // Show VR guidance
-        $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>Loading guidance...</em>');
-        $vrGuidance.show();
-        
-        // Fetch VR guidance via AJAX
+    if (tagId) {
+        // Fetch VR guidance
         $.ajax({
-            url: '/dicom/vr-guidance/' + tagId + '/',
+            url: '{% url "dicom_handler:vr_guidance" "00000000-0000-0000-0000-000000000000" %}'.replace('00000000-0000-0000-0000-000000000000', tagId),
             method: 'GET',
             success: function(data) {
-                if (data.success) {
+                if (data.vr_code) {
                     var guidanceHtml = '<strong>VR Code:</strong> ' + data.vr_code;
+                    if (data.vr_name) {
+                        guidanceHtml += ' (' + data.vr_name + ')';
+                    }
                     if (data.guidance) {
                         guidanceHtml += '<br><strong>Format:</strong> ' + data.guidance;
                     }
@@ -450,9 +452,10 @@ function handleTagChange(selectElement) {
                 } else {
                     $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>No guidance available</em>');
                 }
+                $vrGuidance.show();
             },
             error: function() {
-                $vrContent.html('<strong>VR Code:</strong> ' + vrCode + '<br><em>Error loading guidance</em>');
+                $vrGuidance.hide();
             }
         });
     } else {
@@ -489,51 +492,7 @@ function resetOperatorOptions($operatorSelect) {
 
 // Validate operator and value combination
 function validateOperatorValue(element) {
-    var $element = $(element);
-    var $ruleForm = $element.closest('.rule-form');
-    var $tagSelect = $ruleForm.find('select[name*="dicom_tag_type"]');
-    var $operatorSelect = $ruleForm.find('select[name*="operator_type"]');
-    var $valueInput = $ruleForm.find('input[name*="tag_value_to_evaluate"]');
-    
-    var tagId = $tagSelect.val();
-    var operator = $operatorSelect.val();
-    var value = $valueInput.val();
-    
-    if (tagId && operator && value) {
-        // Perform AJAX validation
-        $.ajax({
-            url: '{% url "dicom_handler:validate_vr_value" %}',
-            method: 'POST',
-            data: {
-                'tag_id': tagId,
-                'operator': operator,
-                'value': value,
-                'csrfmiddlewaretoken': '{{ csrf_token }}'
-            },
-            success: function(data) {
-                // Remove existing validation messages
-                $ruleForm.find('.validation-message').remove();
-                
-                if (!data.is_valid) {
-                    var errorMessage = '';
-                    if (data.vr_message) {
-                        errorMessage += data.vr_message;
-                    }
-                    if (data.operator_message) {
-                        if (errorMessage) errorMessage += '<br>';
-                        errorMessage += data.operator_message;
-                    }
-                    
-                    if (errorMessage) {
-                        $valueInput.after('<div class="validation-message mt-1 text-sm text-red-600">' + errorMessage + '</div>');
-                        $valueInput.addClass('border-red-300');
-                    }
-                } else {
-                    $valueInput.removeClass('border-red-300');
-                }
-            }
-        });
-    }
+    // Add validation logic if needed
 }
 </script>
 {% endblock %}

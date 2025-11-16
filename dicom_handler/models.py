@@ -187,14 +187,34 @@ class RuleCombinationType(models.TextChoices):
     AND = "AND", "And"
     OR = "OR", "Or"
 
+class RuleGroup(models.Model):
+    '''
+    This is a model that stores information about rule groups. Each rule group can have multiple rulesets. These rule groups can combine rulesets in combinations of AND and OR.  
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rulegroup_name = models.CharField(max_length=256, help_text="The name of the rule group.", default="Rule Group")
+    associated_autosegmentation_template = models.ForeignKey(AutosegmentationTemplate, on_delete=models.CASCADE, help_text="The autosegmentation template associated with this rule group.", null=True, blank=True) # This field will be used to store the autosegmentation template associated with this rule group.
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        template_name = self.associated_autosegmentation_template.template_name if self.associated_autosegmentation_template else "No Template"
+        return f"{self.rulegroup_name} ({template_name})"
+
+    class Meta:
+        verbose_name = "Rule Group"
+        verbose_name_plural = "Rule Groups"
+
 class RuleSet(models.Model):
     '''
     This is a model to store data about the rulesets. A ruleset is a collection of rules that are applied to a DICOM series to determine the automatic segmentation template to be used.
     '''
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rulegroup = models.ForeignKey(RuleGroup, on_delete=models.CASCADE, help_text="The rule group to which this ruleset belongs to.", null=True, blank=True)
     ruleset_name = models.CharField(max_length=256, help_text="The name of the ruleset.")
     ruleset_description = models.CharField(max_length=256, help_text="The description of the ruleset.")
-    rule_combination_type = models.CharField(max_length=256, choices=RuleCombinationType.choices, help_text="The rule combination type. This can be AND or OR.")
+    rulset_order = models.IntegerField(help_text="The order in which the ruleset will be evaluated.", default=1)
+    ruleset_combination_type = models.CharField(max_length=256, choices=RuleCombinationType.choices, help_text="This defines how the ruleset will be combined with other rulesets in the rulegroup. This can be AND or OR.", verbose_name="RuleSet Combination", default="AND")
     associated_autosegmentation_template = models.ForeignKey(AutosegmentationTemplate, on_delete=models.CASCADE, null=True, blank=True, help_text="The autosegmentation template associated with the ruleset.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -229,9 +249,11 @@ class Rule(models.Model):
     '''
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ruleset = models.ForeignKey(RuleSet, on_delete=models.CASCADE, help_text="The ruleset to which this rule belongs to.")
+    rule_order = models.IntegerField(help_text="The order in which the rule will be evaluated.", default=1)
     dicom_tag_type = models.ForeignKey(DICOMTagType, on_delete=models.CASCADE, help_text="The DICOM tag type whose value will be evaluated.")
     operator_type = models.CharField(max_length=256, choices=OperatorType.choices, help_text="The operator type. This can be a string operator to be used for text and number or a numeric operator for numeric values.")
     tag_value_to_evaluate = models.CharField(max_length=256, help_text="The tag value to evaluate. This is the value that the rule will match to.")
+    rule_combination_type = models.CharField(max_length=256, choices=RuleCombinationType.choices, help_text="The rule combination type. This can be AND or OR. This defines how this rule should be combined with other rules in the ruleset.",default="AND")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -486,7 +508,6 @@ class RTStructureFileImport(models.Model):
     class Meta:
         verbose_name = "RT Structure File Import"
         verbose_name_plural = "RT Structure File Imports"
-
 
 class ContourModificationChoices(models.TextChoices):
     '''
