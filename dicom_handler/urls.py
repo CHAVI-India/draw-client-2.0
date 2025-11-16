@@ -16,7 +16,8 @@ from .dicom_viewer_views import (
     dicom_viewer,
     load_dicom_data,
     get_dicom_slice,
-    cleanup_temp_files
+    cleanup_temp_files,
+    save_contour_ratings
 )
 
 app_name = 'dicom_handler'
@@ -83,4 +84,5 @@ urlpatterns = [
     path('api/dicom-viewer/load-data/', load_dicom_data, name='load_dicom_data'),
     path('api/dicom-viewer/get-slice/', get_dicom_slice, name='get_dicom_slice'),
     path('api/dicom-viewer/cleanup/', cleanup_temp_files, name='cleanup_temp_files'),
+    path('api/dicom-viewer/save-ratings/', save_contour_ratings, name='save_contour_ratings'),
 ]

@@ -7,7 +7,7 @@ from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
-from .models import DICOMSeries, RTStructureFileImport, DICOMInstance
+from .models import DICOMSeries, RTStructureFileImport, DICOMInstance, RTStructureFileVOIData, ContourModificationTypeChoices
 import os
 import tempfile
 import shutil
@@ -16,6 +16,8 @@ import base64
 from io import BytesIO
 import logging
 import pickle
+from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,9 @@ def dicom_viewer(request, series_uid, rt_structure_id):
             'instance_path': instance.instance_path,
         })
     
+    # Get available modification types
+    modification_types = ContourModificationTypeChoices.objects.all().order_by('modification_type')
+    
     context = {
         'series': series,
         'rt_structure': rt_structure,
@@ -107,6 +112,7 @@ def dicom_viewer(request, series_uid, rt_structure_id):
         'instance_count': len(instance_data),
         'series_uid': series_uid,
         'rt_structure_id': str(rt_structure_id),
+        'modification_types': modification_types,
     }
     
     return render(request, 'dicom_handler/dicom_viewer.html', context)
@@ -508,3 +514,99 @@ def find_contours(mask_slice, level=0.5):
             points = np.column_stack([y, x])
             return [points]
         return []
+
+
+@login_required
+@require_http_methods(["POST"])
+def save_contour_ratings(request):
+    """
+    Save contour quality ratings from the DICOM viewer
+    """
+    try:
+        data = json.loads(request.body)
+        series_uid = data.get('series_uid')
+        overall_rating = data.get('overall_rating')
+        modification_time = data.get('modification_time')
+        structure_ratings = data.get('structure_ratings', {})
+        
+        logger.info(f"Saving ratings for series {series_uid}")
+        
+        # Get the series
+        series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
+        
+        # Get the RT Structure import for this series
+        rt_import = RTStructureFileImport.objects.filter(
+            deidentified_series_instance_uid=series
+        ).first()
+        
+        if not rt_import:
+            return JsonResponse({
+                'success': False,
+                'error': 'No RT Structure found for this series'
+            }, status=404)
+        
+        # Update RT Structure level data
+        rt_import.overall_rating = overall_rating
+        rt_import.assessor_name = request.user.get_full_name() or request.user.username
+        rt_import.date_contour_reviewed = timezone.now().date()
+        if modification_time is not None:
+            rt_import.contour_modification_time_required = modification_time
+        rt_import.save()
+        
+        logger.info(f"Updated RT Structure {rt_import.id} with overall rating {overall_rating}")
+        
+        # Save individual structure ratings
+        saved_count = 0
+        for roi_name, rating_data in structure_ratings.items():
+            # Get or create VOI data
+            voi_data, created = RTStructureFileVOIData.objects.get_or_create(
+                rt_structure_file_import=rt_import,
+                volume_name=roi_name,
+                defaults={
+                    'contour_modification': rating_data.get('modification', 'NO_MODIFICATION'),
+                    'contour_modification_comments': rating_data.get('comments', '')
+                }
+            )
+            
+            if not created:
+                # Update existing
+                voi_data.contour_modification = rating_data.get('modification', 'NO_MODIFICATION')
+                voi_data.contour_modification_comments = rating_data.get('comments', '')
+                voi_data.save()
+            
+            # Handle modification types (M2M relationship)
+            modification_type_ids = rating_data.get('modification_types', [])
+            if modification_type_ids:
+                # Clear existing and set new
+                voi_data.contour_modification_type.clear()
+                for type_id in modification_type_ids:
+                    try:
+                        mod_type = ContourModificationTypeChoices.objects.get(id=type_id)
+                        voi_data.contour_modification_type.add(mod_type)
+                    except ContourModificationTypeChoices.DoesNotExist:
+                        logger.warning(f"Modification type {type_id} not found")
+            else:
+                # Clear all if none selected
+                voi_data.contour_modification_type.clear()
+            
+            saved_count += 1
+            logger.info(f"Saved rating for {roi_name}: {rating_data.get('modification')} with {len(modification_type_ids)} modification types")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Saved ratings for {saved_count} structures',
+            'rt_import_id': str(rt_import.id)
+        })
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': 'Invalid JSON data'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"Error saving ratings: {e}", exc_info=True)
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
