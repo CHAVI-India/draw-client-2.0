@@ -15,6 +15,7 @@ import json
 import base64
 from io import BytesIO
 import logging
+import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,10 @@ def get_dicom_slice(request):
                 logger.info(f"Loading RT Structure from {rt_struct_path}")
                 logger.info(f"Selected ROIs: {selected_rois}")
                 
+                # Use file-based cache instead of session (masks are too large for session)
+                cache_dir = os.path.join(temp_dir, 'mask_cache')
+                os.makedirs(cache_dir, exist_ok=True)
+                
                 rtstruct = RTStructBuilder.create_from(
                     dicom_series_path=temp_dir,
                     rt_struct_path=rt_struct_path
@@ -330,15 +335,43 @@ def get_dicom_slice(request):
                     try:
                         logger.info(f"Processing ROI: {roi_name}")
                         
-                        # Get 3D mask for this ROI - wrap in try-except to handle rt-utils/OpenCV errors
-                        try:
-                            mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
-                        except Exception as mask_error:
-                            logger.error(f"Failed to generate mask for ROI '{roi_name}': {mask_error}")
-                            logger.error(f"This ROI has invalid contour data that cannot be processed by rt-utils/OpenCV")
-                            logger.error(f"Skipping ROI '{roi_name}' and continuing with other structures")
+                        # Check if mask is already cached in file
+                        cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
+                        failed_cache_file = os.path.join(cache_dir, f"{roi_name}.failed")
+                        
+                        # Check if this ROI failed previously
+                        if os.path.exists(failed_cache_file):
+                            logger.info(f"Skipping {roi_name} (previously failed)")
                             failed_rois.append(roi_name)
-                            continue  # Skip this ROI and move to the next one
+                            continue
+                        
+                        # Try to load from cache
+                        if os.path.exists(cache_file):
+                            logger.info(f"Using cached mask for {roi_name}")
+                            with open(cache_file, 'rb') as f:
+                                mask_3d = pickle.load(f)
+                        else:
+                            # Get 3D mask for this ROI - wrap in try-except to handle rt-utils/OpenCV errors
+                            try:
+                                logger.info(f"Generating mask for {roi_name} (first time)")
+                                mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
+                                
+                                # Cache the mask to file for future use
+                                with open(cache_file, 'wb') as f:
+                                    pickle.dump(mask_3d, f)
+                                logger.info(f"Cached mask for {roi_name}")
+                                
+                            except Exception as mask_error:
+                                logger.error(f"Failed to generate mask for ROI '{roi_name}': {mask_error}")
+                                logger.error(f"This ROI has invalid contour data that cannot be processed by rt-utils/OpenCV")
+                                logger.error(f"Skipping ROI '{roi_name}' and continuing with other structures")
+                                failed_rois.append(roi_name)
+                                
+                                # Mark as failed so we don't retry
+                                with open(failed_cache_file, 'w') as f:
+                                    f.write(str(mask_error))
+                                continue  # Skip this ROI and move to the next one
+                            
                         logger.info(f"Mask 3D shape for {roi_name}: {mask_3d.shape}")
                         logger.info(f"Viewer slice index: {slice_index}, RT Structure slice index: {rt_slice_index}, Total slices in mask: {mask_3d.shape[2]}")
                         
