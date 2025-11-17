@@ -34,7 +34,7 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Install system dependencies
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libgl1 && \
+    apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
