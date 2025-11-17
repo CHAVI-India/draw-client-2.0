@@ -32,6 +32,12 @@ RUN groupadd -g 1000 appuser && \
 COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgl1 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Update CA certificates at build time (if custom certs are needed, add them before this step)
 # This runs as root before switching to appuser
 RUN update-ca-certificates
