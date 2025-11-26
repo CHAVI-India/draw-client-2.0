@@ -285,8 +285,15 @@ def get_dicom_slice(request):
         # Apply windowing
         windowed_array = apply_windowing(pixel_array, window_center, window_width)
         
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 10))
+        # Create figure with aspect ratio matching the DICOM image
+        height, width = windowed_array.shape
+        aspect_ratio = width / height
+        
+        # Set figure size based on aspect ratio (base height of 10 inches)
+        fig_height = 10
+        fig_width = fig_height * aspect_ratio
+        
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         ax.imshow(windowed_array, cmap='gray', interpolation='nearest')
         ax.axis('off')
         
@@ -419,7 +426,7 @@ def get_dicom_slice(request):
         # Convert plot to base64 image
         buf = BytesIO()
         plt.tight_layout()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
         plt.close(fig)
         buf.seek(0)
         
