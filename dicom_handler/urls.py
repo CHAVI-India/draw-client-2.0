@@ -71,6 +71,10 @@ urlpatterns = [
     path('rate-contour/<str:series_uid>/', views.rate_contour_quality, name='rate_contour_quality'),
     path('view-ratings/<str:series_uid>/', views.view_series_ratings, name='view_series_ratings'),
     
+    # RT Structure Ratings Export
+    path('rt-structure-ratings/', views.rt_structure_ratings_list, name='rt_structure_ratings_list'),
+    path('rt-structure-ratings/export-csv/', views.export_rt_structure_ratings_csv, name='export_rt_structure_ratings_csv'),
+    
     # Patient Details
     path('patient/<uuid:patient_uuid>/', views.patient_details, name='patient_details'),
     

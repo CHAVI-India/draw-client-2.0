@@ -1,10 +1,11 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.paginator import Paginator
 from django.db import models
+import csv
 from .forms import (TemplateCreationForm, RuleGroupForm, RuleSetForm, RuleSetFormSet, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm,
                     RTStructureReviewForm, VOIRatingFormSet)
 from .models import (SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, 
@@ -2222,3 +2223,141 @@ def patient_details(request, patient_uuid):
     }
     
     return render(request, 'dicom_handler/patient_details.html', context)
+
+@login_required
+def rt_structure_ratings_list(request):
+    """
+    View to display and export RT Structure ratings data
+    """
+    # Get all RT Structure imports with ratings (where date_contour_reviewed is not null)
+    rt_imports = RTStructureFileImport.objects.filter(
+        date_contour_reviewed__isnull=False
+    ).select_related(
+        'deidentified_series_instance_uid__study__patient'
+    ).order_by('-date_contour_reviewed')
+    
+    # Pagination
+    paginator = Paginator(rt_imports, 20)  # 20 items per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Prepare data for display
+    ratings_data = []
+    for rt_import in page_obj:
+        series = rt_import.deidentified_series_instance_uid
+        if series and series.study and series.study.patient:
+            patient = series.study.patient
+            
+            # Get VOI data count
+            voi_count = RTStructureFileVOIData.objects.filter(
+                rt_structure_file_import=rt_import
+            ).count()
+            
+            ratings_data.append({
+                'rt_import': rt_import,
+                'patient': patient,
+                'series': series,
+                'voi_count': voi_count,
+            })
+    
+    context = {
+        'page_obj': page_obj,
+        'ratings_data': ratings_data,
+        'total_ratings': rt_imports.count(),
+    }
+    
+    return render(request, 'dicom_handler/rt_structure_ratings_list.html', context)
+
+@login_required
+def export_rt_structure_ratings_csv(request):
+    """
+    Export RT Structure ratings data as CSV file in long format
+    """
+    # Create the HttpResponse object with CSV header
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="rt_structure_ratings_export.csv"'
+    
+    writer = csv.writer(response)
+    
+    # Write header row
+    writer.writerow([
+        'patient_id',
+        'name',
+        'gender',
+        'date_of_birth',
+        'series_instance_uid',
+        'date_contour_reviewed',
+        'contour_modification_time_required',
+        'assessor_name',
+        'overall_rating',
+        'volume_name',
+        'contour_modification',
+        'contour_modification_type',
+        'contour_modification_comments',
+    ])
+    
+    # Get all RT Structure imports with ratings
+    rt_imports = RTStructureFileImport.objects.filter(
+        date_contour_reviewed__isnull=False
+    ).select_related(
+        'deidentified_series_instance_uid__study__patient'
+    ).prefetch_related(
+        'rtstructurefilevoidata_set__contour_modification_type'
+    ).order_by('-date_contour_reviewed')
+    
+    # Write data rows (long format - one row per VOI)
+    for rt_import in rt_imports:
+        series = rt_import.deidentified_series_instance_uid
+        if not series or not series.study or not series.study.patient:
+            continue
+            
+        patient = series.study.patient
+        
+        # Get all VOI data for this RT Structure
+        voi_data_list = RTStructureFileVOIData.objects.filter(
+            rt_structure_file_import=rt_import
+        ).prefetch_related('contour_modification_type')
+        
+        # If no VOI data, write one row with RT Structure info only
+        if not voi_data_list.exists():
+            writer.writerow([
+                patient.patient_id or '',
+                patient.patient_name or '',
+                patient.patient_gender or '',
+                patient.patient_date_of_birth.strftime('%Y-%m-%d') if patient.patient_date_of_birth else '',
+                series.series_instance_uid or '',
+                rt_import.date_contour_reviewed.strftime('%Y-%m-%d') if rt_import.date_contour_reviewed else '',
+                rt_import.contour_modification_time_required or '',
+                rt_import.assessor_name or '',
+                rt_import.overall_rating or '',
+                '',  # volume_name
+                '',  # contour_modification
+                '',  # contour_modification_type
+                '',  # contour_modification_comments
+            ])
+        else:
+            # Write one row per VOI
+            for voi_data in voi_data_list:
+                # Get all modification types as comma-separated string
+                modification_types = ', '.join([
+                    mod_type.modification_type 
+                    for mod_type in voi_data.contour_modification_type.all()
+                ])
+                
+                writer.writerow([
+                    patient.patient_id or '',
+                    patient.patient_name or '',
+                    patient.patient_gender or '',
+                    patient.patient_date_of_birth.strftime('%Y-%m-%d') if patient.patient_date_of_birth else '',
+                    series.series_instance_uid or '',
+                    rt_import.date_contour_reviewed.strftime('%Y-%m-%d') if rt_import.date_contour_reviewed else '',
+                    rt_import.contour_modification_time_required or '',
+                    rt_import.assessor_name or '',
+                    rt_import.overall_rating or '',
+                    voi_data.volume_name or '',
+                    voi_data.get_contour_modification_display() if voi_data.contour_modification else '',
+                    modification_types,
+                    voi_data.contour_modification_comments or '',
+                ])
+    
+    return response

@@ -102,6 +102,26 @@ def dicom_viewer(request, series_uid, rt_structure_id):
     # Get available modification types
     modification_types = ContourModificationTypeChoices.objects.all().order_by('modification_type')
     
+    # Check if this RT Structure has already been rated
+    has_existing_rating = rt_structure.date_contour_reviewed is not None
+    
+    # Get existing VOI ratings if they exist
+    existing_voi_ratings = {}
+    if has_existing_rating:
+        voi_data_list = RTStructureFileVOIData.objects.filter(
+            rt_structure_file_import=rt_structure
+        ).prefetch_related('contour_modification_type')
+        
+        for voi_data in voi_data_list:
+            # Get modification type IDs
+            mod_type_ids = [str(mod_type.id) for mod_type in voi_data.contour_modification_type.all()]
+            
+            existing_voi_ratings[voi_data.volume_name] = {
+                'modification': voi_data.contour_modification,
+                'modification_types': mod_type_ids,
+                'comments': voi_data.contour_modification_comments or '',
+            }
+    
     context = {
         'series': series,
         'rt_structure': rt_structure,
@@ -113,6 +133,12 @@ def dicom_viewer(request, series_uid, rt_structure_id):
         'series_uid': series_uid,
         'rt_structure_id': str(rt_structure_id),
         'modification_types': modification_types,
+        'has_existing_rating': has_existing_rating,
+        'existing_assessor': rt_structure.assessor_name,
+        'existing_date_reviewed': rt_structure.date_contour_reviewed,
+        'existing_modification_time': rt_structure.contour_modification_time_required,
+        'existing_overall_rating': rt_structure.overall_rating,
+        'existing_voi_ratings_json': json.dumps(existing_voi_ratings),
     }
     
     return render(request, 'dicom_handler/dicom_viewer.html', context)

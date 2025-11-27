@@ -556,7 +556,6 @@ class RTStructureFileVOIData(models.Model):
         verbose_name_plural = "RT Structure File VOI Data"
 
 
-
 class ChainExecutionLock(models.Model):
     '''
     Model to handle atomic locking for DICOM processing chain execution

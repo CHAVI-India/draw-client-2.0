@@ -326,18 +326,91 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
                     </svg>
                     Rate Contour Quality
+                    {% if has_existing_rating %}
+                    <span class="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                        Already Rated
+                    </span>
+                    {% endif %}
                 </span>
                 <svg id="rating-chevron" class="w-6 h-6 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
             </button>
             
-            <div id="rating-content" style="display: none;">
+            {% if has_existing_rating %}
+            <!-- Existing Rating Info Banner -->
+            <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="ml-3 flex-1">
+                        <h3 class="text-sm font-medium text-blue-800">This structure set has already been rated</h3>
+                        <div class="mt-2 text-sm text-blue-700">
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                {% if existing_assessor %}
+                                <div>
+                                    <span class="font-semibold">Assessor:</span> {{ existing_assessor|default:"Not specified" }}
+                                </div>
+                                {% endif %}
+                                {% if existing_date_reviewed %}
+                                <div>
+                                    <span class="font-semibold">Date:</span> {{ existing_date_reviewed|date:"Y-m-d" }}
+                                </div>
+                                {% endif %}
+                                {% if existing_overall_rating %}
+                                <div>
+                                    <span class="font-semibold">Rating:</span> {{ existing_overall_rating }}/10
+                                </div>
+                                {% endif %}
+                                {% if existing_modification_time %}
+                                <div>
+                                    <span class="font-semibold">Time:</span> {{ existing_modification_time }} min
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="mt-2 text-xs text-blue-600">You can update the rating below.</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            <div id="rating-content" style="{% if has_existing_rating %}display: block;{% else %}display: none;{% endif %}">
                 <!-- Overall Structure Set Rating -->
                 <div class="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
                     <h3 class="text-lg font-semibold text-gray-900 mb-4">Overall Structure Set Quality</h3>
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- Assessor Name -->
+                        <div>
+                            <label for="assessor-name" class="block text-sm font-medium text-gray-700 mb-2">
+                                Assessor Name
+                            </label>
+                            <input type="text" id="assessor-name" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+                                   placeholder="Enter your name"
+                                   value="{{ existing_assessor|default:'' }}">
+                            <p class="mt-1 text-xs text-gray-500">Name of the person reviewing the contours</p>
+                        </div>
+                        
+                        <!-- Date Contour Reviewed -->
+                        <div>
+                            <label for="date-reviewed" class="block text-sm font-medium text-gray-700 mb-2">
+                                Date Contour Reviewed <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" id="date-reviewed" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+                                   required
+                                   value="{% if existing_date_reviewed %}{{ existing_date_reviewed|date:'Y-m-d' }}{% endif %}">
+                            <p class="mt-1 text-xs text-gray-500">Date when the contour was reviewed</p>
+                        </div>
+                        
                         <!-- Time Required Field -->
                         <div>
                             <label for="modification-time" class="block text-sm font-medium text-gray-700 mb-2">
@@ -345,7 +418,8 @@
                             </label>
                             <input type="number" id="modification-time" 
                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
-                                   placeholder="Enter time in minutes" min="0">
+                                   placeholder="Enter time in minutes" min="0"
+                                   value="{{ existing_modification_time|default:'' }}">
                             <p class="mt-1 text-xs text-gray-500">Time required to modify the contours in minutes</p>
                         </div>
                         
@@ -355,7 +429,7 @@
                                 Overall Quality Rating (1-10)
                             </label>
                             <div class="flex items-center space-x-1 mb-2">
-                                {% for i in "12345678910" %}
+                                {% for i in "0123456789" %}
                                 <button type="button" class="overall-star-button focus:outline-none" data-rating="{{ forloop.counter }}">
                                     <svg class="w-8 h-8 overall-star-icon transition-colors duration-150 text-gray-300" fill="currentColor" viewBox="0 0 20 20">
                                         <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
@@ -789,6 +863,8 @@ applyOverlayBtn.addEventListener('click', () => {
 const ratingState = {
     overallRating: 5,
     modificationTime: null,
+    assessorName: null,
+    dateReviewed: null,
     structureRatings: {}
 };
 
@@ -805,6 +881,16 @@ document.getElementById('toggle-rating')?.addEventListener('click', () => {
         chevron.style.transform = 'rotate(0deg)';
     }
 });
+
+// Initialize chevron state if form is already visible
+{% if has_existing_rating %}
+document.addEventListener('DOMContentLoaded', () => {
+    const chevron = document.getElementById('rating-chevron');
+    if (chevron) {
+        chevron.style.transform = 'rotate(180deg)';
+    }
+});
+{% endif %}
 
 // Overall rating stars
 function setOverallRating(rating) {
@@ -858,12 +944,25 @@ document.getElementById('modification-time')?.addEventListener('input', (e) => {
     ratingState.modificationTime = value > 0 ? value : null;
 });
 
+// Assessor name input handler
+document.getElementById('assessor-name')?.addEventListener('input', (e) => {
+    ratingState.assessorName = e.target.value.trim() || null;
+});
+
+// Date reviewed input handler
+document.getElementById('date-reviewed')?.addEventListener('input', (e) => {
+    ratingState.dateReviewed = e.target.value || null;
+});
+
 // Modification types from backend
 const modificationTypes = [
     {% for mod_type in modification_types %}
     { id: '{{ mod_type.id }}', name: '{{ mod_type.modification_type }}' },
     {% endfor %}
 ];
+
+// Existing VOI ratings from backend
+const existingVOIRatings = JSON.parse('{{ existing_voi_ratings_json|escapejs }}');
 
 // Populate structure ratings
 function populateStructureRatings() {
@@ -879,13 +978,23 @@ function populateStructureRatings() {
     container.innerHTML = '';
     
     selectedROIs.forEach(roiName => {
-        // Initialize rating state if not exists
+        // Initialize rating state - check if existing rating exists first
         if (!ratingState.structureRatings[roiName]) {
-            ratingState.structureRatings[roiName] = {
-                modification: 'NO_MODIFICATION',
-                modification_types: [],
-                comments: ''
-            };
+            if (existingVOIRatings && existingVOIRatings[roiName]) {
+                // Load existing rating
+                ratingState.structureRatings[roiName] = {
+                    modification: existingVOIRatings[roiName].modification || 'NO_MODIFICATION',
+                    modification_types: existingVOIRatings[roiName].modification_types || [],
+                    comments: existingVOIRatings[roiName].comments || ''
+                };
+            } else {
+                // Default values for new rating
+                ratingState.structureRatings[roiName] = {
+                    modification: 'NO_MODIFICATION',
+                    modification_types: [],
+                    comments: ''
+                };
+            }
         }
         
         const ratingCard = document.createElement('div');
@@ -1053,6 +1162,8 @@ document.getElementById('save-ratings')?.addEventListener('click', async () => {
                 series_uid: '{{ series.series_instance_uid }}',
                 overall_rating: ratingState.overallRating,
                 modification_time: ratingState.modificationTime,
+                assessor_name: ratingState.assessorName,
+                date_reviewed: ratingState.dateReviewed,
                 structure_ratings: ratingState.structureRatings
             })
         });
@@ -1091,8 +1202,26 @@ document.getElementById('save-ratings')?.addEventListener('click', async () => {
     }
 });
 
-// Initialize overall rating stars
+// Initialize overall rating stars and form with existing values if available
+{% if has_existing_rating and existing_overall_rating %}
+const initialRating = {{ existing_overall_rating }};
+ratingState.overallRating = initialRating;
+document.getElementById('overall-rating-display').textContent = initialRating;
+updateOverallStars(initialRating);
+{% else %}
 updateOverallStars(5);
+{% endif %}
+
+// Initialize rating state with existing values
+{% if existing_assessor %}
+ratingState.assessorName = '{{ existing_assessor|escapejs }}';
+{% endif %}
+{% if existing_date_reviewed %}
+ratingState.dateReviewed = '{{ existing_date_reviewed|date:"Y-m-d" }}';
+{% endif %}
+{% if existing_modification_time %}
+ratingState.modificationTime = {{ existing_modification_time }};
+{% endif %}
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', async () => {
