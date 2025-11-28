@@ -178,7 +178,7 @@ def load_dicom_data(request):
         for instance in instances:
             if instance.instance_path and os.path.exists(instance.instance_path):
                 try:
-                    ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True)
+                    ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True,force = True)
                     instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
                     slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
                     image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
@@ -293,7 +293,7 @@ def get_dicom_slice(request):
         
         # Load DICOM file
         dicom_file = dicom_files[slice_index]
-        ds = pydicom.dcmread(dicom_file)
+        ds = pydicom.dcmread(dicom_file, force = True)
         
         # Log current slice information
         instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else None
