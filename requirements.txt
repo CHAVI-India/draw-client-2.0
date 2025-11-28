@@ -30,6 +30,7 @@ fonttools==4.60.1
 gunicorn==23.0.0
 idna==3.11
 ImageIO==2.37.2
+joblib==1.5.2
 kiwisolver==1.4.9
 kombu==5.5.4
 lazy_loader==0.4
@@ -39,6 +40,7 @@ networkx==3.5
 numpy==2.2.6
 opencv-python==4.12.0.88
 packaging==25.0
+pandas==2.3.3
 pillow==12.0.0
 plotly==6.4.0
 prompt_toolkit==3.0.52
@@ -51,6 +53,7 @@ pyparsing==3.2.5
 python-crontab==3.3.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
+pytz==2025.2
 PyWavelets==1.9.0
 PyYAML==6.0.3
 requests==2.32.5
@@ -58,10 +61,13 @@ rt-utils==1.2.7
 ruamel.yaml==0.18.16
 ruamel.yaml.clib==0.2.14
 scikit-image==0.25.2
+scikit-learn==1.7.2
 scipy==1.16.3
+shapely==2.1.2
 simpleitk==2.5.2
 six==1.17.0
 sqlparse==0.5.3
+threadpoolctl==3.6.0
 tifffile==2025.10.16
 typing_extensions==4.15.0
 tzdata==2025.2

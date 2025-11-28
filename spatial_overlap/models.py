@@ -20,7 +20,7 @@ class RTStructureSetFile(models.Model):
     structure_set_label = models.CharField(max_length=255, verbose_name="StructureSet Label for the RT StructureSet File")
     referenced_series_instance_uid = models.CharField(max_length=255, verbose_name="Referenced Series Instance UID for the RT StructureSet File")
     rtstructure_file = models.FileField(upload_to='rtstruct_files/', verbose_name="RT Structure Set File", null=True, blank=True)
-    structure_set_date = models.DateField(verbose_name="Structure Set Date", null=True, blank=True, verbose_name="Structure Set Date from RT Structure Set File")
+    structure_set_date = models.DateField(null=True, blank=True, verbose_name="Structure Set Date from RT Structure Set File")
     number_of_rois = models.IntegerField(verbose_name="Number of Regions of Interest (Structures) in the RT Structure Set File", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
@@ -42,7 +42,7 @@ class RTStructureFileComparison(models.Model):
     id = models.AutoField(primary_key=True)
     first_rtstructure = models.ForeignKey(RTStructureSetFile, on_delete=models.CASCADE, related_name='first_rt_structure', verbose_name="First RT Structure Set File")
     second_rtstructure = models.ForeignKey(RTStructureSetFile, on_delete=models.CASCADE, related_name='second_rt_structure', verbose_name="Second RT Structure Set File")
-    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, verbose_name="User who created this comparison", null=True, blank=True, verbose_name="User")
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, verbose_name="User who created this comparison", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
 
