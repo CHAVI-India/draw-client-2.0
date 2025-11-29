@@ -196,17 +196,23 @@ def load_dicom_data(request):
         # Sort by instance number first, then by slice location/image position
         instance_metadata.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
         
-        # Copy sorted files to temp directory
+        # Save sorted files to temp directory using pydicom save_as with enforce_file_format
         instance_files = []
         for idx, meta in enumerate(instance_metadata):
             instance = meta['instance']
             temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
-            shutil.copy2(instance.instance_path, temp_file)
-            instance_files.append({
-                'index': idx,
-                'temp_path': temp_file,
-                'sop_instance_uid': instance.sop_instance_uid,
-            })
+            try:
+                # Read the DICOM file and save with proper format enforcement
+                ds = pydicom.dcmread(instance.instance_path, force=True)
+                ds.save_as(temp_file, enforce_file_format=True)
+                instance_files.append({
+                    'index': idx,
+                    'temp_path': temp_file,
+                    'sop_instance_uid': instance.sop_instance_uid,
+                })
+            except Exception as e:
+                logger.error(f"Failed to save DICOM file {instance.sop_instance_uid}: {e}")
+                continue
         
         # Copy RT Structure file to temp directory
         rt_struct_path = rt_structure.reidentified_rt_structure_file_path
@@ -222,7 +228,17 @@ def load_dicom_data(request):
             }, status=404)
         
         temp_rt_struct = os.path.join(temp_dir, 'rtstruct.dcm')
-        shutil.copy2(rt_struct_path, temp_rt_struct)
+        try:
+            # Read and save RT Structure with proper format enforcement
+            rt_ds = pydicom.dcmread(rt_struct_path, force=True)
+            rt_ds.save_as(temp_rt_struct, enforce_file_format=True)
+        except Exception as e:
+            logger.error(f"Failed to save RT Structure file: {e}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return JsonResponse({
+                'success': False,
+                'error': f'Failed to process RT Structure file: {str(e)}'
+            }, status=500)
         
         # Load RT Structure to get ROI names
         try:
