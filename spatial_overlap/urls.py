@@ -24,4 +24,8 @@ urlpatterns = [
     path('batch-compute/', views.batch_compute_metrics, name='batch_compute_metrics'),
     path('bulk-compute-async/', views.bulk_compute_metrics_async, name='bulk_compute_metrics_async'),
     path('bulk-compute-status/<str:task_id>/', views.bulk_compute_status, name='bulk_compute_status'),
+    
+    # All metrics view and export
+    path('all-metrics/', views.all_metrics_view, name='all_metrics'),
+    path('download-metrics-csv/', views.download_metrics_csv, name='download_metrics_csv'),
 ]

@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+
+{% block title %}All Spatial Overlap Metrics - DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-full mx-auto px-4">
+    <!-- Header -->
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">All Spatial Overlap Metrics</h1>
+            <p class="mt-2 text-gray-600">View and download all computed spatial overlap metrics</p>
+        </div>
+        <div class="flex gap-3">
+            <a href="{% url 'spatial_overlap:list_comparisons' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Comparisons
+            </a>
+            <a href="{% url 'spatial_overlap:download_metrics_csv' %}{% if selected_metric_type %}?metric_type={{ selected_metric_type }}{% endif %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Download CSV
+            </a>
+        </div>
+    </div>
+
+    <!-- Filter Section -->
+    <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+        <form method="get" class="flex items-end gap-4">
+            <div class="flex-1">
+                <label for="metric_type" class="block text-sm font-medium text-gray-700 mb-2">Filter by Metric Type</label>
+                <select name="metric_type" id="metric_type" class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="">All Metrics</option>
+                    {% for value, label in metric_types %}
+                    <option value="{{ value }}" {% if selected_metric_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700">
+                Apply Filter
+            </button>
+            {% if selected_metric_type %}
+            <a href="{% url 'spatial_overlap:all_metrics' %}" class="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300">
+                Clear Filter
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Stats Summary -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">Total Metrics</p>
+                <p class="text-3xl font-bold text-gray-900">{{ total_count|default:0 }}</p>
+            </div>
+            {% if selected_metric_type %}
+            <div class="text-right">
+                <p class="text-sm text-gray-600">Filtered by</p>
+                <p class="text-lg font-semibold text-indigo-600">{{ selected_metric_type|upper }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% if total_count > 1000 %}
+        <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p class="text-sm text-yellow-800">
+                <svg class="inline w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                </svg>
+                Showing first 1,000 results. Use filters or download CSV for complete data.
+            </p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if results %}
+    <!-- Metrics Table -->
+    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Metric ID
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Metric Type
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Value
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Patient Info
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            First ROI
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Second ROI
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Created
+                        </th>
+                        <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for result in results %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                            #{{ result.id }}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                                {{ result.get_comparision_type_display }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {{ result.result_value|floatformat:4 }}
+                        </td>
+                        <td class="px-4 py-4">
+                            {% with first_rtset=result.comparison.first_rtstructure.rtstructure_set_file %}
+                            <div class="text-sm text-gray-900">{{ first_rtset.patient_id|default:"N/A" }}</div>
+                            <div class="text-xs text-gray-500">{{ first_rtset.patient_name|default:"N/A" }}</div>
+                            {% endwith %}
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ result.comparison.first_rtstructure.roi_name }}</div>
+                            <div class="text-xs text-gray-500">{{ result.comparison.first_rtstructure.rtstructure_set_file.structure_set_label|default:"N/A" }}</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ result.comparison.second_rtstructure.roi_name }}</div>
+                            <div class="text-xs text-gray-500">{{ result.comparison.second_rtstructure.rtstructure_set_file.structure_set_label|default:"N/A" }}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ result.created_at|date:"Y-m-d H:i" }}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <a href="{% url 'spatial_overlap:comparison_detail' result.comparison.id %}" class="text-indigo-600 hover:text-indigo-900">
+                                View Comparison
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No Metrics Found</h3>
+        <p class="mt-1 text-sm text-gray-500">
+            {% if selected_metric_type %}
+            No metrics found for the selected filter. Try a different metric type.
+            {% else %}
+            No metrics have been computed yet. Create comparisons and compute metrics to see data here.
+            {% endif %}
+        </p>
+        <div class="mt-6">
+            <a href="{% url 'spatial_overlap:compare_with_reference' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Create New Comparison
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

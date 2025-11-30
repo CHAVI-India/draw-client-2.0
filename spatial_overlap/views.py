@@ -1,11 +1,13 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.db import transaction, models
 from django.views.decorators.http import require_http_methods
 import logging
 import json
+import csv
+from datetime import datetime
 
 from .models import (
     RTStructureSetFile,
@@ -953,3 +955,124 @@ def series_comparisons(request, series_instance_uid):
         'comparisons': comparisons
     }
     return render(request, 'spatial_overlap/series_comparisons.html', context)
+
+
+@login_required
+def all_metrics_view(request):
+    """
+    View to display all spatial overlap metrics with filtering options.
+    """
+    # Get all comparison results with related data
+    results = ComparisonResult.objects.select_related(
+        'comparison__first_rtstructure__rtstructure_set_file',
+        'comparison__second_rtstructure__rtstructure_set_file',
+        'comparison__first_rtstructure',
+        'comparison__second_rtstructure',
+        'comparison__user'
+    ).order_by('-created_at')
+    
+    # Get filter parameters
+    metric_type = request.GET.get('metric_type', '')
+    if metric_type:
+        results = results.filter(comparision_type=metric_type)
+    
+    # Pagination info
+    total_count = results.count()
+    
+    context = {
+        'results': results[:1000],  # Limit to first 1000 for display
+        'total_count': total_count,
+        'metric_types': ComparisionTypeChoices.choices,
+        'selected_metric_type': metric_type,
+    }
+    return render(request, 'spatial_overlap/all_metrics.html', context)
+
+
+@login_required
+def download_metrics_csv(request):
+    """
+    Download all spatial overlap metrics as a CSV file.
+    """
+    # Get all comparison results with related data
+    results = ComparisonResult.objects.select_related(
+        'comparison__first_rtstructure__rtstructure_set_file',
+        'comparison__second_rtstructure__rtstructure_set_file',
+        'comparison__first_rtstructure',
+        'comparison__second_rtstructure',
+        'comparison__user'
+    ).order_by('-created_at')
+    
+    # Apply filters if provided
+    metric_type = request.GET.get('metric_type', '')
+    if metric_type:
+        results = results.filter(comparision_type=metric_type)
+    
+    # Create the HttpResponse object with CSV header
+    response = HttpResponse(content_type='text/csv')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    response['Content-Disposition'] = f'attachment; filename="spatial_overlap_metrics_{timestamp}.csv"'
+    
+    writer = csv.writer(response)
+    
+    # Write header row
+    writer.writerow([
+        'Metric ID',
+        'Comparison ID',
+        'Metric Type',
+        'Metric Value',
+        'Patient ID',
+        'Patient Name',
+        'Study Instance UID',
+        'Series Instance UID (First)',
+        'Series Instance UID (Second)',
+        'First RT Structure Set Label',
+        'First RT Structure Set Name',
+        'First ROI Name',
+        'First ROI Number',
+        'Second RT Structure Set Label',
+        'Second RT Structure Set Name',
+        'Second ROI Name',
+        'Second ROI Number',
+        'Comparison Created At',
+        'Metric Created At',
+        'Computed By User'
+    ])
+    
+    # Write data rows
+    for result in results:
+        comparison = result.comparison
+        first_rtstruct = comparison.first_rtstructure
+        second_rtstruct = comparison.second_rtstructure
+        first_rtset = first_rtstruct.rtstructure_set_file
+        second_rtset = second_rtstruct.rtstructure_set_file
+        
+        # Patient and study info is stored directly in RTStructureSetFile
+        patient_id = first_rtset.patient_id or 'N/A'
+        patient_name = first_rtset.patient_name or 'N/A'
+        study_instance_uid = first_rtset.study_instance_uid or 'N/A'
+        
+        writer.writerow([
+            result.id,
+            comparison.id,
+            result.get_comparision_type_display(),
+            result.result_value,
+            patient_id,
+            patient_name,
+            study_instance_uid,
+            first_rtset.referenced_series_instance_uid or 'N/A',
+            second_rtset.referenced_series_instance_uid or 'N/A',
+            first_rtset.structure_set_label or 'N/A',
+            getattr(first_rtset, 'structure_set_name', 'N/A') or 'N/A',
+            first_rtstruct.roi_name or 'N/A',
+            first_rtstruct.roi_number or 'N/A',
+            second_rtset.structure_set_label or 'N/A',
+            getattr(second_rtset, 'structure_set_name', 'N/A') or 'N/A',
+            second_rtstruct.roi_name or 'N/A',
+            second_rtstruct.roi_number or 'N/A',
+            comparison.created_at.strftime('%Y-%m-%d %H:%M:%S') if comparison.created_at else 'N/A',
+            result.created_at.strftime('%Y-%m-%d %H:%M:%S') if result.created_at else 'N/A',
+            comparison.user.username if comparison.user else 'N/A'
+        ])
+    
+    logger.info(f"Downloaded {results.count()} metrics as CSV")
+    return response
