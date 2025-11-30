@@ -16,6 +16,7 @@ from .metrics import (
     variation_of_information,
     cosine_similarity,
     added_path_length,
+    surface_dsc,
     mean_distance_to_conformity,
     undercontouring_mean_distance_to_conformity,
     overcontouring_mean_distance_to_conformity,
@@ -355,6 +356,14 @@ def compute_all_metrics(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
     except Exception as e:
         logger.error(f"Error computing APL: {str(e)}")
         results['apl'] = None
+    
+    try:
+        # Surface Dice Similarity Coefficient
+        results['surface_dsc'] = surface_dsc(volume1, volume2, tau=3.0, spacing=spacing)
+        logger.info(f"Computed Surface DSC: {results['surface_dsc']:.4f}")
+    except Exception as e:
+        logger.error(f"Error computing Surface DSC: {str(e)}")
+        results['surface_dsc'] = None
     
     # Metrics not yet implemented - set to None
     results['mdc'] = None  # Mean Distance to Conformity

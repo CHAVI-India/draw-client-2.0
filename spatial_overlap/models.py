@@ -94,6 +94,7 @@ class ComparisionTypeChoices(models.TextChoices):
     HD95 = 'hd95', 'Hausdorff Distance 95th percentile'
     MSD = 'msd', 'Mean Surface Distance'
     APL = 'apl', 'Added Path Length'
+    SDSC = 'surface_dsc', 'Surface Dice Similarity Coefficient'
     MDC = 'mdc', 'Mean Distance to Conformity'
     UMDC = 'umdc', 'Undercontouring Mean Distance to Conformity'
     OMDC = 'omdc', 'Overcontouring Mean Distance to Conformity'

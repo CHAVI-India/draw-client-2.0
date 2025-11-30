@@ -178,46 +178,81 @@ def cosine_similarity(volume1, volume2):
     return sklearn_cosine_similarity(volume1_flat, volume2_flat)[0][0]
 
 
-
-
-
-def mean_distance_to_conformity(volume1, volume2):
-    """
-    Calculate Mean Distance to Conformity between two binary volumes.
-    """
-    pass
-
-def undercontouring_mean_distance_to_conformity(volume1, volume2):
-    """
-    Calculate Undercontouring Mean Distance to Conformity between two binary volumes.
-    """
-    pass
-
-def overcontouring_mean_distance_to_conformity(volume1, volume2):
-    """
-    Calculate Overcontouring Mean Distance to Conformity between two binary volumes.
-    """
-    pass
-
-def surface_dsc(volume1, volume2, threshold = 0.3):
+def surface_dsc(volume1, volume2, tau=3.0, spacing=(1.0, 1.0, 1.0)):
     """
     Calculate Surface Dice Similarity Coefficient between two binary volumes.
+    Based on platipy implementation see here : https://github.com/pyplati/platipy/blob/main/platipy/label/visualise.py
+    
+    From: Nikolov S et al. Clinically Applicable Segmentation of Head and Neck Anatomy for
+    Radiotherapy: Deep Learning Algorithm Development and Validation Study J Med Internet Res
+    2021;23(7):e26151, DOI: 10.2196/26151
 
     Args:
-        volume1 (numpy.ndarray): First binary volume.
-        volume2 (numpy.ndarray): Second binary volume.
-        threshold (float): Threshold value for surface distance. Default is 3 mm
+        volume1 (numpy.ndarray): First binary volume (label_a).
+        volume2 (numpy.ndarray): Second binary volume (label_b).
+        tau (float): Accepted deviation between contours in mm. Default is 3.0 mm.
+        spacing (tuple): Voxel spacing in (x, y, z) dimensions in mm. Default is (1.0, 1.0, 1.0).
 
     Returns:
-        float: Surface Dice Similarity Coefficient.
+        float: Surface Dice Similarity Coefficient (0 to 1, where 1 is perfect agreement).
     """
-    pass
+    # Convert numpy arrays to SimpleITK images
+    vol1_binary = (volume1 > 0).astype(np.uint8)
+    vol2_binary = (volume2 > 0).astype(np.uint8)
+    
+    # Check for empty volumes
+    if not np.any(vol1_binary) and not np.any(vol2_binary):
+        return 1.0  # Both empty, perfect agreement
+    if not np.any(vol1_binary) or not np.any(vol2_binary):
+        return 0.0  # One empty, one not, no agreement
+    
+    # Create SimpleITK images with proper spacing
+    label_a = sitk.GetImageFromArray(vol1_binary)
+    label_a.SetSpacing(spacing)
+    
+    label_b = sitk.GetImageFromArray(vol2_binary)
+    label_b.SetSpacing(spacing)
+    
+    # Extract contours (surface) using BinaryContourImageFilter
+    binary_contour_filter = sitk.BinaryContourImageFilter()
+    binary_contour_filter.FullyConnectedOn()
+    a_contour = binary_contour_filter.Execute(label_a)
+    b_contour = binary_contour_filter.Execute(label_b)
+    
+    # Compute signed distance maps from each contour
+    dist_to_a = sitk.SignedMaurerDistanceMap(
+        a_contour, useImageSpacing=True, squaredDistance=False
+    )
+    
+    dist_to_b = sitk.SignedMaurerDistanceMap(
+        b_contour, useImageSpacing=True, squaredDistance=False
+    )
+    
+    # Calculate intersection within tolerance tau
+    # Points on b_contour that are within tau distance to a_contour
+    b_intersection = sitk.GetArrayFromImage(b_contour * (dist_to_a <= tau)).sum()
+    
+    # Points on a_contour that are within tau distance to b_contour
+    a_intersection = sitk.GetArrayFromImage(a_contour * (dist_to_b <= tau)).sum()
+    
+    # Total surface points
+    surface_sum = (
+        sitk.GetArrayFromImage(a_contour).sum()
+        + sitk.GetArrayFromImage(b_contour).sum()
+    )
+    
+    # Avoid division by zero
+    if surface_sum == 0:
+        return 0.0
+    
+    # Surface DSC formula
+    return (b_intersection + a_intersection) / surface_sum
 
 def added_path_length(volume1, volume2, distance_threshold_mm=3, spacing=(1.0, 1.0, 1.0)):
     """
     Calculate Added Path Length between two binary volumes.
     Measures the total contour length in the reference that is missing in the test segmentation.
-    Based on Platipy implementation.
+    Based on Platipy implementation. See here : https://github.com/pyplati/platipy/blob/master/platipy/imaging/label/comparison.py
 
     Args:
         volume1 (numpy.ndarray): Reference (ground-truth) binary volume.
@@ -282,3 +317,22 @@ def added_path_length(volume1, volume2, distance_threshold_mm=3, spacing=(1.0, 1
     total_apl_mm = np.sum(added_path_length_list) * np.mean(spacing[:2])
     
     return total_apl_mm
+
+
+def mean_distance_to_conformity(volume1, volume2):
+    """
+    Calculate Mean Distance to Conformity between two binary volumes.
+    """
+    pass
+
+def undercontouring_mean_distance_to_conformity(volume1, volume2):
+    """
+    Calculate Undercontouring Mean Distance to Conformity between two binary volumes.
+    """
+    pass
+
+def overcontouring_mean_distance_to_conformity(volume1, volume2):
+    """
+    Calculate Overcontouring Mean Distance to Conformity between two binary volumes.
+    """
+    pass

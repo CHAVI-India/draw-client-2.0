@@ -690,16 +690,98 @@ def create_comparisons(request):
 @login_required
 def list_comparisons(request):
     """
-    View to list all created comparisons.
+    View to list all created comparisons with optional filtering.
     """
+    import os
+    from collections import defaultdict
+    
+    # Get filter parameters
+    filter_patient_id = request.GET.get('patient_id', '')
+    filter_series_uid = request.GET.get('series_uid', '')
+    filter_rtstruct_pair = request.GET.get('rtstruct_pair', '')
+    
     comparisons = RTStructureFileComparison.objects.all().select_related(
         'first_rtstructure__rtstructure_set_file',
         'second_rtstructure__rtstructure_set_file',
         'user'
     ).prefetch_related('comparisonresult_set')
     
+    # Apply filters
+    if filter_patient_id:
+        comparisons = comparisons.filter(
+            first_rtstructure__rtstructure_set_file__patient_id=filter_patient_id
+        )
+    
+    if filter_series_uid:
+        comparisons = comparisons.filter(
+            first_rtstructure__rtstructure_set_file__referenced_series_instance_uid=filter_series_uid
+        )
+    
+    if filter_rtstruct_pair:
+        # Filter by specific RT Structure Set pair
+        # Format: "first_id-second_id"
+        try:
+            first_id, second_id = filter_rtstruct_pair.split('-')
+            comparisons = comparisons.filter(
+                first_rtstructure__rtstructure_set_file_id=int(first_id),
+                second_rtstructure__rtstructure_set_file_id=int(second_id)
+            )
+        except (ValueError, AttributeError):
+            pass
+    
+    # Get unique RT Structure Set pairs for filter dropdown
+    rtstruct_pairs = set()
+    patient_ids = set()
+    series_uids = set()
+    
+    all_comparisons = RTStructureFileComparison.objects.all().select_related(
+        'first_rtstructure__rtstructure_set_file',
+        'second_rtstructure__rtstructure_set_file'
+    )
+    
+    for comp in all_comparisons:
+        first_rtset = comp.first_rtstructure.rtstructure_set_file
+        second_rtset = comp.second_rtstructure.rtstructure_set_file
+        
+        # Create pair identifier (order doesn't matter, so sort IDs)
+        pair_ids = tuple(sorted([first_rtset.id, second_rtset.id]))
+        rtstruct_pairs.add((
+            f"{pair_ids[0]}-{pair_ids[1]}",
+            f"{first_rtset.structure_set_label} ↔ {second_rtset.structure_set_label}",
+            first_rtset.patient_id
+        ))
+        
+        patient_ids.add(first_rtset.patient_id)
+        series_uids.add(first_rtset.referenced_series_instance_uid)
+    
+    # Sort pairs by patient ID and labels
+    rtstruct_pairs = sorted(rtstruct_pairs, key=lambda x: (x[2], x[1]))
+    
+    # Check if RT Structure files exist for each comparison
+    for comparison in comparisons:
+        first_file = comparison.first_rtstructure.rtstructure_set_file.rtstructure_file_path
+        second_file = comparison.second_rtstructure.rtstructure_set_file.rtstructure_file_path
+        
+        # Check if both files exist
+        comparison.files_exist = (
+            first_file and os.path.exists(first_file) and
+            second_file and os.path.exists(second_file)
+        )
+        
+        # Determine if computation is allowed
+        comparison.can_compute = comparison.files_exist
+        
+        # Check if metrics already computed
+        comparison.has_results = comparison.comparisonresult_set.exists()
+    
     context = {
-        'comparisons': comparisons
+        'comparisons': comparisons,
+        'rtstruct_pairs': rtstruct_pairs,
+        'patient_ids': sorted(patient_ids),
+        'series_uids': sorted(series_uids),
+        'filter_patient_id': filter_patient_id,
+        'filter_series_uid': filter_series_uid,
+        'filter_rtstruct_pair': filter_rtstruct_pair,
     }
     return render(request, 'spatial_overlap/list_comparisons.html', context)
 
