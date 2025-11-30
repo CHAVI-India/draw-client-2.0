@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+
+{% block title %}Select RT Structure Sets for Comparison - DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Select RT Structure Sets for Comparison</h1>
+        <p class="mt-2 text-gray-600">Choose two RT Structure Sets to compare their VOIs</p>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="mb-6">
+        {% for message in messages %}
+        <div class="{% if message.tags == 'error' %}bg-red-50 border-red-200 text-red-800{% elif message.tags == 'success' %}bg-green-50 border-green-200 text-green-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %} border rounded-lg p-4 mb-4">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if rtstructs.count >= 2 %}
+    <!-- Selection Form -->
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        
+        <div class="bg-white rounded-lg shadow-md p-6 space-y-6">
+            <!-- First RT Structure Set -->
+            <div>
+                <label for="rtstruct1_id" class="block text-sm font-medium text-gray-700 mb-2">
+                    First RT Structure Set
+                </label>
+                <select id="rtstruct1_id" name="rtstruct1_id" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                    <option value="">Select first RT Structure Set...</option>
+                    {% for rtstruct in rtstructs %}
+                    <option value="{{ rtstruct.id }}">
+                        {{ rtstruct.structure_set_label }} - {{ rtstruct.patient_id }} ({{ rtstruct.vois.count }} VOIs)
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Second RT Structure Set -->
+            <div>
+                <label for="rtstruct2_id" class="block text-sm font-medium text-gray-700 mb-2">
+                    Second RT Structure Set
+                </label>
+                <select id="rtstruct2_id" name="rtstruct2_id" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                    <option value="">Select second RT Structure Set...</option>
+                    {% for rtstruct in rtstructs %}
+                    <option value="{{ rtstruct.id }}">
+                        {{ rtstruct.structure_set_label }} - {{ rtstruct.patient_id }} ({{ rtstruct.vois.count }} VOIs)
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-blue-700">
+                            After selecting two RT Structure Sets, you'll be able to choose which VOI pairs to compare in the next step.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between">
+            <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to List
+            </a>
+            <button type="submit" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+                Next: Select VOI Pairs
+                <svg class="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path>
+                </svg>
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <!-- Not Enough Files -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">Not Enough RT Structure Sets</h3>
+        <p class="mt-1 text-sm text-gray-500">You need at least 2 RT Structure Sets to create comparisons.</p>
+        <p class="mt-1 text-sm text-gray-500">Currently uploaded: {{ rtstructs.count }}</p>
+        <div class="mt-6">
+            <a href="{% url 'spatial_overlap:upload_rtstruct' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Upload More Files
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Prevent selecting the same RT Structure Set twice
+document.getElementById('rtstruct1_id').addEventListener('change', function() {
+    const select2 = document.getElementById('rtstruct2_id');
+    const selectedValue = this.value;
+    
+    Array.from(select2.options).forEach(option => {
+        if (option.value === selectedValue && selectedValue !== '') {
+            option.disabled = true;
+        } else {
+            option.disabled = false;
+        }
+    });
+});
+
+document.getElementById('rtstruct2_id').addEventListener('change', function() {
+    const select1 = document.getElementById('rtstruct1_id');
+    const selectedValue = this.value;
+    
+    Array.from(select1.options).forEach(option => {
+        if (option.value === selectedValue && selectedValue !== '') {
+            option.disabled = true;
+        } else {
+            option.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

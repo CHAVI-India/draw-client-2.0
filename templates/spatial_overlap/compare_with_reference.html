@@ -1,0 +1,291 @@
+{% extends 'base.html' %}
+
+{% block title %}Compare with Reference RT Structure - DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Compare Autosegmented with Reference RT Structure</h1>
+        <p class="mt-2 text-gray-600">Select a series with autosegmented contours and upload a reference RT Structure file for comparison</p>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="mb-6">
+        {% for message in messages %}
+        <div class="{% if message.tags == 'error' %}bg-red-50 border-red-200 text-red-800{% elif message.tags == 'success' %}bg-green-50 border-green-200 text-green-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %} border rounded-lg p-4 mb-4">
+            <div class="flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                </svg>
+                {{ message }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if series_with_rtstructs %}
+    <!-- Workflow Steps -->
+    <div class="mb-8 bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Workflow Steps</h3>
+        <div class="flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="flex items-center justify-center w-10 h-10 rounded-full bg-indigo-600 text-white font-bold">1</div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-900">Select Series</p>
+                    <p class="text-xs text-gray-500">Choose series with autosegmented contours</p>
+                </div>
+            </div>
+            <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+            <div class="flex items-center">
+                <div class="flex items-center justify-center w-10 h-10 rounded-full bg-indigo-600 text-white font-bold">2</div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-900">Upload Reference</p>
+                    <p class="text-xs text-gray-500">Upload reference RT Structure file</p>
+                </div>
+            </div>
+            <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+            <div class="flex items-center">
+                <div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-300 text-gray-600 font-bold">3</div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-900">Select VOI Pairs</p>
+                    <p class="text-xs text-gray-500">Choose which VOIs to compare</p>
+                </div>
+            </div>
+            <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+            <div class="flex items-center">
+                <div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-300 text-gray-600 font-bold">4</div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-900">Compute Metrics</p>
+                    <p class="text-xs text-gray-500">Calculate spatial overlap</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Form -->
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        
+        <!-- Step 1: Select Series -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center mb-4">
+                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-sm">1</div>
+                <h3 class="ml-3 text-lg font-semibold text-gray-900">Select Series with Autosegmented Contours</h3>
+            </div>
+            
+            <div class="space-y-4">
+                <label for="series_id" class="block text-sm font-medium text-gray-700">
+                    Choose a series that has RT Structure files
+                </label>
+                <select id="series_id" name="series_id" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                    <option value="">Select a series...</option>
+                    {% for series in series_with_rtstructs %}
+                    <option value="{{ series.id }}" data-patient="{{ series.study.patient.patient_id }}" data-description="{{ series.series_description }}" data-rt-count="{{ series.rtstructurefileimport_set.count }}" {% if selected_series_id and series.id|stringformat:"s" == selected_series_id %}selected{% endif %}>
+                        {{ series.study.patient.patient_id }} - {{ series.series_description|default:"Unknown" }} ({{ series.rtstructurefileimport_set.count }} RT Structure{{ series.rtstructurefileimport_set.count|pluralize }})
+                    </option>
+                    {% endfor %}
+                </select>
+                
+                <!-- Series Details Display -->
+                <div id="series-details" class="hidden mt-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="text-sm font-medium text-gray-900 mb-2">Selected Series Details</h4>
+                    <dl class="space-y-2 text-sm">
+                        <div>
+                            <dt class="text-gray-500">Patient ID</dt>
+                            <dd id="detail-patient" class="text-gray-900 font-medium"></dd>
+                        </div>
+                        <div>
+                            <dt class="text-gray-500">Series Description</dt>
+                            <dd id="detail-description" class="text-gray-900"></dd>
+                        </div>
+                        <div>
+                            <dt class="text-gray-500">RT Structures Available</dt>
+                            <dd id="detail-rt-count" class="text-gray-900 font-medium"></dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        <!-- Existing Comparisons for Selected Series -->
+        {% if existing_comparisons %}
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900">Previous Comparisons for This Series</h3>
+                    <p class="text-sm text-gray-600 mt-1">{{ existing_comparisons|length }} comparison{{ existing_comparisons|length|pluralize }} found for this series</p>
+                </div>
+                <a href="{% url 'spatial_overlap:series_comparisons' selected_series.series_instance_uid %}" class="inline-flex items-center px-4 py-2 border border-indigo-300 shadow-sm text-sm font-medium rounded-md text-indigo-700 bg-white hover:bg-indigo-50">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                    </svg>
+                    View All Comparisons
+                </a>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">VOI Pair</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RT Structures</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrics</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for comparison in existing_comparisons %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900">{{ comparison.first_rtstructure.roi_name }}</div>
+                                <div class="text-xs text-gray-500">vs {{ comparison.second_rtstructure.roi_name }}</div>
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="text-xs text-gray-600">
+                                    <div>{{ comparison.first_rtstructure.rtstructure_set_file.structure_set_label }}</div>
+                                    <div>{{ comparison.second_rtstructure.rtstructure_set_file.structure_set_label }}</div>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                {% with result_count=comparison.comparisonresult_set.all|length %}
+                                    {% if result_count > 0 %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            {{ result_count }} metric{{ result_count|pluralize }}
+                                        </span>
+                                    {% else %}
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                            Not computed
+                                        </span>
+                                    {% endif %}
+                                {% endwith %}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                {{ comparison.created_at|date:"M d, Y" }}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm">
+                                <a href="{% url 'spatial_overlap:comparison_detail' comparison.id %}" class="text-indigo-600 hover:text-indigo-900">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Information Box -->
+        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-6">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-6 w-6 text-indigo-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-indigo-800">How This Works</h3>
+                    <div class="mt-2 text-sm text-indigo-700">
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>Select a series that has autosegmented RT Structure contours from the DRAW system</li>
+                            <li>Upload a reference RT Structure file (e.g., manually contoured by an expert)</li>
+                            <li>The system will automatically extract VOIs from both RT Structure files</li>
+                            <li>You'll then be able to select which VOI pairs to compare</li>
+                            <li>Spatial overlap metrics will be computed using the actual DICOM image series for accurate mask generation</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between pt-4">
+            <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to List
+            </a>
+            <button type="submit" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+                Continue to RT Structure Selection
+            </button>
+        </div>
+    </form>
+    {% else %}
+    <!-- No Series Available -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No Series with RT Structures Found</h3>
+        <p class="mt-1 text-sm text-gray-500">No series with autosegmented RT Structure files are available in the system.</p>
+        <p class="mt-1 text-sm text-gray-500">Please process some series through the DRAW autosegmentation workflow first.</p>
+        <div class="mt-6">
+            <a href="/" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                Go to Home
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const seriesSelect = document.getElementById('series_id');
+    const detailsDiv = document.getElementById('series-details');
+    
+    // Exit if elements don't exist (no series available)
+    if (!seriesSelect || !detailsDiv) {
+        return;
+    }
+    
+    // Show series details and reload to show existing comparisons
+    seriesSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        
+        if (this.value) {
+            document.getElementById('detail-patient').textContent = selectedOption.dataset.patient;
+            document.getElementById('detail-description').textContent = selectedOption.dataset.description || 'N/A';
+            document.getElementById('detail-rt-count').textContent = selectedOption.dataset.rtCount;
+            detailsDiv.classList.remove('hidden');
+            
+            // Reload page with selected series to show existing comparisons
+            window.location.href = '?series_id=' + this.value;
+        } else {
+            detailsDiv.classList.add('hidden');
+        }
+    });
+    
+    // Show details on page load if series is pre-selected
+    if (seriesSelect.value) {
+        const selectedOption = seriesSelect.options[seriesSelect.selectedIndex];
+        document.getElementById('detail-patient').textContent = selectedOption.dataset.patient;
+        document.getElementById('detail-description').textContent = selectedOption.dataset.description || 'N/A';
+        document.getElementById('detail-rt-count').textContent = selectedOption.dataset.rtCount;
+        detailsDiv.classList.remove('hidden');
+    }
+    
+    // Form validation
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const seriesId = seriesSelect.value;
+        
+        if (!seriesId) {
+            e.preventDefault();
+            alert('Please select a series with RT Structure files.');
+            return;
+        }
+    });
+});
+</script>
+{% endblock %}

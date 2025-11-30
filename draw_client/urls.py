@@ -21,7 +21,9 @@ from . import views
 
 urlpatterns = [
     path('', views.home, name='home'),
+    path('celery-progress/', include('celery_progress.urls')),
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
     path('dicom/', include('dicom_handler.urls')),
+    path('spatial-overlap/', include('spatial_overlap.urls')),
 ]

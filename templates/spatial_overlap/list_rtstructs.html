@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+
+{% block title %}RT Structure Sets - DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">RT Structure Sets</h1>
+            <p class="mt-2 text-gray-600">Manage uploaded RT Structure Set files</p>
+        </div>
+        <div class="flex gap-3">
+            <a href="{% url 'spatial_overlap:compare_with_reference' %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                Compare with Reference
+            </a>
+            <a href="{% url 'spatial_overlap:upload_rtstruct' %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Upload New File
+            </a>
+        </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="mb-6">
+        {% for message in messages %}
+        <div class="{% if message.tags == 'error' %}bg-red-50 border-red-200 text-red-800{% elif message.tags == 'success' %}bg-green-50 border-green-200 text-green-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %} border rounded-lg p-4 mb-4">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if rtstructs %}
+    <!-- RT Structure Sets Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for rtstruct in rtstructs %}
+        <div class="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden">
+            <div class="p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900 truncate">
+                        {{ rtstruct.structure_set_label }}
+                    </h3>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                        {{ rtstruct.vois.count }} VOIs
+                    </span>
+                </div>
+                
+                <dl class="space-y-2 text-sm">
+                    <div>
+                        <dt class="text-gray-500">Patient ID</dt>
+                        <dd class="text-gray-900 font-medium">{{ rtstruct.patient_id }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-gray-500">Patient Name</dt>
+                        <dd class="text-gray-900">{{ rtstruct.patient_name }}</dd>
+                    </div>
+                    {% if rtstruct.structure_set_date %}
+                    <div>
+                        <dt class="text-gray-500">Structure Set Date</dt>
+                        <dd class="text-gray-900">{{ rtstruct.structure_set_date|date:"Y-m-d" }}</dd>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <dt class="text-gray-500">Uploaded</dt>
+                        <dd class="text-gray-900">{{ rtstruct.created_at|date:"Y-m-d H:i" }}</dd>
+                    </div>
+                </dl>
+            </div>
+            
+            <div class="bg-gray-50 px-6 py-3 flex justify-between items-center">
+                <a href="{% url 'spatial_overlap:rtstruct_detail' rtstruct.id %}" class="text-indigo-600 hover:text-indigo-900 text-sm font-medium">
+                    View Details →
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div class="flex flex-wrap gap-4">
+            <a href="{% url 'spatial_overlap:select_comparison_pairs' %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                Create Comparisons
+            </a>
+            <a href="{% url 'spatial_overlap:list_comparisons' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                </svg>
+                View Comparisons
+            </a>
+        </div>
+    </div>
+    {% else %}
+    <!-- Empty State -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No RT Structure Sets</h3>
+        <p class="mt-1 text-sm text-gray-500">Get started by uploading your first RT Structure Set file.</p>
+        <div class="mt-6">
+            <a href="{% url 'spatial_overlap:upload_rtstruct' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Upload RT Structure Set
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

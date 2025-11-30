@@ -9,6 +9,15 @@ class RTStructureSetFile(models.Model):
     Model to store RT Structure Set files information.
     This model stores metadata about RT Structure Set files uploaded by users.
     It includes patient information, DICOM identifiers, and file references.
+    
+    IMPORTANT: Field Definitions
+    - study_instance_uid: Study UID of the RT Structure itself
+    - series_instance_uid: Series UID of the RT Structure itself (NOT the image series)
+    - sop_instance_uid: SOP Instance UID of the RT Structure file
+    - referenced_series_instance_uid: Series UID of the image series (CT/MR) that this RT Structure references
+    
+    The referenced_series_instance_uid is used to find the DICOM image instances in the database
+    for spatial overlap calculations.
     '''
     
     id = models.AutoField(primary_key=True)
@@ -19,9 +28,9 @@ class RTStructureSetFile(models.Model):
     sop_instance_uid = models.CharField(max_length=255, verbose_name="SOP Instance UID for the RT StructureSet File")
     structure_set_label = models.CharField(max_length=255, verbose_name="StructureSet Label for the RT StructureSet File")
     referenced_series_instance_uid = models.CharField(max_length=255, verbose_name="Referenced Series Instance UID for the RT StructureSet File")
-    rtstructure_file = models.FileField(upload_to='rtstruct_files/', verbose_name="RT Structure Set File", null=True, blank=True)
+    rtstructure_file_path = models.CharField(max_length=512, verbose_name="RT Structure File Path", null=True, blank=True, help_text="Path to RT Structure file in working directory")
+    working_directory = models.CharField(max_length=512, verbose_name="Working Directory", null=True, blank=True, help_text="Directory containing DICOM images and RT Structure files")
     structure_set_date = models.DateField(null=True, blank=True, verbose_name="Structure Set Date from RT Structure Set File")
-    number_of_rois = models.IntegerField(verbose_name="Number of Regions of Interest (Structures) in the RT Structure Set File", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
 
@@ -35,13 +44,37 @@ class RTStructureSetFile(models.Model):
     def __str__(self):
         return f"RT Structure Set File - {self.structure_set_label}"
 
+
+class RTStructureSetVOI(models.Model):
+    """
+    Model to store information about the ROIs in the RT Structure Set file.
+    """
+    id = models.AutoField(primary_key=True)
+    rtstructure_set_file = models.ForeignKey(RTStructureSetFile, on_delete=models.CASCADE, related_name='vois', verbose_name="RT Structure Set File")
+    roi_name = models.CharField(max_length=255, verbose_name="ROI Name")
+    roi_description = models.CharField(max_length=255, verbose_name="ROI Description")
+    roi_volume = models.FloatField(verbose_name="ROI Volume",null=True,blank=True)
+    roi_number = models.IntegerField(verbose_name="ROI Number",null=True,blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
+
+    class Meta:
+        db_table = 'rt_structure_set_vois'
+        verbose_name = 'RT Structure Set VOI'
+        verbose_name_plural = 'RT Structure Set VOIs'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"RT Structure Set VOI - {self.roi_name}"
+
+
 class RTStructureFileComparison(models.Model):
     """
     Model to store information on the RTStructureSet files being compared. The order of the files does not matter but the combination of files is unique.
     """
     id = models.AutoField(primary_key=True)
-    first_rtstructure = models.ForeignKey(RTStructureSetFile, on_delete=models.CASCADE, related_name='first_rt_structure', verbose_name="First RT Structure Set File")
-    second_rtstructure = models.ForeignKey(RTStructureSetFile, on_delete=models.CASCADE, related_name='second_rt_structure', verbose_name="Second RT Structure Set File")
+    first_rtstructure = models.ForeignKey(RTStructureSetVOI, on_delete=models.CASCADE, related_name='first_rt_structure', verbose_name="First RT Structure Set File")
+    second_rtstructure = models.ForeignKey(RTStructureSetVOI, on_delete=models.CASCADE, related_name='second_rt_structure', verbose_name="Second RT Structure Set File")
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE, verbose_name="User who created this comparison", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)

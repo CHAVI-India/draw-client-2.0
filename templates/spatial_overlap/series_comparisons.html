@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+
+{% block title %}All Comparisons for Series - DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">All Comparisons for Series</h1>
+                <p class="mt-2 text-gray-600">{{ comparisons|length }} comparison{{ comparisons|length|pluralize }} found</p>
+            </div>
+            <a href="{% url 'spatial_overlap:compare_with_reference' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+                Back to Selection
+            </a>
+        </div>
+    </div>
+
+    <!-- Series Information -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Series Information</h3>
+        <dl class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+                <dt class="text-gray-500">Patient ID</dt>
+                <dd class="text-gray-900 font-medium">{{ series.study.patient.patient_id }}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">Series Description</dt>
+                <dd class="text-gray-900">{{ series.series_description|default:"N/A" }}</dd>
+            </div>
+            <div>
+                <dt class="text-gray-500">Series Instance UID</dt>
+                <dd class="text-gray-900 text-xs font-mono">{{ series.series_instance_uid }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- Comparisons Table -->
+    {% if comparisons %}
+    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-900">Comparisons</h3>
+        </div>
+        
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">VOI Pair</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RT Structures</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Metrics</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created By</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for comparison in comparisons %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ comparison.first_rtstructure.roi_name }}</div>
+                            <div class="text-xs text-gray-500">vs {{ comparison.second_rtstructure.roi_name }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="text-xs text-gray-600">
+                                <div class="mb-1">
+                                    <span class="font-medium">First:</span> {{ comparison.first_rtstructure.rtstructure_set_file.structure_set_label }}
+                                </div>
+                                <div>
+                                    <span class="font-medium">Second:</span> {{ comparison.second_rtstructure.rtstructure_set_file.structure_set_label }}
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% with result_count=comparison.comparisonresult_set.all|length %}
+                                {% if result_count > 0 %}
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                                        </svg>
+                                        {{ result_count }} metric{{ result_count|pluralize }}
+                                    </span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                        Not computed
+                                    </span>
+                                {% endif %}
+                            {% endwith %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ comparison.user.username|default:"Unknown" }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <div>{{ comparison.created_at|date:"M d, Y" }}</div>
+                            <div class="text-xs text-gray-400">{{ comparison.created_at|time:"g:i A" }}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <a href="{% url 'spatial_overlap:comparison_detail' comparison.id %}" class="text-indigo-600 hover:text-indigo-900 font-medium">
+                                View Details
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <!-- No Comparisons -->
+    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No Comparisons Found</h3>
+        <p class="mt-1 text-sm text-gray-500">No comparisons have been created for this series yet.</p>
+        <div class="mt-6">
+            <a href="{% url 'spatial_overlap:compare_with_reference' %}" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                Create New Comparison
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
