@@ -109,6 +109,7 @@ class ComparisonResult(models.Model):
     comparison = models.ForeignKey(RTStructureFileComparison, on_delete=models.CASCADE, verbose_name="RT Structure File Comparison")
     comparision_type = models.CharField(max_length=20, choices=ComparisionTypeChoices.choices, verbose_name="Comparison Type")
     result_value = models.FloatField(verbose_name="Result Value")
+    slice_wise_data = models.JSONField(null=True, blank=True, verbose_name="Data of undercontouring and overcontouring by slice")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
     

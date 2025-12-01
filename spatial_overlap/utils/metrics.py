@@ -319,20 +319,228 @@ def added_path_length(volume1, volume2, distance_threshold_mm=3, spacing=(1.0, 1
     return total_apl_mm
 
 
-def mean_distance_to_conformity(volume1, volume2):
+def _calculate_axis_aligned_distance(test_coords, ref_volume, spacing):
+    """
+    Calculate minimum axis-aligned distance from test voxels to reference volume boundary.
+    Based on espadon's mdcC algorithm.
+    
+    Args:
+        test_coords (numpy.ndarray): (N, 3) array of test voxel coordinates [i, j, k].
+        ref_volume (numpy.ndarray): 3D binary reference volume.
+        spacing (tuple): Voxel spacing in (x, y, z) dimensions.
+    
+    Returns:
+        numpy.ndarray: (N,) array of minimum distances for each test voxel.
+    """
+    if len(test_coords) == 0:
+        return np.array([])
+    
+    distances = []
+    shape = ref_volume.shape
+    
+    # Maximum possible distance (diagonal of entire volume)
+    dist_max = np.sqrt(
+        (shape[0] * spacing[0])**2 + 
+        (shape[1] * spacing[1])**2 + 
+        (shape[2] * spacing[2])**2
+    )
+    
+    for i, j, k in test_coords:
+        min_dist = dist_max
+        
+        # Search in +i direction (right along x-axis)
+        for idx in range(i + 1, shape[0]):
+            di = abs(idx - i) * spacing[0]
+            if di > min_dist:
+                break
+            if ref_volume[idx, j, k] > 0:
+                min_dist = di
+                break
+        
+        # Search in -i direction (left along x-axis)
+        for idx in range(i - 1, -1, -1):
+            di = abs(idx - i) * spacing[0]
+            if di > min_dist:
+                break
+            if ref_volume[idx, j, k] > 0:
+                min_dist = di
+                break
+        
+        # Search in +j direction (forward along y-axis)
+        for idx in range(j + 1, shape[1]):
+            dj = abs(idx - j) * spacing[1]
+            if dj > min_dist:
+                break
+            if ref_volume[i, idx, k] > 0:
+                min_dist = dj
+                break
+        
+        # Search in -j direction (backward along y-axis)
+        for idx in range(j - 1, -1, -1):
+            dj = abs(idx - j) * spacing[1]
+            if dj > min_dist:
+                break
+            if ref_volume[i, idx, k] > 0:
+                min_dist = dj
+                break
+        
+        # Search in +k direction (up along z-axis)
+        for idx in range(k + 1, shape[2]):
+            dk = abs(idx - k) * spacing[2]
+            if dk > min_dist:
+                break
+            if ref_volume[i, j, idx] > 0:
+                min_dist = dk
+                break
+        
+        # Search in -k direction (down along z-axis)
+        for idx in range(k - 1, -1, -1):
+            dk = abs(idx - k) * spacing[2]
+            if dk > min_dist:
+                break
+            if ref_volume[i, j, idx] > 0:
+                min_dist = dk
+                break
+        
+        # Store distance (NaN if no boundary found)
+        distances.append(min_dist if min_dist != dist_max else np.nan)
+    
+    return np.array(distances)
+
+
+def mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0), return_detailed=False):
     """
     Calculate Mean Distance to Conformity between two binary volumes.
-    """
-    pass
+    Based on espadon R package implementation.
+    
+    MDC measures the average distance from voxels in the symmetric difference
+    (XOR) of two volumes to the nearest boundary of the other volume.
+    
+    Args:
+        volume1 (numpy.ndarray): Reference binary volume.
+        volume2 (numpy.ndarray): Test binary volume.
+        spacing (tuple): Voxel spacing in (x, y, z) dimensions in mm. Default is (1.0, 1.0, 1.0).
+        return_detailed (bool): If True, returns detailed results with slice-wise data. Default is False.
 
-def undercontouring_mean_distance_to_conformity(volume1, volume2):
+    Returns:
+        If return_detailed=False:
+            float: Mean Distance to Conformity in mm.
+        If return_detailed=True:
+            dict: {
+                'mdc': float,
+                'under_mdc': float,
+                'over_mdc': float,
+                'slice_data': dict with slice indices as keys
+            }
+    """
+    # Convert to binary
+    vol1_binary = (volume1 > 0).astype(np.uint8)
+    vol2_binary = (volume2 > 0).astype(np.uint8)
+    
+    # Undercontouring: voxels in reference but NOT in test
+    under_region = vol1_binary & (~vol2_binary)
+    under_coords = np.argwhere(under_region)
+    
+    # Overcontouring: voxels in test but NOT in reference
+    over_region = vol2_binary & (~vol1_binary)
+    over_coords = np.argwhere(over_region)
+    
+    # Calculate distances
+    under_distances = np.array([])
+    over_distances = np.array([])
+    
+    if len(under_coords) > 0:
+        under_distances = _calculate_axis_aligned_distance(under_coords, vol2_binary, spacing)
+    
+    if len(over_coords) > 0:
+        over_distances = _calculate_axis_aligned_distance(over_coords, vol1_binary, spacing)
+    
+    # Calculate mean values
+    valid_under = under_distances[~np.isnan(under_distances)] if len(under_distances) > 0 else np.array([])
+    valid_over = over_distances[~np.isnan(over_distances)] if len(over_distances) > 0 else np.array([])
+    
+    under_mdc = np.mean(valid_under) if len(valid_under) > 0 else 0.0
+    over_mdc = np.mean(valid_over) if len(valid_over) > 0 else 0.0
+    
+    # Calculate overall MDC
+    if len(valid_under) == 0 and len(valid_over) == 0:
+        mdc = 0.0
+    else:
+        mdc = (under_mdc + over_mdc) / 2.0
+    
+    if not return_detailed:
+        return mdc
+    
+    # Build slice-wise data
+    slice_data = {}
+    
+    # Process undercontouring by slice
+    if len(under_coords) > 0:
+        for idx, (i, j, k) in enumerate(under_coords):
+            slice_key = int(k)  # z-axis slice index
+            if slice_key not in slice_data:
+                slice_data[slice_key] = {
+                    'under_distances': [],
+                    'over_distances': []
+                }
+            
+            dist = under_distances[idx]
+            if not np.isnan(dist):
+                slice_data[slice_key]['under_distances'].append(float(dist))
+    
+    # Process overcontouring by slice
+    if len(over_coords) > 0:
+        for idx, (i, j, k) in enumerate(over_coords):
+            slice_key = int(k)  # z-axis slice index
+            if slice_key not in slice_data:
+                slice_data[slice_key] = {
+                    'under_distances': [],
+                    'over_distances': []
+                }
+            
+            dist = over_distances[idx]
+            if not np.isnan(dist):
+                slice_data[slice_key]['over_distances'].append(float(dist))
+    
+    return {
+        'mdc': float(mdc),
+        'under_mdc': float(under_mdc),
+        'over_mdc': float(over_mdc),
+        'slice_data': slice_data
+    }
+
+def undercontouring_mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
     """
     Calculate Undercontouring Mean Distance to Conformity between two binary volumes.
-    """
-    pass
+    
+    Undercontouring occurs where the reference volume extends beyond the test volume.
+    This measures the average distance from voxels in (reference - test) to the test boundary.
+    
+    Args:
+        volume1 (numpy.ndarray): Reference binary volume.
+        volume2 (numpy.ndarray): Test binary volume.
+        spacing (tuple): Voxel spacing in (x, y, z) dimensions in mm. Default is (1.0, 1.0, 1.0).
 
-def overcontouring_mean_distance_to_conformity(volume1, volume2):
+    Returns:
+        float: Undercontouring Mean Distance to Conformity in mm.
+    """
+    result = mean_distance_to_conformity(volume1, volume2, spacing, return_detailed=True)
+    return result['under_mdc']
+
+def overcontouring_mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
     """
     Calculate Overcontouring Mean Distance to Conformity between two binary volumes.
+    
+    Overcontouring occurs where the test volume extends beyond the reference volume.
+    This measures the average distance from voxels in (test - reference) to the reference boundary.
+    
+    Args:
+        volume1 (numpy.ndarray): Reference binary volume.
+        volume2 (numpy.ndarray): Test binary volume.
+        spacing (tuple): Voxel spacing in (x, y, z) dimensions in mm. Default is (1.0, 1.0, 1.0).
+
+    Returns:
+        float: Overcontouring Mean Distance to Conformity in mm.
     """
-    pass
+    result = mean_distance_to_conformity(volume1, volume2, spacing, return_detailed=True)
+    return result['over_mdc']

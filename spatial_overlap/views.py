@@ -819,13 +819,24 @@ def compute_metrics(request, comparison_id):
                 results_created = 0
                 for metric_key, metric_value in metrics.items():
                     if metric_value is not None:
-                        ComparisonResult.objects.create(
-                            comparison=comparison,
-                            comparision_type=metric_key,
-                            result_value=metric_value
-                        )
+                        # Handle MDC metrics which return dict with value and slice_data
+                        if isinstance(metric_value, dict) and 'value' in metric_value:
+                            ComparisonResult.objects.create(
+                                comparison=comparison,
+                                comparision_type=metric_key,
+                                result_value=metric_value['value'],
+                                slice_wise_data=metric_value.get('slice_data', None)
+                            )
+                            logger.info(f"Saved metric {metric_key}: {metric_value['value']} (with slice data)")
+                        else:
+                            # Regular metrics (float values)
+                            ComparisonResult.objects.create(
+                                comparison=comparison,
+                                comparision_type=metric_key,
+                                result_value=metric_value
+                            )
+                            logger.info(f"Saved metric {metric_key}: {metric_value}")
                         results_created += 1
-                        logger.info(f"Saved metric {metric_key}: {metric_value}")
             
             logger.info(f"Total results saved: {results_created}")
             messages.success(request, f"Metrics computed successfully. {results_created} metrics saved.")
@@ -856,15 +867,42 @@ def comparison_detail(request, comparison_id):
     
     # Organize results by metric type
     results_dict = {}
+    mdc_slice_data = {}
+    
     for result in results:
         metric_label = dict(ComparisionTypeChoices.choices).get(result.comparision_type, result.comparision_type)
         results_dict[metric_label] = result.result_value
+        
+        # Extract slice-wise data for MDC metrics
+        if result.comparision_type in ['mdc', 'umdc', 'omdc'] and result.slice_wise_data:
+            mdc_slice_data[result.comparision_type] = result.slice_wise_data
+    
+    # Prepare histogram data for MDC metrics
+    import json
+    mdc_histogram_data = {}
+    
+    for metric_type, slice_data in mdc_slice_data.items():
+        # Collect all distances across all slices for histogram
+        all_under_distances = []
+        all_over_distances = []
+        
+        for slice_idx, data in slice_data.items():
+            all_under_distances.extend(data.get('under_distances', []))
+            all_over_distances.extend(data.get('over_distances', []))
+        
+        mdc_histogram_data[metric_type] = {
+            'slice_data': slice_data,
+            'all_under_distances': all_under_distances,
+            'all_over_distances': all_over_distances,
+            'slice_data_json': json.dumps(slice_data)
+        }
     
     context = {
         'comparison': comparison,
         'results': results,
         'results_dict': results_dict,
-        'has_results': results.exists()
+        'has_results': results.exists(),
+        'mdc_histogram_data': mdc_histogram_data
     }
     return render(request, 'spatial_overlap/comparison_detail.html', context)
 
@@ -914,11 +952,21 @@ def batch_compute_metrics(request):
                         ComparisonResult.objects.filter(comparison=comparison).delete()
                         for metric_key, metric_value in metrics.items():
                             if metric_value is not None:
-                                ComparisonResult.objects.create(
-                                    comparison=comparison,
-                                    comparision_type=metric_key,
-                                    result_value=metric_value
-                                )
+                                # Handle MDC metrics which return dict with value and slice_data
+                                if isinstance(metric_value, dict) and 'value' in metric_value:
+                                    ComparisonResult.objects.create(
+                                        comparison=comparison,
+                                        comparision_type=metric_key,
+                                        result_value=metric_value['value'],
+                                        slice_wise_data=metric_value.get('slice_data', None)
+                                    )
+                                else:
+                                    # Regular metrics (float values)
+                                    ComparisonResult.objects.create(
+                                        comparison=comparison,
+                                        comparision_type=metric_key,
+                                        result_value=metric_value
+                                    )
                     success_count += 1
                 else:
                     error_count += 1

@@ -365,10 +365,34 @@ def compute_all_metrics(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
         logger.error(f"Error computing Surface DSC: {str(e)}")
         results['surface_dsc'] = None
     
-    # Metrics not yet implemented - set to None
-    results['mdc'] = None  # Mean Distance to Conformity
-    results['umdc'] = None  # Undercontouring Mean Distance to Conformity
-    results['omdc'] = None  # Overcontouring Mean Distance to Conformity
+    # Mean Distance to Conformity metrics with slice-wise data
+    try:
+        # Compute MDC with detailed slice-wise data
+        mdc_detailed = mean_distance_to_conformity(volume1, volume2, spacing=spacing, return_detailed=True)
+        
+        results['mdc'] = {
+            'value': mdc_detailed['mdc'],
+            'slice_data': mdc_detailed['slice_data']
+        }
+        logger.info(f"Computed MDC: {mdc_detailed['mdc']:.4f} mm")
+        
+        results['umdc'] = {
+            'value': mdc_detailed['under_mdc'],
+            'slice_data': mdc_detailed['slice_data']
+        }
+        logger.info(f"Computed Under-MDC: {mdc_detailed['under_mdc']:.4f} mm")
+        
+        results['omdc'] = {
+            'value': mdc_detailed['over_mdc'],
+            'slice_data': mdc_detailed['slice_data']
+        }
+        logger.info(f"Computed Over-MDC: {mdc_detailed['over_mdc']:.4f} mm")
+        
+    except Exception as e:
+        logger.error(f"Error computing MDC metrics: {str(e)}")
+        results['mdc'] = None
+        results['umdc'] = None
+        results['omdc'] = None
     
     return results
 

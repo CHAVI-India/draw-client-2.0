@@ -55,11 +55,21 @@ def compute_metrics_bulk(self, comparison_ids):
                     saved_count = 0
                     for metric_key, metric_value in metrics.items():
                         if metric_value is not None:
-                            ComparisonResult.objects.create(
-                                comparison=comparison,
-                                comparision_type=metric_key,
-                                result_value=metric_value
-                            )
+                            # Handle MDC metrics which return dict with value and slice_data
+                            if isinstance(metric_value, dict) and 'value' in metric_value:
+                                ComparisonResult.objects.create(
+                                    comparison=comparison,
+                                    comparision_type=metric_key,
+                                    result_value=metric_value['value'],
+                                    slice_wise_data=metric_value.get('slice_data', None)
+                                )
+                            else:
+                                # Regular metrics (float values)
+                                ComparisonResult.objects.create(
+                                    comparison=comparison,
+                                    comparision_type=metric_key,
+                                    result_value=metric_value
+                                )
                             saved_count += 1
                     
                     logger.info(f"Saved {saved_count} metrics for comparison {comparison_id}")

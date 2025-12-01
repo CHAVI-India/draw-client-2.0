@@ -133,6 +133,71 @@
         </div>
     </div>
 
+    <!-- MDC Histogram Visualization -->
+    {% if mdc_histogram_data %}
+    <div class="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h3 class="text-lg font-semibold text-gray-900">Distance to Conformity Analysis</h3>
+            <p class="text-sm text-gray-600 mt-1">Slice-wise conformity error distribution (similar to error-volume histogram)</p>
+        </div>
+        
+        <div class="p-6">
+            <!-- Tab Navigation -->
+            <div class="border-b border-gray-200 mb-6">
+                <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                    {% if 'mdc' in mdc_histogram_data %}
+                    <button onclick="showMDCTab('mdc')" id="tab-mdc" class="mdc-tab border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                        Overall MDC
+                    </button>
+                    {% endif %}
+                    {% if 'umdc' in mdc_histogram_data %}
+                    <button onclick="showMDCTab('umdc')" id="tab-umdc" class="mdc-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                        Undercontouring
+                    </button>
+                    {% endif %}
+                    {% if 'omdc' in mdc_histogram_data %}
+                    <button onclick="showMDCTab('omdc')" id="tab-omdc" class="mdc-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
+                        Overcontouring
+                    </button>
+                    {% endif %}
+                </nav>
+            </div>
+            
+            <!-- Tab Content -->
+            {% for metric_type, data in mdc_histogram_data.items %}
+            <div id="content-{{ metric_type }}" class="mdc-content {% if forloop.first %}{% else %}hidden{% endif %}">
+                <!-- Combined Histogram -->
+                <div class="mb-8">
+                    <h4 class="text-md font-semibold text-gray-800 mb-4">Conformity Error Distribution (All Slices)</h4>
+                    <canvas id="histogram-{{ metric_type }}" height="80"></canvas>
+                </div>
+                
+                <!-- Per-Slice Statistics -->
+                <div class="mt-8">
+                    <h4 class="text-md font-semibold text-gray-800 mb-4">Per-Slice Statistics</h4>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Slice</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Under Count</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Under Mean (mm)</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Over Count</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Over Mean (mm)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200" id="slice-table-{{ metric_type }}">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Actions -->
     <div class="flex gap-4">
         <form method="post" action="{% url 'spatial_overlap:delete_comparison' comparison.id %}" class="inline" onsubmit="return confirm('Are you sure you want to delete this comparison and all its results?');">
@@ -204,4 +269,191 @@
     </div>
     {% endif %}
 </div>
+
+{% if mdc_histogram_data %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// MDC histogram data from Django
+const mdcData = {
+    {% for metric_type, data in mdc_histogram_data.items %}
+    '{{ metric_type }}': {
+        sliceData: {{ data.slice_data_json|safe }},
+        allUnderDistances: {{ data.all_under_distances|safe }},
+        allOverDistances: {{ data.all_over_distances|safe }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+};
+
+// Create histograms for each metric type
+const charts = {};
+
+function createHistogram(metricType) {
+    const data = mdcData[metricType];
+    const ctx = document.getElementById(`histogram-${metricType}`);
+    
+    if (!ctx || !data) return;
+    
+    // Combine all distances (negative for undercontouring, positive for overcontouring)
+    const allDistances = [
+        ...data.allUnderDistances.map(d => -Math.abs(d)),  // Negative for under
+        ...data.allOverDistances.map(d => Math.abs(d))     // Positive for over
+    ];
+    
+    if (allDistances.length === 0) {
+        ctx.getContext('2d').fillText('No data available', 10, 50);
+        return;
+    }
+    
+    // Calculate histogram bins
+    const minDist = Math.min(...allDistances);
+    const maxDist = Math.max(...allDistances);
+    const binWidth = 1.0; // 1mm bins
+    const numBins = Math.ceil((maxDist - minDist) / binWidth);
+    
+    // Create bins
+    const bins = new Array(numBins).fill(0);
+    const binLabels = [];
+    
+    for (let i = 0; i < numBins; i++) {
+        const binStart = minDist + (i * binWidth);
+        binLabels.push(binStart.toFixed(1));
+    }
+    
+    // Fill bins
+    allDistances.forEach(dist => {
+        const binIndex = Math.floor((dist - minDist) / binWidth);
+        if (binIndex >= 0 && binIndex < numBins) {
+            bins[binIndex]++;
+        }
+    });
+    
+    // Convert to percentages
+    const total = allDistances.length;
+    const binPercentages = bins.map(count => (count / total) * 100);
+    
+    // Create chart
+    if (charts[metricType]) {
+        charts[metricType].destroy();
+    }
+    
+    charts[metricType] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: binLabels,
+            datasets: [{
+                label: 'Volume %',
+                data: binPercentages,
+                backgroundColor: binLabels.map(label => 
+                    parseFloat(label) < 0 ? 'rgba(239, 68, 68, 0.7)' : 'rgba(59, 130, 246, 0.7)'
+                ),
+                borderColor: binLabels.map(label => 
+                    parseFloat(label) < 0 ? 'rgba(239, 68, 68, 1)' : 'rgba(59, 130, 246, 1)'
+                ),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                title: {
+                    display: true,
+                    text: 'Conformity Error Distribution'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.parsed.y.toFixed(2)}% of volume`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Conformity Error (mm)'
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Volume %'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function populateSliceTable(metricType) {
+    const data = mdcData[metricType];
+    const tableBody = document.getElementById(`slice-table-${metricType}`);
+    
+    if (!tableBody || !data) return;
+    
+    tableBody.innerHTML = '';
+    
+    // Sort slice indices
+    const sliceIndices = Object.keys(data.sliceData).map(Number).sort((a, b) => a - b);
+    
+    sliceIndices.forEach(sliceIdx => {
+        const sliceData = data.sliceData[sliceIdx];
+        const underDists = sliceData.under_distances || [];
+        const overDists = sliceData.over_distances || [];
+        
+        const underMean = underDists.length > 0 
+            ? (underDists.reduce((a, b) => a + b, 0) / underDists.length).toFixed(2)
+            : '0.00';
+        const overMean = overDists.length > 0 
+            ? (overDists.reduce((a, b) => a + b, 0) / overDists.length).toFixed(2)
+            : '0.00';
+        
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50';
+        row.innerHTML = `
+            <td class="px-4 py-3 text-sm text-gray-900">${sliceIdx}</td>
+            <td class="px-4 py-3 text-sm text-gray-900 text-right">${underDists.length}</td>
+            <td class="px-4 py-3 text-sm text-gray-900 text-right">${underMean}</td>
+            <td class="px-4 py-3 text-sm text-gray-900 text-right">${overDists.length}</td>
+            <td class="px-4 py-3 text-sm text-gray-900 text-right">${overMean}</td>
+        `;
+        tableBody.appendChild(row);
+    });
+}
+
+function showMDCTab(metricType) {
+    // Update tab styles
+    document.querySelectorAll('.mdc-tab').forEach(tab => {
+        tab.classList.remove('border-indigo-500', 'text-indigo-600');
+        tab.classList.add('border-transparent', 'text-gray-500');
+    });
+    document.getElementById(`tab-${metricType}`).classList.remove('border-transparent', 'text-gray-500');
+    document.getElementById(`tab-${metricType}`).classList.add('border-indigo-500', 'text-indigo-600');
+    
+    // Show/hide content
+    document.querySelectorAll('.mdc-content').forEach(content => {
+        content.classList.add('hidden');
+    });
+    document.getElementById(`content-${metricType}`).classList.remove('hidden');
+}
+
+// Initialize all charts and tables on page load
+document.addEventListener('DOMContentLoaded', function() {
+    {% for metric_type, data in mdc_histogram_data.items %}
+    createHistogram('{{ metric_type }}');
+    populateSliceTable('{{ metric_type }}');
+    {% endfor %}
+});
+</script>
+{% endif %}
+
 {% endblock %}
