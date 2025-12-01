@@ -372,19 +372,22 @@ def compute_all_metrics(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
         
         results['mdc'] = {
             'value': mdc_detailed['mdc'],
-            'slice_data': mdc_detailed['slice_data']
+            'slice_data': mdc_detailed['slice_data'],
+            'overlap_count': mdc_detailed['overlap_count']
         }
         logger.info(f"Computed MDC: {mdc_detailed['mdc']:.4f} mm")
         
         results['umdc'] = {
             'value': mdc_detailed['under_mdc'],
-            'slice_data': mdc_detailed['slice_data']
+            'slice_data': mdc_detailed['slice_data'],
+            'overlap_count': mdc_detailed['overlap_count']
         }
         logger.info(f"Computed Under-MDC: {mdc_detailed['under_mdc']:.4f} mm")
         
         results['omdc'] = {
             'value': mdc_detailed['over_mdc'],
-            'slice_data': mdc_detailed['slice_data']
+            'slice_data': mdc_detailed['slice_data'],
+            'overlap_count': mdc_detailed['overlap_count']
         }
         logger.info(f"Computed Over-MDC: {mdc_detailed['over_mdc']:.4f} mm")
         

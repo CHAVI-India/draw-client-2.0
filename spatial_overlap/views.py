@@ -882,11 +882,17 @@ def comparison_detail(request, comparison_id):
     mdc_histogram_data = {}
     
     for metric_type, slice_data in mdc_slice_data.items():
+        # Extract overlap count from slice_data (stored with special key)
+        overlap_count = slice_data.get('_overlap_count', 0)
+        
         # Collect all distances across all slices for histogram
         all_under_distances = []
         all_over_distances = []
         
         for slice_idx, data in slice_data.items():
+            # Skip the special _overlap_count key
+            if slice_idx == '_overlap_count':
+                continue
             all_under_distances.extend(data.get('under_distances', []))
             all_over_distances.extend(data.get('over_distances', []))
         
@@ -894,6 +900,7 @@ def comparison_detail(request, comparison_id):
             'slice_data': slice_data,
             'all_under_distances': all_under_distances,
             'all_over_distances': all_over_distances,
+            'overlap_count': overlap_count,
             'slice_data_json': json.dumps(slice_data)
         }
     

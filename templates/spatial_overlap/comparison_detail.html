@@ -142,34 +142,24 @@
         </div>
         
         <div class="p-6">
-            <!-- Tab Navigation -->
-            <div class="border-b border-gray-200 mb-6">
-                <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                    {% if 'mdc' in mdc_histogram_data %}
-                    <button onclick="showMDCTab('mdc')" id="tab-mdc" class="mdc-tab border-indigo-500 text-indigo-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                        Overall MDC
-                    </button>
-                    {% endif %}
-                    {% if 'umdc' in mdc_histogram_data %}
-                    <button onclick="showMDCTab('umdc')" id="tab-umdc" class="mdc-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                        Undercontouring
-                    </button>
-                    {% endif %}
-                    {% if 'omdc' in mdc_histogram_data %}
-                    <button onclick="showMDCTab('omdc')" id="tab-omdc" class="mdc-tab border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
-                        Overcontouring
-                    </button>
-                    {% endif %}
-                </nav>
-            </div>
-            
-            <!-- Tab Content -->
-            {% for metric_type, data in mdc_histogram_data.items %}
-            <div id="content-{{ metric_type }}" class="mdc-content {% if forloop.first %}{% else %}hidden{% endif %}">
-                <!-- Combined Histogram -->
+            <!-- Only show MDC tab (remove redundant under/over tabs) -->
+            {% if 'mdc' in mdc_histogram_data %}
+            <div id="content-mdc" class="mdc-content">
+                <!-- Split Histograms -->
                 <div class="mb-8">
                     <h4 class="text-md font-semibold text-gray-800 mb-4">Conformity Error Distribution (All Slices)</h4>
-                    <canvas id="histogram-{{ metric_type }}" height="80"></canvas>
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- Undercontouring (Negative) -->
+                        <div>
+                            <h5 class="text-sm font-medium text-red-700 mb-2 text-center">Undercontouring (Reference extends beyond Test)</h5>
+                            <canvas id="histogram-under" height="120"></canvas>
+                        </div>
+                        <!-- Overcontouring (Positive) -->
+                        <div>
+                            <h5 class="text-sm font-medium text-blue-700 mb-2 text-center">Overcontouring (Test extends beyond Reference)</h5>
+                            <canvas id="histogram-over" height="120"></canvas>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Per-Slice Statistics -->
@@ -186,14 +176,14 @@
                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Over Mean (mm)</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200" id="slice-table-{{ metric_type }}">
+                            <tbody class="bg-white divide-y divide-gray-200" id="slice-table-mdc">
                                 <!-- Populated by JavaScript -->
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
-            {% endfor %}
+            {% endif %}
         </div>
     </div>
     {% endif %}
@@ -279,7 +269,8 @@ const mdcData = {
     '{{ metric_type }}': {
         sliceData: {{ data.slice_data_json|safe }},
         allUnderDistances: {{ data.all_under_distances|safe }},
-        allOverDistances: {{ data.all_over_distances|safe }}
+        allOverDistances: {{ data.all_over_distances|safe }},
+        overlapCount: {{ data.overlap_count }}
     }{% if not forloop.last %},{% endif %}
     {% endfor %}
 };
@@ -287,68 +278,78 @@ const mdcData = {
 // Create histograms for each metric type
 const charts = {};
 
-function createHistogram(metricType) {
+function createSplitHistograms(metricType) {
     const data = mdcData[metricType];
-    const ctx = document.getElementById(`histogram-${metricType}`);
     
-    if (!ctx || !data) return;
+    console.log('Creating split histograms for:', metricType);
+    console.log('Data:', data);
     
-    // Combine all distances (negative for undercontouring, positive for overcontouring)
-    const allDistances = [
-        ...data.allUnderDistances.map(d => -Math.abs(d)),  // Negative for under
-        ...data.allOverDistances.map(d => Math.abs(d))     // Positive for over
-    ];
-    
-    if (allDistances.length === 0) {
-        ctx.getContext('2d').fillText('No data available', 10, 50);
+    if (!data) {
+        console.error('No data found for:', metricType);
         return;
     }
     
-    // Calculate histogram bins
-    const minDist = Math.min(...allDistances);
-    const maxDist = Math.max(...allDistances);
-    const binWidth = 1.0; // 1mm bins
-    const numBins = Math.ceil((maxDist - minDist) / binWidth);
+    const binWidth = 0.1; // 0.1mm bins
     
-    // Create bins
+    // Process undercontouring data (negative values, but we'll show as positive distances from 0)
+    const underDistances = data.allUnderDistances.map(d => Math.abs(d));
+    const maxUnderDist = underDistances.length > 0 ? Math.max(...underDistances) : 0;
+    
+    // Process overcontouring data (positive values)
+    const overDistances = data.allOverDistances.map(d => Math.abs(d));
+    const maxOverDist = overDistances.length > 0 ? Math.max(...overDistances) : 0;
+    
+    // Calculate total volume (all voxels: overlapping + error voxels)
+    // Total = undercontouring voxels + overcontouring voxels + overlapping voxels
+    const totalVoxels = underDistances.length + overDistances.length + data.overlapCount;
+    
+    console.log('Total voxels:', totalVoxels, '(under:', underDistances.length, '+ over:', overDistances.length, '+ overlap:', data.overlapCount, ')');
+    
+    // Create undercontouring histogram (left side, showing distances from 0)
+    createUnderHistogram(underDistances, maxUnderDist, binWidth, totalVoxels);
+    
+    // Create overcontouring histogram (right side, showing distances from 0)
+    createOverHistogram(overDistances, maxOverDist, binWidth, totalVoxels);
+}
+
+function createUnderHistogram(distances, maxDist, binWidth, totalVoxels) {
+    const ctx = document.getElementById('histogram-under');
+    if (!ctx) return;
+    
+    const numBins = Math.ceil(maxDist / binWidth);
     const bins = new Array(numBins).fill(0);
     const binLabels = [];
     
+    // Create bins from 0 to maxDist
     for (let i = 0; i < numBins; i++) {
-        const binStart = minDist + (i * binWidth);
+        const binStart = i * binWidth;
         binLabels.push(binStart.toFixed(1));
     }
     
     // Fill bins
-    allDistances.forEach(dist => {
-        const binIndex = Math.floor((dist - minDist) / binWidth);
+    distances.forEach(dist => {
+        const binIndex = Math.floor(dist / binWidth);
         if (binIndex >= 0 && binIndex < numBins) {
             bins[binIndex]++;
         }
     });
     
-    // Convert to percentages
-    const total = allDistances.length;
-    const binPercentages = bins.map(count => (count / total) * 100);
+    // Convert to percentages using total volume (all voxels)
+    const binPercentages = bins.map(count => (count / totalVoxels) * 100);
     
-    // Create chart
-    if (charts[metricType]) {
-        charts[metricType].destroy();
+    if (charts['under']) {
+        charts['under'].destroy();
     }
     
-    charts[metricType] = new Chart(ctx, {
+    charts['under'] = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: binLabels,
             datasets: [{
                 label: 'Volume %',
                 data: binPercentages,
-                backgroundColor: binLabels.map(label => 
-                    parseFloat(label) < 0 ? 'rgba(239, 68, 68, 0.7)' : 'rgba(59, 130, 246, 0.7)'
-                ),
-                borderColor: binLabels.map(label => 
-                    parseFloat(label) < 0 ? 'rgba(239, 68, 68, 1)' : 'rgba(59, 130, 246, 1)'
-                ),
+                backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                borderColor: 'rgba(239, 68, 68, 1)',
                 borderWidth: 1
             }]
         },
@@ -358,10 +359,6 @@ function createHistogram(metricType) {
             plugins: {
                 legend: {
                     display: false
-                },
-                title: {
-                    display: true,
-                    text: 'Conformity Error Distribution'
                 },
                 tooltip: {
                     callbacks: {
@@ -375,11 +372,97 @@ function createHistogram(metricType) {
                 x: {
                     title: {
                         display: true,
-                        text: 'Conformity Error (mm)'
+                        text: 'Distance from 0 (mm)'
                     },
                     ticks: {
                         maxRotation: 45,
-                        minRotation: 45
+                        minRotation: 45,
+                        callback: function(value, index) {
+                            return index % 5 === 0 ? this.getLabelForValue(value) : '';
+                        }
+                    },
+                    reverse: true  // Reverse to show 0 on the right
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Volume %'
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function createOverHistogram(distances, maxDist, binWidth, totalVoxels) {
+    const ctx = document.getElementById('histogram-over');
+    if (!ctx) return;
+    
+    const numBins = Math.ceil(maxDist / binWidth);
+    const bins = new Array(numBins).fill(0);
+    const binLabels = [];
+    
+    // Create bins from 0 to maxDist
+    for (let i = 0; i < numBins; i++) {
+        const binStart = i * binWidth;
+        binLabels.push(binStart.toFixed(1));
+    }
+    
+    // Fill bins
+    distances.forEach(dist => {
+        const binIndex = Math.floor(dist / binWidth);
+        if (binIndex >= 0 && binIndex < numBins) {
+            bins[binIndex]++;
+        }
+    });
+    
+    // Convert to percentages using total volume (all voxels)
+    const binPercentages = bins.map(count => (count / totalVoxels) * 100);
+    
+    if (charts['over']) {
+        charts['over'].destroy();
+    }
+    
+    charts['over'] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: binLabels,
+            datasets: [{
+                label: 'Volume %',
+                data: binPercentages,
+                backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                borderColor: 'rgba(59, 130, 246, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.parsed.y.toFixed(2)}% of volume`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Distance from 0 (mm)'
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45,
+                        callback: function(value, index) {
+                            return index % 5 === 0 ? this.getLabelForValue(value) : '';
+                        }
                     }
                 },
                 y: {
@@ -430,28 +513,18 @@ function populateSliceTable(metricType) {
     });
 }
 
-function showMDCTab(metricType) {
-    // Update tab styles
-    document.querySelectorAll('.mdc-tab').forEach(tab => {
-        tab.classList.remove('border-indigo-500', 'text-indigo-600');
-        tab.classList.add('border-transparent', 'text-gray-500');
-    });
-    document.getElementById(`tab-${metricType}`).classList.remove('border-transparent', 'text-gray-500');
-    document.getElementById(`tab-${metricType}`).classList.add('border-indigo-500', 'text-indigo-600');
-    
-    // Show/hide content
-    document.querySelectorAll('.mdc-content').forEach(content => {
-        content.classList.add('hidden');
-    });
-    document.getElementById(`content-${metricType}`).classList.remove('hidden');
-}
-
-// Initialize all charts and tables on page load
+// Initialize charts and table on page load
 document.addEventListener('DOMContentLoaded', function() {
-    {% for metric_type, data in mdc_histogram_data.items %}
-    createHistogram('{{ metric_type }}');
-    populateSliceTable('{{ metric_type }}');
-    {% endfor %}
+    console.log('DOM Content Loaded');
+    console.log('MDC Data:', mdcData);
+    
+    if (mdcData['mdc']) {
+        console.log('Initializing MDC split histograms and table');
+        createSplitHistograms('mdc');
+        populateSliceTable('mdc');
+    } else {
+        console.error('No MDC data found in mdcData object');
+    }
 });
 </script>
 {% endif %}

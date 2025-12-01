@@ -437,6 +437,10 @@ def mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0), retur
     vol1_binary = (volume1 > 0).astype(np.uint8)
     vol2_binary = (volume2 > 0).astype(np.uint8)
     
+    # Calculate overlap (voxels in both volumes)
+    overlap_region = vol1_binary & vol2_binary
+    overlap_count = int(np.sum(overlap_region))
+    
     # Undercontouring: voxels in reference but NOT in test
     under_region = vol1_binary & (~vol2_binary)
     under_coords = np.argwhere(under_region)
@@ -472,7 +476,9 @@ def mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0), retur
         return mdc
     
     # Build slice-wise data
-    slice_data = {}
+    slice_data = {
+        '_overlap_count': overlap_count  # Store overlap count with special key
+    }
     
     # Process undercontouring by slice
     if len(under_coords) > 0:
@@ -506,7 +512,8 @@ def mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0), retur
         'mdc': float(mdc),
         'under_mdc': float(under_mdc),
         'over_mdc': float(over_mdc),
-        'slice_data': slice_data
+        'slice_data': slice_data,
+        'overlap_count': overlap_count
     }
 
 def undercontouring_mean_distance_to_conformity(volume1, volume2, spacing=(1.0, 1.0, 1.0)):
