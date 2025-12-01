@@ -77,41 +77,128 @@
         
         <!-- Step 1: Select Series -->
         <div class="bg-white rounded-lg shadow-md p-6">
-            <div class="flex items-center mb-4">
-                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-sm">1</div>
-                <h3 class="ml-3 text-lg font-semibold text-gray-900">Select Series with Autosegmented Contours</h3>
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center">
+                    <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-sm">1</div>
+                    <h3 class="ml-3 text-lg font-semibold text-gray-900">Select Series with Autosegmented Contours</h3>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="searchInput" placeholder="Search by Patient ID, Name, or Description..." class="px-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" style="width: 350px;">
+                    <button type="button" id="clearSearch" class="px-3 py-2 text-sm text-gray-600 hover:text-gray-900">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             
-            <div class="space-y-4">
-                <label for="series_id" class="block text-sm font-medium text-gray-700">
-                    Choose a series that has RT Structure files
-                </label>
-                <select id="series_id" name="series_id" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                    <option value="">Select a series...</option>
-                    {% for series in series_with_rtstructs %}
-                    <option value="{{ series.id }}" data-patient="{{ series.study.patient.patient_id }}" data-description="{{ series.series_description }}" data-rt-count="{{ series.rtstructurefileimport_set.count }}" {% if selected_series_id and series.id|stringformat:"s" == selected_series_id %}selected{% endif %}>
-                        {{ series.study.patient.patient_id }} - {{ series.series_description|default:"Unknown" }} ({{ series.rtstructurefileimport_set.count }} RT Structure{{ series.rtstructurefileimport_set.count|pluralize }})
-                    </option>
-                    {% endfor %}
-                </select>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Select</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Patient ID</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Series Description</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Modality</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Series Date</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RT Structures</th>
+                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Series UID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="seriesTableBody" class="bg-white divide-y divide-gray-200">
+                        {% for series in series_with_rtstructs %}
+                        <tr class="series-row hover:bg-indigo-50 cursor-pointer transition-colors" data-patient="{{ series.study.patient.patient_id|lower }}" data-patient-name="{{ series.study.patient.patient_name|default:'unknown'|lower }}" data-description="{{ series.series_description|default:'unknown'|lower }}" data-series-id="{{ series.id }}">
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <input type="radio" name="series_id" value="{{ series.id }}" id="series_{{ series.id }}" required class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300" {% if selected_series_id and series.id|stringformat:"s" == selected_series_id %}checked{% endif %}>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <label for="series_{{ series.id }}" class="cursor-pointer">
+                                    <div class="text-sm font-medium text-gray-900">{{ series.study.patient.patient_id }}</div>
+                                    <div class="text-xs text-gray-500">{{ series.study.patient.patient_name|default:"Unknown" }}</div>
+                                </label>
+                            </td>
+                            <td class="px-4 py-3">
+                                <label for="series_{{ series.id }}" class="cursor-pointer">
+                                    <div class="text-sm text-gray-900">{{ series.series_description|default:"No description" }}</div>
+                                </label>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <label for="series_{{ series.id }}" class="cursor-pointer">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        {{ series.modality|default:"N/A" }}
+                                    </span>
+                                </label>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <label for="series_{{ series.id }}" class="cursor-pointer text-sm text-gray-500">
+                                    {{ series.series_date|date:"M d, Y"|default:"N/A" }}
+                                </label>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <label for="series_{{ series.id }}" class="cursor-pointer">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        {{ series.rtstructurefileimport_set.count }} RT Structure{{ series.rtstructurefileimport_set.count|pluralize }}
+                                    </span>
+                                </label>
+                            </td>
+                            <td class="px-4 py-3">
+                                <label for="series_{{ series.id }}" class="cursor-pointer text-xs text-gray-500 font-mono break-all">
+                                    {{ series.series_instance_uid|truncatechars:40 }}
+                                </label>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
                 
-                <!-- Series Details Display -->
-                <div id="series-details" class="hidden mt-4 p-4 bg-gray-50 rounded-lg">
-                    <h4 class="text-sm font-medium text-gray-900 mb-2">Selected Series Details</h4>
-                    <dl class="space-y-2 text-sm">
-                        <div>
-                            <dt class="text-gray-500">Patient ID</dt>
-                            <dd id="detail-patient" class="text-gray-900 font-medium"></dd>
-                        </div>
-                        <div>
-                            <dt class="text-gray-500">Series Description</dt>
-                            <dd id="detail-description" class="text-gray-900"></dd>
-                        </div>
-                        <div>
-                            <dt class="text-gray-500">RT Structures Available</dt>
-                            <dd id="detail-rt-count" class="text-gray-900 font-medium"></dd>
-                        </div>
-                    </dl>
+                <div id="noResults" class="hidden text-center py-8">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <p class="mt-2 text-sm text-gray-500">No series found matching your search.</p>
+                </div>
+            </div>
+            
+            <!-- Pagination Controls -->
+            <div class="mt-4 flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-500">
+                        Showing <span id="showingStart">1</span>-<span id="showingEnd">10</span> of <span id="seriesCount">{{ series_with_rtstructs|length }}</span> series
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <label for="pageSize" class="text-sm text-gray-500">Rows per page:</label>
+                        <select id="pageSize" class="border border-gray-300 rounded-md text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="all">All</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-2">
+                    <button type="button" id="firstPage" class="px-3 py-1 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                    <button type="button" id="prevPage" class="px-3 py-1 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                    <div id="pageNumbers" class="flex items-center space-x-1"></div>
+                    <button type="button" id="nextPage" class="px-3 py-1 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                    <button type="button" id="lastPage" class="px-3 py-1 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
@@ -242,50 +329,230 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const seriesSelect = document.getElementById('series_id');
-    const detailsDiv = document.getElementById('series-details');
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearch');
+    const seriesRows = document.querySelectorAll('.series-row');
+    const noResults = document.getElementById('noResults');
+    const seriesCount = document.getElementById('seriesCount');
+    const tableBody = document.getElementById('seriesTableBody');
+    const pageSizeSelect = document.getElementById('pageSize');
+    const firstPageBtn = document.getElementById('firstPage');
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+    const lastPageBtn = document.getElementById('lastPage');
+    const pageNumbersDiv = document.getElementById('pageNumbers');
+    const showingStart = document.getElementById('showingStart');
+    const showingEnd = document.getElementById('showingEnd');
     
     // Exit if elements don't exist (no series available)
-    if (!seriesSelect || !detailsDiv) {
+    if (!searchInput || !tableBody) {
         return;
     }
     
-    // Show series details and reload to show existing comparisons
-    seriesSelect.addEventListener('change', function() {
-        const selectedOption = this.options[this.selectedIndex];
+    // Pagination state
+    let currentPage = 1;
+    let pageSize = 10;
+    let filteredRows = Array.from(seriesRows);
+    
+    // Pagination functions
+    function updatePagination() {
+        const totalRows = filteredRows.length;
+        const totalPages = pageSize === 'all' ? 1 : Math.ceil(totalRows / pageSize);
         
-        if (this.value) {
-            document.getElementById('detail-patient').textContent = selectedOption.dataset.patient;
-            document.getElementById('detail-description').textContent = selectedOption.dataset.description || 'N/A';
-            document.getElementById('detail-rt-count').textContent = selectedOption.dataset.rtCount;
-            detailsDiv.classList.remove('hidden');
-            
-            // Reload page with selected series to show existing comparisons
-            window.location.href = '?series_id=' + this.value;
+        // Reset to page 1 if current page is out of bounds
+        if (currentPage > totalPages) {
+            currentPage = totalPages || 1;
+        }
+        
+        // Hide all rows first
+        seriesRows.forEach(row => row.style.display = 'none');
+        
+        if (pageSize === 'all') {
+            // Show all filtered rows
+            filteredRows.forEach(row => row.style.display = '');
+            showingStart.textContent = totalRows > 0 ? '1' : '0';
+            showingEnd.textContent = totalRows;
         } else {
-            detailsDiv.classList.add('hidden');
+            // Show only current page rows
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, totalRows);
+            
+            for (let i = startIdx; i < endIdx; i++) {
+                filteredRows[i].style.display = '';
+            }
+            
+            showingStart.textContent = totalRows > 0 ? (startIdx + 1) : '0';
+            showingEnd.textContent = endIdx;
+        }
+        
+        seriesCount.textContent = totalRows;
+        
+        // Update pagination buttons
+        firstPageBtn.disabled = currentPage === 1;
+        prevPageBtn.disabled = currentPage === 1;
+        nextPageBtn.disabled = currentPage === totalPages || totalPages === 0;
+        lastPageBtn.disabled = currentPage === totalPages || totalPages === 0;
+        
+        // Update page numbers
+        updatePageNumbers(totalPages);
+        
+        // Show/hide no results
+        if (totalRows === 0) {
+            tableBody.style.display = 'none';
+            noResults.classList.remove('hidden');
+        } else {
+            tableBody.style.display = '';
+            noResults.classList.add('hidden');
+        }
+    }
+    
+    function updatePageNumbers(totalPages) {
+        pageNumbersDiv.innerHTML = '';
+        
+        if (totalPages <= 1 || pageSize === 'all') {
+            return;
+        }
+        
+        // Show max 5 page numbers
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, startPage + 4);
+        
+        // Adjust if we're near the end
+        if (endPage - startPage < 4) {
+            startPage = Math.max(1, endPage - 4);
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            const pageBtn = document.createElement('button');
+            pageBtn.type = 'button';
+            pageBtn.textContent = i;
+            pageBtn.className = i === currentPage 
+                ? 'px-3 py-1 border border-indigo-600 bg-indigo-600 text-white rounded-md text-sm font-medium'
+                : 'px-3 py-1 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50';
+            pageBtn.addEventListener('click', () => {
+                currentPage = i;
+                updatePagination();
+            });
+            pageNumbersDiv.appendChild(pageBtn);
+        }
+    }
+    
+    // Search functionality
+    function filterSeries() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        filteredRows = [];
+        
+        seriesRows.forEach(row => {
+            const patientId = row.dataset.patient || '';
+            const patientName = row.dataset.patientName || '';
+            const description = row.dataset.description || '';
+            
+            if (patientId.includes(searchTerm) || patientName.includes(searchTerm) || description.includes(searchTerm)) {
+                filteredRows.push(row);
+            }
+        });
+        
+        currentPage = 1; // Reset to first page on search
+        updatePagination();
+    }
+    
+    // Search input event
+    searchInput.addEventListener('input', filterSeries);
+    
+    // Clear search button
+    clearSearchBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        filterSeries();
+        searchInput.focus();
+    });
+    
+    // Page size change
+    pageSizeSelect.addEventListener('change', function() {
+        pageSize = this.value === 'all' ? 'all' : parseInt(this.value);
+        currentPage = 1;
+        updatePagination();
+    });
+    
+    // Pagination button events
+    firstPageBtn.addEventListener('click', () => {
+        currentPage = 1;
+        updatePagination();
+    });
+    
+    prevPageBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            updatePagination();
         }
     });
     
-    // Show details on page load if series is pre-selected
-    if (seriesSelect.value) {
-        const selectedOption = seriesSelect.options[seriesSelect.selectedIndex];
-        document.getElementById('detail-patient').textContent = selectedOption.dataset.patient;
-        document.getElementById('detail-description').textContent = selectedOption.dataset.description || 'N/A';
-        document.getElementById('detail-rt-count').textContent = selectedOption.dataset.rtCount;
-        detailsDiv.classList.remove('hidden');
-    }
+    nextPageBtn.addEventListener('click', () => {
+        const totalPages = pageSize === 'all' ? 1 : Math.ceil(filteredRows.length / pageSize);
+        if (currentPage < totalPages) {
+            currentPage++;
+            updatePagination();
+        }
+    });
+    
+    lastPageBtn.addEventListener('click', () => {
+        const totalPages = pageSize === 'all' ? 1 : Math.ceil(filteredRows.length / pageSize);
+        currentPage = totalPages;
+        updatePagination();
+    });
+    
+    // Click row to select radio button
+    seriesRows.forEach(row => {
+        row.addEventListener('click', function(e) {
+            // Don't trigger if clicking the radio button itself
+            if (e.target.type !== 'radio') {
+                const radio = this.querySelector('input[type="radio"]');
+                if (radio) {
+                    radio.checked = true;
+                    // Trigger change event to reload page
+                    radio.dispatchEvent(new Event('change'));
+                }
+            }
+        });
+    });
+    
+    // Reload page when series is selected to show existing comparisons
+    document.querySelectorAll('input[name="series_id"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.checked) {
+                window.location.href = '?series_id=' + this.value;
+            }
+        });
+    });
     
     // Form validation
     document.querySelector('form').addEventListener('submit', function(e) {
-        const seriesId = seriesSelect.value;
+        const selectedRadio = document.querySelector('input[name="series_id"]:checked');
         
-        if (!seriesId) {
+        if (!selectedRadio) {
             e.preventDefault();
             alert('Please select a series with RT Structure files.');
             return;
         }
     });
+    
+    // Highlight selected row
+    document.querySelectorAll('input[name="series_id"]').forEach(radio => {
+        if (radio.checked) {
+            radio.closest('tr').classList.add('bg-indigo-100');
+        }
+        
+        radio.addEventListener('change', function() {
+            // Remove highlight from all rows
+            seriesRows.forEach(row => row.classList.remove('bg-indigo-100'));
+            // Add highlight to selected row
+            if (this.checked) {
+                this.closest('tr').classList.add('bg-indigo-100');
+            }
+        });
+    });
+    
+    // Initialize pagination on page load
+    updatePagination();
 });
 </script>
 {% endblock %}

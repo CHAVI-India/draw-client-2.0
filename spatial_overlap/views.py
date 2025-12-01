@@ -319,14 +319,14 @@ def select_rtstruct_for_comparison(request):
                     from datetime import datetime
                     structure_set_date = datetime.strptime(date_str, '%Y%m%d').date()
                 
-                # Create RTStructureSetFile for reference
+                # Create RTStructureSetFile for reference (ground truth)
                 reference_rtstruct = RTStructureSetFile.objects.create(
-                    patient_name=f"{patient_name} (Reference)",
-                    patient_id=f"{patient_id} (Reference)",
+                    patient_name=patient_name,
+                    patient_id=patient_id,
                     study_instance_uid=study_instance_uid,
                     series_instance_uid=series_instance_uid,
                     sop_instance_uid=sop_instance_uid,
-                    structure_set_label=f"{structure_set_label} (Reference)",
+                    structure_set_label=structure_set_label,
                     referenced_series_instance_uid=series.series_instance_uid,
                     structure_set_date=structure_set_date,
                     rtstructure_file_path=reference_rt_path,
@@ -396,8 +396,9 @@ def select_rtstruct_for_comparison(request):
                     autoseg_rtstruct.save()
                 
                 # Store in session for next step
-                request.session['comparison_rtstruct1_id'] = str(autoseg_rtstruct.id) if autoseg_rtstruct else None
-                request.session['comparison_rtstruct2_id'] = str(reference_rtstruct.id)
+                # rtstruct1 = Reference (ground truth), rtstruct2 = Test (autosegmented)
+                request.session['comparison_rtstruct1_id'] = str(reference_rtstruct.id)
+                request.session['comparison_rtstruct2_id'] = str(autoseg_rtstruct.id) if autoseg_rtstruct else None
                 request.session['comparison_series_id'] = str(series.id)
                 
                 messages.success(request, f"Reference RT Structure uploaded successfully. Found {reference_rtstruct.vois.count()} VOIs.")
