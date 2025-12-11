@@ -19,11 +19,11 @@ dataclasses==0.6
 Django==5.2.9
 django-allauth==65.13.1
 django-celery-beat==2.8.1
-django-cotton==2.5.0
+django-cotton==2.5.1
 django-crispy-forms==2.5
 django-encrypted-model-fields==0.6.5
-django-timezone-field==7.1
-django-unfold==0.72.0
+django-timezone-field==7.2.1
+django-unfold==0.73.1
 django_celery_results==2.6.0
 docopt==0.6.2
 dotenv==0.9.9
@@ -36,9 +36,9 @@ joblib==1.5.2
 kiwisolver==1.4.9
 kombu==5.6.1
 lazy_loader==0.4
-matplotlib==3.10.7
+matplotlib==3.10.8
 narwhals==2.13.0
-networkx==3.6
+networkx==3.6.1
 numpy==2.2.6
 opencv-python==4.12.0.88
 packaging==25.0
@@ -63,7 +63,7 @@ rt-utils==1.2.7
 ruamel.yaml==0.18.16
 ruamel.yaml.clib==0.2.15
 scikit-image==0.25.2
-scikit-learn==1.7.2
+scikit-learn==1.8.0
 scipy==1.16.3
 shapely==2.1.2
 simpleitk==2.5.3
@@ -74,7 +74,7 @@ tifffile==2025.10.16
 typing_extensions==4.15.0
 tzdata==2025.2
 tzlocal==5.3.1
-urllib3==2.5.0
+urllib3==2.6.1
 vine==5.1.0
 vtk==9.5.2
 wcwidth==0.2.14
