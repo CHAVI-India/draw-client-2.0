@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Transaction Log - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Transaction Log</h1>
+                <p class="text-gray-600">View all DICOM service transactions and operations</p>
+            </div>
+            <a href="{% url 'dicom_server:dashboard' %}" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                ← Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Filters</h2>
+        <form method="get" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Transaction Type</label>
+                <select name="type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Types</option>
+                    {% for value, label in transaction_types %}
+                        <option value="{{ value }}" {% if selected_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select name="status" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="">All Statuses</option>
+                    {% for value, label in statuses %}
+                        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Calling AE Title</label>
+                <input type="text" name="ae_title" value="{{ selected_ae_title }}" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                       placeholder="Enter AE Title">
+            </div>
+            <div class="flex items-end">
+                <button type="submit" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    Apply Filters
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Transactions Table -->
+    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        {% if transactions %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Calling AE</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Remote IP</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SOP Class</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for transaction in transactions %}
+                            <tr class="hover:bg-gray-50 cursor-pointer" onclick="toggleDetails('{{ transaction.transaction_id }}')">
+                                <td class="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                                    {{ transaction.timestamp|date:"Y-m-d H:i:s" }}
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                                        {{ transaction.transaction_type }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    {% if transaction.status == 'SUCCESS' %}
+                                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Success</span>
+                                    {% elif transaction.status == 'FAILURE' %}
+                                        <span class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">Failed</span>
+                                    {% elif transaction.status == 'REJECTED' %}
+                                        <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">Rejected</span>
+                                    {% else %}
+                                        <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">{{ transaction.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.calling_ae_title }}</td>
+                                <td class="px-4 py-3 text-sm text-gray-600">{{ transaction.remote_ip }}:{{ transaction.remote_port }}</td>
+                                <td class="px-4 py-3 text-sm text-gray-600">{{ transaction.patient_id|default:"-" }}</td>
+                                <td class="px-4 py-3 text-sm text-gray-600">
+                                    {% if transaction.sop_class_uid %}
+                                        {{ transaction.sop_class_uid|slice:":20" }}...
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600">
+                                    {% if transaction.duration_seconds %}
+                                        {{ transaction.duration_seconds|floatformat:2 }}s
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr id="details-{{ transaction.transaction_id }}" class="hidden bg-gray-50">
+                                <td colspan="8" class="px-4 py-4">
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <span class="font-medium text-gray-700">Transaction ID:</span>
+                                            <span class="text-gray-600">{{ transaction.transaction_id }}</span>
+                                        </div>
+                                        <div>
+                                            <span class="font-medium text-gray-700">Called AE:</span>
+                                            <span class="text-gray-600">{{ transaction.called_ae_title }}</span>
+                                        </div>
+                                        {% if transaction.study_instance_uid %}
+                                            <div>
+                                                <span class="font-medium text-gray-700">Study UID:</span>
+                                                <span class="text-gray-600 text-xs">{{ transaction.study_instance_uid }}</span>
+                                            </div>
+                                        {% endif %}
+                                        {% if transaction.series_instance_uid %}
+                                            <div>
+                                                <span class="font-medium text-gray-700">Series UID:</span>
+                                                <span class="text-gray-600 text-xs">{{ transaction.series_instance_uid }}</span>
+                                            </div>
+                                        {% endif %}
+                                        {% if transaction.file_path %}
+                                            <div>
+                                                <span class="font-medium text-gray-700">File Path:</span>
+                                                <span class="text-gray-600 text-xs">{{ transaction.file_path }}</span>
+                                            </div>
+                                        {% endif %}
+                                        {% if transaction.file_size_bytes %}
+                                            <div>
+                                                <span class="font-medium text-gray-700">File Size:</span>
+                                                <span class="text-gray-600">{{ transaction.file_size_bytes|filesizeformat }}</span>
+                                            </div>
+                                        {% endif %}
+                                        {% if transaction.transfer_speed_mbps %}
+                                            <div>
+                                                <span class="font-medium text-gray-700">Transfer Speed:</span>
+                                                <span class="text-gray-600">{{ transaction.transfer_speed_mbps|floatformat:2 }} MB/s</span>
+                                            </div>
+                                        {% endif %}
+                                        {% if transaction.error_message %}
+                                            <div class="md:col-span-2">
+                                                <span class="font-medium text-red-700">Error:</span>
+                                                <span class="text-red-600">{{ transaction.error_message }}</span>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <p class="text-sm text-gray-600">Showing {{ transactions|length }} most recent transactions (limited to 100)</p>
+            </div>
+        {% else %}
+            <div class="text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No Transactions</h3>
+                <p class="mt-1 text-sm text-gray-500">No DICOM transactions found matching your filters.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    function toggleDetails(transactionId) {
+        const detailsRow = document.getElementById('details-' + transactionId);
+        if (detailsRow.classList.contains('hidden')) {
+            detailsRow.classList.remove('hidden');
+        } else {
+            detailsRow.classList.add('hidden');
+        }
+    }
+</script>
+{% endblock %}

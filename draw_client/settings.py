@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'user',
     'dicom_handler',
     'spatial_overlap',
+    'dicom_server',
 ]
 
 # Crispy Forms Configuration for Tailwind CSS

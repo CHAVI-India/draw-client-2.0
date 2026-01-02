@@ -34,7 +34,9 @@ services:
       memcached:
         condition: service_started
     env_file:
-      - .env    
+      - .env
+    ports:
+      - "11112:11112"  # DICOM SCP port - for receiving DICOM files from modalities/PACS
     volumes:
       - app_data:/app
       - ./logs:/app/logs

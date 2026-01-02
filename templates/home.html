@@ -117,6 +117,18 @@
                 </div>
             </a>
 
+            <a href="{% url 'dicom_server:dashboard' %}" class="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-primary-300 hover:bg-primary-50 transition-colors group">
+                <div class="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-cyan-200 transition-colors">
+                    <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path>
+                    </svg>
+                </div>
+                <div class="text-left">
+                    <div class="font-medium text-gray-900">DICOM Server</div>
+                    <div class="text-sm text-gray-500">Manage DICOM SCP service</div>
+                </div>
+            </a>
+
             <a href="{% url 'spatial_overlap:compare_with_reference' %}" class="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-primary-300 hover:bg-primary-50 transition-colors group">
                 <div class="w-10 h-10 bg-teal-100 rounded-lg flex items-center justify-center mr-4 group-hover:bg-teal-200 transition-colors">
                     <svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

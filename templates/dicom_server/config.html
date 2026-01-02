@@ -1,0 +1,218 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}DICOM Server Configuration - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Server Configuration</h1>
+                <p class="text-gray-600">Configure your DICOM SCP service settings</p>
+            </div>
+            <a href="{% url 'dicom_server:dashboard' %}" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                ← Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <!-- Configuration Form -->
+    <form method="post" class="space-y-6">
+        {% csrf_token %}
+        
+        <!-- Service Status -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Service Status</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.service_enabled }}
+                        <span class="text-sm font-medium text-gray-700">Enable DICOM Service</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.service_enabled.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.auto_start }}
+                        <span class="text-sm font-medium text-gray-700">Auto-start Service</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.auto_start.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Configuration -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Network Configuration</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">AE Title</label>
+                    {{ form.ae_title }}
+                    {% if form.ae_title.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.ae_title.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.ae_title.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Host</label>
+                    {{ form.host }}
+                    {% if form.host.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.host.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.host.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Port</label>
+                    {{ form.port }}
+                    {% if form.port.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.port.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.port.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Max Associations</label>
+                    {{ form.max_associations }}
+                    {% if form.max_associations.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.max_associations.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.max_associations.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage Configuration -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Storage Configuration</h2>
+            <p class="text-sm text-gray-600 mb-4">
+                <strong>Note:</strong> Storage path is automatically set from System Configuration. Files will be saved to the configured DICOM folder.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Storage Structure</label>
+                    {{ form.storage_structure }}
+                    {% if form.storage_structure.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.storage_structure.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.storage_structure.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">File Naming Convention</label>
+                    {{ form.file_naming_convention }}
+                    {% if form.file_naming_convention.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.file_naming_convention.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.file_naming_convention.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Max Storage Size (GB)</label>
+                    {{ form.max_storage_size_gb }}
+                    {% if form.max_storage_size_gb.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.max_storage_size_gb.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">Current usage: {{ config.storage_usage_gb }} GB ({{ config.storage_usage_percent }}%)</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_storage_cleanup }}
+                        <span class="text-sm font-medium text-gray-700">Enable Storage Cleanup</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.enable_storage_cleanup.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security & Access Control -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Security & Access Control</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.require_calling_ae_validation }}
+                        <span class="text-sm font-medium text-gray-700">Require Calling AE Validation</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.require_calling_ae_validation.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.require_ip_validation }}
+                        <span class="text-sm font-medium text-gray-700">Require IP Validation</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.require_ip_validation.help_text }}</p>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Allowed IP Addresses</label>
+                    {{ form.allowed_ip_addresses }}
+                    {% if form.allowed_ip_addresses.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.allowed_ip_addresses.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.allowed_ip_addresses.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- DIMSE Services -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">DIMSE Services</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_c_echo }}
+                        <span class="text-sm font-medium text-gray-700">C-ECHO</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Verification service</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_c_store }}
+                        <span class="text-sm font-medium text-gray-700">C-STORE</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Receive DICOM files</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_c_find }}
+                        <span class="text-sm font-medium text-gray-700">C-FIND</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Query service</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_c_move }}
+                        <span class="text-sm font-medium text-gray-700">C-MOVE</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Move service</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_c_get }}
+                        <span class="text-sm font-medium text-gray-700">C-GET</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Get service</p>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Submit Button -->
+        <div class="flex justify-end space-x-4">
+            <a href="{% url 'dicom_server:dashboard' %}" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
+                Cancel
+            </a>
+            <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                Save Configuration
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    input[type="text"], input[type="number"], input[type="email"], select, textarea {
+        @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+    }
+    input[type="checkbox"] {
+        @apply w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500;
+    }
+</style>
+{% endblock %}
