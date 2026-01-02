@@ -11,6 +11,18 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1 
  
+# Install build dependencies required for compiling Python packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    libc6-dev \
+    libpq-dev \
+    python3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+ 
 # Install dependencies first for caching benefit
 RUN pip install --upgrade pip 
 COPY requirements.txt /app/ 
