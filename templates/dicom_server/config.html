@@ -25,14 +25,10 @@
         <!-- Service Status -->
         <div class="bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-semibold text-gray-900 mb-4">Service Status</h2>
+            <p class="text-sm text-gray-600 mb-4">
+                <strong>Note:</strong> Use the Start/Stop/Restart buttons on the dashboard to control the DICOM service.
+            </p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    <label class="flex items-center space-x-3 cursor-pointer">
-                        {{ form.service_enabled }}
-                        <span class="text-sm font-medium text-gray-700">Enable DICOM Service</span>
-                    </label>
-                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.service_enabled.help_text }}</p>
-                </div>
                 <div>
                     <label class="flex items-center space-x-3 cursor-pointer">
                         {{ form.auto_start }}
