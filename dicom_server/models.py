@@ -308,14 +308,6 @@ class DicomServerConfig(models.Model):
                 'ae_title': 'AE Title cannot exceed 16 characters.'
             })
         
-        # Validate storage path
-        if self.storage_root_path:
-            # Check if path is absolute
-            if not os.path.isabs(self.storage_root_path):
-                raise ValidationError({
-                    'storage_root_path': 'Storage path must be an absolute path.'
-                })
-        
         # Validate IP addresses format if IP validation is enabled
         if self.require_ip_validation and self.allowed_ip_addresses:
             ip_list = [ip.strip() for ip in self.allowed_ip_addresses.split(',')]

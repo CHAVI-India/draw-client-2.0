@@ -9,7 +9,7 @@
             </div>
             
             <!-- Navigation Links -->
-            <div class="hidden md:flex items-center space-x-4">
+            <div class="hidden md:flex items-center space-x-1">
                 <a href="{% url 'home' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">
                     Home
                 </a>
@@ -36,7 +36,7 @@
             </div>
             
             <!-- User Menu -->
-            <div class="hidden md:flex items-center space-x-4">
+            <div class="hidden md:flex items-center space-x-2">
                 {% if user.is_authenticated %}
                     <!-- API Health Status Indicator -->
                     <div id="health-status-indicator" class="flex items-center space-x-2 px-3 py-1 rounded-md text-xs font-medium bg-gray-100 border border-gray-200" title="DRAW API Health Status">
