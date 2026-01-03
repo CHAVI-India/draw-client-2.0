@@ -374,7 +374,9 @@ class DicomSCPService:
     def _handle_connection_open(self, event):
         """Handle connection open event."""
         if self.config.log_connection_attempts:
-            logger.info(f"Connection opened from {event.address}:{event.port}")
+            # event.address is a tuple (ip, port)
+            address_info = event.address if isinstance(event.address, tuple) else (event.address, 'unknown')
+            logger.info(f"Connection opened from {address_info[0]}:{address_info[1]}")
         
         # Update active connections
         self.service_status.total_connections += 1
@@ -385,7 +387,9 @@ class DicomSCPService:
     def _handle_connection_close(self, event):
         """Handle connection close event."""
         if self.config.log_connection_attempts:
-            logger.info(f"Connection closed from {event.address}:{event.port}")
+            # event.address is a tuple (ip, port)
+            address_info = event.address if isinstance(event.address, tuple) else (event.address, 'unknown')
+            logger.info(f"Connection closed from {address_info[0]}:{address_info[1]}")
         
         # Update active connections
         self.service_status.active_connections = max(0, self.service_status.active_connections - 1)

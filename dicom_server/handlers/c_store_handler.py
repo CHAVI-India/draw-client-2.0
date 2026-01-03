@@ -110,7 +110,7 @@ def handle_c_store(service, event):
         file_path = os.path.join(storage_path, filename)
         
         # Save the DICOM file
-        ds.save_as(file_path, write_like_original=False)
+        ds.save_as(file_path, enforce_file_format=True)
         file_size = os.path.getsize(file_path)
         
         # Calculate transfer speed
@@ -143,9 +143,8 @@ def handle_c_store(service, event):
         service.service_status.last_file_received_at = timezone.now()
         service.service_status.save()
         
-        # Trigger integration with DICOM Handler if configured
-        if service.config.auto_import_to_handler:
-            _trigger_dicom_handler_integration(service, file_path, ds)
+        # Note: DICOM Handler integration is handled by the dicom_handler app
+        # Files stored here will be automatically picked up by the handler's polling mechanism
         
         return 0x0000  # Success
         

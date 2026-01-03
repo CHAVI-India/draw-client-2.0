@@ -126,7 +126,7 @@ def create_mock_dicom_files():
     ds1.SeriesInstanceUID = generate_uid()
     ds1.SOPInstanceUID = file_meta1.MediaStorageSOPInstanceUID
     ds1.SOPClassUID = file_meta1.MediaStorageSOPClassUID
-    ds1.save_as(file1_path, write_like_original=False)
+    ds1.save_as(file1_path, enforce_file_format=True)
     mock_files.append(("breast", file1_path))
     
     # Mock file 2: CT Head
@@ -142,7 +142,7 @@ def create_mock_dicom_files():
     ds2.SeriesInstanceUID = generate_uid()
     ds2.SOPInstanceUID = file_meta2.MediaStorageSOPInstanceUID
     ds2.SOPClassUID = file_meta2.MediaStorageSOPClassUID
-    ds2.save_as(file2_path, write_like_original=False)
+    ds2.save_as(file2_path, enforce_file_format=True)
     mock_files.append(("head", file2_path))
     
     # Mock file 3: CT Gyn
@@ -158,7 +158,7 @@ def create_mock_dicom_files():
     ds3.SeriesInstanceUID = generate_uid()
     ds3.SOPInstanceUID = file_meta3.MediaStorageSOPInstanceUID
     ds3.SOPClassUID = file_meta3.MediaStorageSOPClassUID
-    ds3.save_as(file3_path, write_like_original=False)
+    ds3.save_as(file3_path, enforce_file_format=True)
     mock_files.append(("gyn", file3_path))
     
     print(f"✓ Created {len(mock_files)} mock DICOM files")
