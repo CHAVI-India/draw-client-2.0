@@ -104,6 +104,10 @@ class DicomSCPService:
         """
         Configure supported SOP classes based on configuration.
         """
+        # Verification SOP Class (C-ECHO)
+        if self.config.enable_c_echo:
+            self.ae.add_supported_context(Verification)
+        
         # Storage SOP Classes
         if self.config.support_ct_image_storage:
             self.ae.add_supported_context(CTImageStorage)
