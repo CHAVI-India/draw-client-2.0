@@ -765,3 +765,487 @@ class DicomServiceStatus(models.Model):
         if self.total_files_received == 0:
             return 0
         return round((self.total_bytes_received / self.total_files_received) / (1024**2), 2)
+
+
+# ============================================================================
+# DICOM Query/Retrieve Models
+# ============================================================================
+
+class RemoteDicomNode(models.Model):
+    """
+    Model representing a remote DICOM node (PACS, modality, or other SCP).
+    Used for Query/Retrieve operations.
+    """
+    
+    # Identification
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Friendly name for this DICOM node (e.g., 'Main PACS', 'CT Scanner 1')"
+    )
+    ae_title = models.CharField(
+        max_length=16,
+        validators=[
+            RegexValidator(
+                regex=r'^[A-Z0-9_\-]+$',
+                message='AE Title must contain only uppercase letters, numbers, underscores, and hyphens.',
+                code='invalid_ae_title'
+            )
+        ],
+        help_text="Application Entity Title of the remote DICOM node"
+    )
+    host = models.CharField(
+        max_length=255,
+        help_text="Hostname or IP address of the remote DICOM node"
+    )
+    port = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(65535)],
+        help_text="Port number for DICOM communication"
+    )
+    
+    # Capabilities
+    supports_c_find = models.BooleanField(
+        default=True,
+        help_text="Remote node supports C-FIND (query) operations"
+    )
+    supports_c_move = models.BooleanField(
+        default=True,
+        help_text="Remote node supports C-MOVE (retrieve) operations"
+    )
+    supports_c_get = models.BooleanField(
+        default=False,
+        help_text="Remote node supports C-GET (retrieve) operations"
+    )
+    
+    # Query/Retrieve Models
+    QUERY_RETRIEVE_MODELS = [
+        ('patient', 'Patient Root Query/Retrieve'),
+        ('study', 'Study Root Query/Retrieve'),
+        ('patient_study', 'Patient/Study Only Query/Retrieve'),
+    ]
+    query_retrieve_model = models.CharField(
+        max_length=20,
+        choices=QUERY_RETRIEVE_MODELS,
+        default='study',
+        help_text="Query/Retrieve Information Model supported by this node"
+    )
+    
+    # Connection Settings
+    timeout = models.IntegerField(
+        default=30,
+        validators=[MinValueValidator(5), MaxValueValidator(300)],
+        help_text="Connection timeout in seconds"
+    )
+    max_pdu_size = models.IntegerField(
+        default=16384,
+        validators=[MinValueValidator(4096), MaxValueValidator(131072)],
+        help_text="Maximum PDU size in bytes (default: 16384)"
+    )
+    
+    # Move Destination (for C-MOVE)
+    move_destination_ae = models.CharField(
+        max_length=16,
+        blank=True,
+        help_text="AE Title to use as move destination (usually our local AE title)"
+    )
+    
+    # Status
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this node is active and available for queries"
+    )
+    
+    # Metadata
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description or notes about this DICOM node"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_successful_connection = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time a successful connection was made to this node"
+    )
+    
+    class Meta:
+        ordering = ['name']
+        verbose_name = "Remote DICOM Node"
+        verbose_name_plural = "Remote DICOM Nodes"
+    
+    def __str__(self):
+        return f"{self.name} ({self.ae_title}@{self.host}:{self.port})"
+    
+    def update_last_connection(self):
+        """Update the last successful connection timestamp."""
+        self.last_successful_connection = timezone.now()
+        self.save(update_fields=['last_successful_connection'])
+
+
+class DicomQuery(models.Model):
+    """
+    Model to track DICOM query operations (C-FIND).
+    Stores query parameters and results.
+    """
+    
+    QUERY_LEVELS = [
+        ('PATIENT', 'Patient Level'),
+        ('STUDY', 'Study Level'),
+        ('SERIES', 'Series Level'),
+        ('IMAGE', 'Image Level'),
+    ]
+    
+    QUERY_STATUSES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    # Query Identification
+    query_id = models.UUIDField(
+        unique=True,
+        editable=False,
+        help_text="Unique identifier for this query"
+    )
+    remote_node = models.ForeignKey(
+        RemoteDicomNode,
+        on_delete=models.CASCADE,
+        related_name='queries',
+        help_text="Remote DICOM node that was queried"
+    )
+    
+    # Query Parameters
+    query_level = models.CharField(
+        max_length=10,
+        choices=QUERY_LEVELS,
+        help_text="DICOM query level (Patient, Study, Series, or Image)"
+    )
+    query_parameters = models.JSONField(
+        default=dict,
+        help_text="Query parameters as JSON (e.g., PatientID, StudyDate, etc.)"
+    )
+    
+    # Query Execution
+    initiated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dicom_queries',
+        help_text="User who initiated this query"
+    )
+    initiated_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Query Results
+    status = models.CharField(
+        max_length=20,
+        choices=QUERY_STATUSES,
+        default='pending',
+        help_text="Current status of the query"
+    )
+    results_count = models.IntegerField(
+        default=0,
+        help_text="Number of results returned by the query"
+    )
+    error_message = models.TextField(
+        blank=True,
+        help_text="Error message if query failed"
+    )
+    
+    # Performance
+    duration_seconds = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Query execution time in seconds"
+    )
+    
+    class Meta:
+        ordering = ['-initiated_at']
+        verbose_name = "DICOM Query"
+        verbose_name_plural = "DICOM Queries"
+        indexes = [
+            models.Index(fields=['-initiated_at']),
+            models.Index(fields=['status']),
+            models.Index(fields=['query_level']),
+        ]
+    
+    def __str__(self):
+        return f"Query {self.query_id} - {self.query_level} on {self.remote_node.name}"
+    
+    def mark_completed(self, results_count, duration=None):
+        """Mark query as completed."""
+        self.status = 'completed'
+        self.results_count = results_count
+        self.completed_at = timezone.now()
+        if duration:
+            self.duration_seconds = duration
+        self.save()
+    
+    def mark_failed(self, error_message):
+        """Mark query as failed."""
+        self.status = 'failed'
+        self.error_message = error_message
+        self.completed_at = timezone.now()
+        self.save()
+
+
+class DicomQueryResult(models.Model):
+    """
+    Model to store individual results from a DICOM query.
+    Each result represents one matching entity (patient, study, series, or image).
+    """
+    
+    query = models.ForeignKey(
+        DicomQuery,
+        on_delete=models.CASCADE,
+        related_name='results',
+        help_text="Query that returned this result"
+    )
+    
+    # Result Data
+    result_data = models.JSONField(
+        help_text="Complete DICOM dataset returned as JSON"
+    )
+    
+    # Common DICOM Tags (for quick filtering/searching)
+    patient_id = models.CharField(max_length=64, blank=True, db_index=True)
+    patient_name = models.CharField(max_length=255, blank=True)
+    study_instance_uid = models.CharField(max_length=64, blank=True, db_index=True)
+    study_date = models.DateField(null=True, blank=True)
+    study_description = models.CharField(max_length=255, blank=True)
+    series_instance_uid = models.CharField(max_length=64, blank=True, db_index=True)
+    series_description = models.CharField(max_length=255, blank=True)
+    modality = models.CharField(max_length=16, blank=True)
+    number_of_instances = models.IntegerField(null=True, blank=True)
+    
+    # Retrieve Status
+    retrieved = models.BooleanField(
+        default=False,
+        help_text="Whether this result has been retrieved"
+    )
+    retrieved_at = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = "DICOM Query Result"
+        verbose_name_plural = "DICOM Query Results"
+        indexes = [
+            models.Index(fields=['patient_id']),
+            models.Index(fields=['study_instance_uid']),
+            models.Index(fields=['series_instance_uid']),
+            models.Index(fields=['study_date']),
+            models.Index(fields=['modality']),
+        ]
+    
+    def __str__(self):
+        if self.patient_name:
+            return f"{self.patient_name} - {self.study_description or 'Study'}"
+        return f"Result {self.id}"
+    
+    def mark_retrieved(self):
+        """Mark this result as retrieved."""
+        self.retrieved = True
+        self.retrieved_at = timezone.now()
+        self.save()
+
+
+class DicomRetrieveJob(models.Model):
+    """
+    Model to track DICOM retrieve operations (C-MOVE or C-GET).
+    Represents a job to retrieve one or more studies/series from a remote node.
+    """
+    
+    RETRIEVE_METHODS = [
+        ('C-MOVE', 'C-MOVE'),
+        ('C-GET', 'C-GET'),
+    ]
+    
+    RETRIEVE_LEVELS = [
+        ('STUDY', 'Study Level'),
+        ('SERIES', 'Series Level'),
+        ('IMAGE', 'Image Level'),
+    ]
+    
+    JOB_STATUSES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('partial', 'Partially Completed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    # Job Identification
+    job_id = models.UUIDField(
+        unique=True,
+        editable=False,
+        help_text="Unique identifier for this retrieve job"
+    )
+    remote_node = models.ForeignKey(
+        RemoteDicomNode,
+        on_delete=models.CASCADE,
+        related_name='retrieve_jobs',
+        help_text="Remote DICOM node to retrieve from"
+    )
+    
+    # Retrieve Parameters
+    retrieve_method = models.CharField(
+        max_length=10,
+        choices=RETRIEVE_METHODS,
+        help_text="Method used for retrieval (C-MOVE or C-GET)"
+    )
+    retrieve_level = models.CharField(
+        max_length=10,
+        choices=RETRIEVE_LEVELS,
+        help_text="Level of retrieval (Study, Series, or Image)"
+    )
+    
+    # What to Retrieve
+    study_instance_uid = models.CharField(
+        max_length=64,
+        help_text="Study Instance UID to retrieve"
+    )
+    series_instance_uid = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Series Instance UID to retrieve (if series-level)"
+    )
+    sop_instance_uid = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="SOP Instance UID to retrieve (if image-level)"
+    )
+    
+    # Associated Query Result
+    query_result = models.ForeignKey(
+        DicomQueryResult,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='retrieve_jobs',
+        help_text="Query result that initiated this retrieve"
+    )
+    
+    # Job Execution
+    initiated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dicom_retrieve_jobs',
+        help_text="User who initiated this retrieve job"
+    )
+    initiated_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Job Status
+    status = models.CharField(
+        max_length=20,
+        choices=JOB_STATUSES,
+        default='pending',
+        help_text="Current status of the retrieve job"
+    )
+    
+    # Progress Tracking
+    total_instances = models.IntegerField(
+        default=0,
+        help_text="Total number of instances to retrieve"
+    )
+    completed_instances = models.IntegerField(
+        default=0,
+        help_text="Number of instances successfully retrieved"
+    )
+    failed_instances = models.IntegerField(
+        default=0,
+        help_text="Number of instances that failed to retrieve"
+    )
+    
+    # Error Handling
+    error_message = models.TextField(
+        blank=True,
+        help_text="Error message if retrieve failed"
+    )
+    
+    # Performance
+    duration_seconds = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Total retrieve time in seconds"
+    )
+    transfer_speed_mbps = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Average transfer speed in MB/s"
+    )
+    
+    # Storage
+    destination_path = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Local path where retrieved files are stored"
+    )
+    
+    class Meta:
+        ordering = ['-initiated_at']
+        verbose_name = "DICOM Retrieve Job"
+        verbose_name_plural = "DICOM Retrieve Jobs"
+        indexes = [
+            models.Index(fields=['-initiated_at']),
+            models.Index(fields=['status']),
+            models.Index(fields=['study_instance_uid']),
+        ]
+    
+    def __str__(self):
+        return f"Retrieve Job {self.job_id} - {self.retrieve_method} from {self.remote_node.name}"
+    
+    @property
+    def progress_percent(self):
+        """Calculate progress percentage."""
+        if self.total_instances == 0:
+            return 0
+        return round((self.completed_instances / self.total_instances) * 100, 1)
+    
+    def mark_started(self, total_instances=0):
+        """Mark job as started."""
+        self.status = 'in_progress'
+        self.started_at = timezone.now()
+        if total_instances:
+            self.total_instances = total_instances
+        self.save()
+    
+    def update_progress(self, completed=0, failed=0):
+        """Update job progress."""
+        if completed:
+            self.completed_instances += completed
+        if failed:
+            self.failed_instances += failed
+        self.save()
+    
+    def mark_completed(self, duration=None):
+        """Mark job as completed."""
+        if self.failed_instances > 0 and self.completed_instances < self.total_instances:
+            self.status = 'partial'
+        else:
+            self.status = 'completed'
+        
+        self.completed_at = timezone.now()
+        if duration:
+            self.duration_seconds = duration
+        self.save()
+        
+        # Mark associated query result as retrieved
+        if self.query_result:
+            self.query_result.mark_retrieved()
+    
+    def mark_failed(self, error_message):
+        """Mark job as failed."""
+        self.status = 'failed'
+        self.error_message = error_message
+        self.completed_at = timezone.now()
+        self.save()

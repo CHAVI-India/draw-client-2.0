@@ -18,6 +18,31 @@
         </div>
     </div>
 
+    <!-- Messages -->
+    {% if messages %}
+        <div class="mb-6">
+            {% for message in messages %}
+                <div class="p-4 rounded-lg {% if message.tags == 'success' %}bg-green-50 text-green-800{% elif message.tags == 'error' %}bg-red-50 text-red-800{% else %}bg-blue-50 text-blue-800{% endif %}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <!-- Form Errors -->
+    {% if form.errors %}
+        <div class="mb-6 p-4 bg-red-50 text-red-800 rounded-lg">
+            <p class="font-semibold mb-2">Please correct the following errors:</p>
+            <ul class="list-disc list-inside">
+                {% for field, errors in form.errors.items %}
+                    {% for error in errors %}
+                        <li>{{ field }}: {{ error }}</li>
+                    {% endfor %}
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
     <!-- Configuration Form -->
     <form method="post" class="space-y-6">
         {% csrf_token %}
@@ -75,6 +100,38 @@
                     {% endif %}
                     <p class="text-xs text-gray-500 mt-1">{{ form.max_associations.help_text }}</p>
                 </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Max PDU Size</label>
+                    {{ form.max_pdu_size }}
+                    {% if form.max_pdu_size.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.max_pdu_size.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.max_pdu_size.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Network Timeout (seconds)</label>
+                    {{ form.network_timeout }}
+                    {% if form.network_timeout.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.network_timeout.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.network_timeout.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ACSE Timeout (seconds)</label>
+                    {{ form.acse_timeout }}
+                    {% if form.acse_timeout.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.acse_timeout.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.acse_timeout.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">DIMSE Timeout (seconds)</label>
+                    {{ form.dimse_timeout }}
+                    {% if form.dimse_timeout.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.dimse_timeout.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.dimse_timeout.help_text }}</p>
+                </div>
             </div>
         </div>
 
@@ -115,6 +172,14 @@
                         <span class="text-sm font-medium text-gray-700">Enable Storage Cleanup</span>
                     </label>
                     <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.enable_storage_cleanup.help_text }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Storage Retention Days</label>
+                    {{ form.storage_retention_days }}
+                    {% if form.storage_retention_days.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.storage_retention_days.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.storage_retention_days.help_text }}</p>
                 </div>
             </div>
         </div>
@@ -190,6 +255,141 @@
             </div>
         </div>
 
+        <!-- Transfer Syntax Support -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Transfer Syntax Support</h2>
+            <p class="text-sm text-gray-600 mb-4">At least one transfer syntax must be enabled.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_implicit_vr_little_endian }}
+                        <span class="text-sm font-medium text-gray-700">Implicit VR Little Endian</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_explicit_vr_little_endian }}
+                        <span class="text-sm font-medium text-gray-700">Explicit VR Little Endian</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_explicit_vr_big_endian }}
+                        <span class="text-sm font-medium text-gray-700">Explicit VR Big Endian</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_jpeg_baseline }}
+                        <span class="text-sm font-medium text-gray-700">JPEG Baseline</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_jpeg_lossless }}
+                        <span class="text-sm font-medium text-gray-700">JPEG Lossless</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_jpeg2000_lossless }}
+                        <span class="text-sm font-medium text-gray-700">JPEG 2000 Lossless</span>
+                    </label>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_rle_lossless }}
+                        <span class="text-sm font-medium text-gray-700">RLE Lossless</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logging & Monitoring -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Logging & Monitoring</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Logging Level</label>
+                    {{ form.logging_level }}
+                    {% if form.logging_level.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.logging_level.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.logging_level.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.log_connection_attempts }}
+                        <span class="text-sm font-medium text-gray-700">Log Connection Attempts</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.log_connection_attempts.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.log_received_files }}
+                        <span class="text-sm font-medium text-gray-700">Log Received Files</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.log_received_files.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.enable_performance_metrics }}
+                        <span class="text-sm font-medium text-gray-700">Enable Performance Metrics</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.enable_performance_metrics.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Notifications</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.notify_on_receive }}
+                        <span class="text-sm font-medium text-gray-700">Notify on Receive</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.notify_on_receive.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.notify_on_error }}
+                        <span class="text-sm font-medium text-gray-700">Notify on Error</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.notify_on_error.help_text }}</p>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Notification Email</label>
+                    {{ form.notification_email }}
+                    {% if form.notification_email.errors %}
+                        <p class="text-red-600 text-xs mt-1">{{ form.notification_email.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.notification_email.help_text }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Validation Settings -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Validation Settings</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.validate_dicom_on_receive }}
+                        <span class="text-sm font-medium text-gray-700">Validate DICOM on Receive</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.validate_dicom_on_receive.help_text }}</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.reject_invalid_dicom }}
+                        <span class="text-sm font-medium text-gray-700">Reject Invalid DICOM</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">{{ form.reject_invalid_dicom.help_text }}</p>
+                </div>
+            </div>
+        </div>
 
         <!-- Submit Button -->
         <div class="flex justify-end space-x-4">

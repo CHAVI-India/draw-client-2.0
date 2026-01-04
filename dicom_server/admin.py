@@ -1,5 +1,15 @@
 from django.contrib import admin
-from .models import DicomServerConfig, AllowedAETitle, DicomTransaction, DicomServiceStatus, DestinationAETitle
+from .models import (
+    DicomServerConfig, 
+    AllowedAETitle, 
+    DicomTransaction, 
+    DicomServiceStatus, 
+    DestinationAETitle,
+    RemoteDicomNode,
+    DicomQuery,
+    DicomQueryResult,
+    DicomRetrieveJob
+)
 
 
 @admin.register(DicomServerConfig)
@@ -169,4 +179,141 @@ class DicomServiceStatusAdmin(admin.ModelAdmin):
     
     def has_delete_permission(self, request, obj=None):
         # Prevent deletion of singleton
+        return False
+
+
+# ============================================================================
+# Query/Retrieve Admin
+# ============================================================================
+
+@admin.register(RemoteDicomNode)
+class RemoteDicomNodeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'ae_title', 'host', 'port', 'is_active', 'supports_c_find', 
+                   'supports_c_move', 'supports_c_get', 'last_successful_connection')
+    list_filter = ('is_active', 'supports_c_find', 'supports_c_move', 'supports_c_get', 
+                   'query_retrieve_model')
+    search_fields = ('name', 'ae_title', 'host', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'last_successful_connection')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'ae_title', 'host', 'port', 'description')
+        }),
+        ('Capabilities', {
+            'fields': ('supports_c_find', 'supports_c_move', 'supports_c_get', 'query_retrieve_model')
+        }),
+        ('Connection Settings', {
+            'fields': ('timeout', 'max_pdu_size', 'move_destination_ae')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'last_successful_connection')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(DicomQuery)
+class DicomQueryAdmin(admin.ModelAdmin):
+    list_display = ('query_id', 'remote_node', 'query_level', 'status', 'results_count', 
+                   'initiated_by', 'initiated_at', 'duration_seconds')
+    list_filter = ('status', 'query_level', 'remote_node', 'initiated_at')
+    search_fields = ('query_id', 'remote_node__name')
+    readonly_fields = ('query_id', 'initiated_at', 'completed_at', 'duration_seconds')
+    date_hierarchy = 'initiated_at'
+    
+    fieldsets = (
+        ('Query Information', {
+            'fields': ('query_id', 'remote_node', 'query_level', 'status')
+        }),
+        ('Query Parameters', {
+            'fields': ('query_parameters',)
+        }),
+        ('Execution', {
+            'fields': ('initiated_by', 'initiated_at', 'completed_at', 'duration_seconds')
+        }),
+        ('Results', {
+            'fields': ('results_count', 'error_message')
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(DicomQueryResult)
+class DicomQueryResultAdmin(admin.ModelAdmin):
+    list_display = ('id', 'query', 'patient_name', 'patient_id', 'study_date', 
+                   'modality', 'retrieved', 'created_at')
+    list_filter = ('retrieved', 'modality', 'study_date', 'created_at')
+    search_fields = ('patient_id', 'patient_name', 'study_instance_uid', 
+                    'series_instance_uid', 'study_description')
+    readonly_fields = ('created_at', 'retrieved_at')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Query', {
+            'fields': ('query',)
+        }),
+        ('Patient Information', {
+            'fields': ('patient_id', 'patient_name')
+        }),
+        ('Study Information', {
+            'fields': ('study_instance_uid', 'study_date', 'study_description', 'modality')
+        }),
+        ('Series Information', {
+            'fields': ('series_instance_uid', 'series_description', 'number_of_instances')
+        }),
+        ('Retrieve Status', {
+            'fields': ('retrieved', 'retrieved_at')
+        }),
+        ('Raw Data', {
+            'fields': ('result_data',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(DicomRetrieveJob)
+class DicomRetrieveJobAdmin(admin.ModelAdmin):
+    list_display = ('job_id', 'remote_node', 'retrieve_method', 'retrieve_level', 
+                   'status', 'progress_percent', 'initiated_by', 'initiated_at')
+    list_filter = ('status', 'retrieve_method', 'retrieve_level', 'remote_node', 'initiated_at')
+    search_fields = ('job_id', 'study_instance_uid', 'series_instance_uid')
+    readonly_fields = ('job_id', 'initiated_at', 'started_at', 'completed_at', 
+                      'duration_seconds', 'progress_percent')
+    date_hierarchy = 'initiated_at'
+    
+    fieldsets = (
+        ('Job Information', {
+            'fields': ('job_id', 'remote_node', 'retrieve_method', 'retrieve_level', 'status')
+        }),
+        ('What to Retrieve', {
+            'fields': ('study_instance_uid', 'series_instance_uid', 'sop_instance_uid')
+        }),
+        ('Execution', {
+            'fields': ('initiated_by', 'initiated_at', 'started_at', 'completed_at', 'duration_seconds')
+        }),
+        ('Progress', {
+            'fields': ('total_instances', 'completed_instances', 'failed_instances', 'progress_percent')
+        }),
+        ('Storage', {
+            'fields': ('destination_path',)
+        }),
+        ('Error Information', {
+            'fields': ('error_message',),
+            'classes': ('collapse',)
+        }),
+        ('Performance', {
+            'fields': ('transfer_speed_mbps',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
         return False

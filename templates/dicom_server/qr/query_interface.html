@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ page_title }} - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Query (C-FIND)</h1>
+                <p class="text-gray-600">Search for studies and series on remote DICOM nodes</p>
+            </div>
+            <div class="flex space-x-4">
+                <a href="{% url 'dicom_server:query_history' %}" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                    Query History
+                </a>
+                <a href="{% url 'dicom_server:remote_nodes_list' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    Manage Nodes
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Query Form -->
+        <div class="lg:col-span-2">
+            <form method="post" class="bg-white rounded-lg shadow-md p-6">
+                {% csrf_token %}
+                
+                <!-- Remote Node Selection -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Remote DICOM Node *</label>
+                    <select name="remote_node" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                        {% for node in nodes %}
+                            <option value="{{ node.id }}" {% if node.id == selected_node.id %}selected{% endif %}>
+                                {{ node.name }} ({{ node.ae_title }}@{{ node.host }}:{{ node.port }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Query Level -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Query Level *</label>
+                    {{ form.query_level }}
+                    <p class="text-xs text-gray-500 mt-1">{{ form.query_level.help_text }}</p>
+                </div>
+
+                <!-- Patient Fields -->
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Patient Information</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Patient ID</label>
+                            {{ form.patient_id }}
+                            {% if form.patient_id.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.patient_id.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1">{{ form.patient_id.help_text }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Patient Name</label>
+                            {{ form.patient_name }}
+                            {% if form.patient_name.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.patient_name.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1">{{ form.patient_name.help_text }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Study Fields -->
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Study Information</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Study Date From</label>
+                            {{ form.study_date_from }}
+                            {% if form.study_date_from.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.study_date_from.errors.0 }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Study Date To</label>
+                            {{ form.study_date_to }}
+                            {% if form.study_date_to.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.study_date_to.errors.0 }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Study Description</label>
+                            {{ form.study_description }}
+                            {% if form.study_description.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.study_description.errors.0 }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Accession Number</label>
+                            {{ form.accession_number }}
+                            {% if form.accession_number.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.accession_number.errors.0 }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Modality</label>
+                            {{ form.modality }}
+                            {% if form.modality.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.modality.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1">{{ form.modality.help_text }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Series Fields (shown for series-level queries) -->
+                <div class="mb-6" id="series-fields">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Series Information</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Study Instance UID</label>
+                            {{ form.study_instance_uid }}
+                            {% if form.study_instance_uid.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.study_instance_uid.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1">{{ form.study_instance_uid.help_text }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Series Description</label>
+                            {{ form.series_description }}
+                            {% if form.series_description.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.series_description.errors.0 }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Form Actions -->
+                <div class="flex justify-end space-x-4 pt-6 border-t">
+                    <button type="reset" class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">
+                        Clear
+                    </button>
+                    <button type="submit" class="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                        Search
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Help Panel -->
+        <div class="lg:col-span-1">
+            <div class="bg-blue-50 rounded-lg p-6 sticky top-4">
+                <h3 class="text-lg font-semibold text-blue-900 mb-4">Query Tips</h3>
+                <ul class="space-y-3 text-sm text-blue-800">
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span>Use <code class="bg-blue-100 px-1 rounded">*</code> as wildcard for partial matches</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span>Leave fields empty to match all values</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span>Patient/Study queries are most common</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span>Series queries require Study UID</span>
+                    </li>
+                    <li class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span>Date ranges help narrow results</span>
+                    </li>
+                </ul>
+
+                <div class="mt-6 pt-6 border-t border-blue-200">
+                    <h4 class="font-semibold text-blue-900 mb-2">Common Modalities</h4>
+                    <div class="flex flex-wrap gap-2">
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">CT</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">MR</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">CR</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">DX</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">US</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">PT</span>
+                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">NM</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Show/hide series fields based on query level
+document.getElementById('query_level').addEventListener('change', function() {
+    const seriesFields = document.getElementById('series-fields');
+    if (this.value === 'SERIES') {
+        seriesFields.style.display = 'block';
+    } else {
+        seriesFields.style.display = 'none';
+    }
+});
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const queryLevel = document.getElementById('query_level').value;
+    const seriesFields = document.getElementById('series-fields');
+    if (queryLevel !== 'SERIES') {
+        seriesFields.style.display = 'none';
+    }
+});
+</script>
+{% endblock %}

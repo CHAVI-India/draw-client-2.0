@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ page_title }} - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Query History</h1>
+                <p class="text-gray-600">View your previous DICOM queries</p>
+            </div>
+            <div class="flex space-x-4">
+                <a href="{% url 'dicom_server:dashboard' %}" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                    ← Back to Dashboard
+                </a>
+                <a href="{% url 'dicom_server:query_interface' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    New Query
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter -->
+    <div class="mb-6 flex space-x-4">
+        <a href="{% url 'dicom_server:query_history' %}" class="px-4 py-2 rounded {% if not status_filter %}bg-blue-600 text-white{% else %}bg-white text-gray-700 border{% endif %}">
+            All
+        </a>
+        <a href="?status=completed" class="px-4 py-2 rounded {% if status_filter == 'completed' %}bg-green-600 text-white{% else %}bg-white text-gray-700 border{% endif %}">
+            Completed
+        </a>
+        <a href="?status=failed" class="px-4 py-2 rounded {% if status_filter == 'failed' %}bg-red-600 text-white{% else %}bg-white text-gray-700 border{% endif %}">
+            Failed
+        </a>
+    </div>
+
+    <!-- Queries List -->
+    {% if queries %}
+        <div class="space-y-4">
+            {% for query in queries %}
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <h3 class="text-lg font-semibold text-gray-900">
+                                {{ query.query_level }} Query
+                            </h3>
+                            {% if query.status == 'completed' %}
+                                <span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">Completed</span>
+                            {% elif query.status == 'failed' %}
+                                <span class="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded">Failed</span>
+                            {% else %}
+                                <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">{{ query.get_status_display }}</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                            <div>
+                                <p class="text-sm text-gray-600">Remote Node</p>
+                                <p class="font-medium">{{ query.remote_node.name }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Initiated</p>
+                                <p class="font-medium">{{ query.initiated_at|date:"Y-m-d H:i" }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Results</p>
+                                <p class="font-medium">{{ query.results_count }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Duration</p>
+                                <p class="font-medium">
+                                    {% if query.duration_seconds %}
+                                        {{ query.duration_seconds|floatformat:2 }}s
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        {% if query.error_message %}
+                        <div class="mt-4 p-3 bg-red-50 text-red-700 rounded text-sm">
+                            <p class="font-medium">Error:</p>
+                            <p>{{ query.error_message }}</p>
+                        </div>
+                        {% endif %}
+                        
+                        <details class="mt-4">
+                            <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-700">Show Query Parameters</summary>
+                            <div class="mt-2 p-3 bg-gray-50 rounded text-sm">
+                                {% for key, value in query.query_parameters.items %}
+                                    <p><span class="font-medium text-gray-700">{{ key }}:</span> {{ value }}</p>
+                                {% endfor %}
+                            </div>
+                        </details>
+                    </div>
+                    
+                    {% if query.status == 'completed' and query.results_count > 0 %}
+                    <div class="ml-4">
+                        <a href="{% url 'dicom_server:query_results' query.query_id %}" 
+                           class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">
+                            View Results
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if queries.has_other_pages %}
+        <div class="mt-6 flex justify-center">
+            <nav class="flex space-x-2">
+                {% if queries.has_previous %}
+                    <a href="?page={{ queries.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}" 
+                       class="px-4 py-2 bg-white border rounded hover:bg-gray-50">Previous</a>
+                {% endif %}
+                
+                <span class="px-4 py-2 bg-blue-600 text-white rounded">
+                    Page {{ queries.number }} of {{ queries.paginator.num_pages }}
+                </span>
+                
+                {% if queries.has_next %}
+                    <a href="?page={{ queries.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}" 
+                       class="px-4 py-2 bg-white border rounded hover:bg-gray-50">Next</a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="bg-white rounded-lg shadow-md p-12 text-center">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">No Query History</h3>
+            <p class="mt-2 text-gray-600">Your query history will appear here after you perform searches.</p>
+            <a href="{% url 'dicom_server:query_interface' %}" class="mt-4 inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                Start Querying
+            </a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

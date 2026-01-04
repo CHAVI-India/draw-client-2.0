@@ -219,6 +219,54 @@
         {% endif %}
     </div>
 
+    <!-- Query/Retrieve Quick Actions -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Query/Retrieve</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <a href="{% url 'dicom_server:query_interface' %}" class="block p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition group">
+                <div class="flex items-center">
+                    <div class="p-3 bg-blue-600 rounded-lg group-hover:bg-blue-700 transition">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="font-semibold text-gray-900">Query Remote Nodes</p>
+                        <p class="text-sm text-gray-600">Search for studies</p>
+                    </div>
+                </div>
+            </a>
+            
+            <a href="{% url 'dicom_server:remote_nodes_list' %}" class="block p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition group">
+                <div class="flex items-center">
+                    <div class="p-3 bg-purple-600 rounded-lg group-hover:bg-purple-700 transition">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="font-semibold text-gray-900">Remote Nodes</p>
+                        <p class="text-sm text-gray-600">Manage PACS/modalities</p>
+                    </div>
+                </div>
+            </a>
+            
+            <a href="{% url 'dicom_server:retrieve_jobs' %}" class="block p-4 bg-green-50 rounded-lg hover:bg-green-100 transition group">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-600 rounded-lg group-hover:bg-green-700 transition">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="font-semibold text-gray-900">Retrieve Jobs</p>
+                        <p class="text-sm text-gray-600">Monitor retrievals</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+
     <!-- Allowed AE Titles -->
     <div class="bg-white rounded-lg shadow-md p-6">
         <div class="flex items-center justify-between mb-4">

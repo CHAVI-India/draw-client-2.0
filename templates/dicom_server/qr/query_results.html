@@ -1,0 +1,247 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ page_title }} - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Query Results</h1>
+                <p class="text-gray-600">
+                    Found {{ query.results_count }} results from {{ query.remote_node.name }}
+                    {% if query.duration_seconds %}
+                        in {{ query.duration_seconds|floatformat:2 }}s
+                    {% endif %}
+                </p>
+            </div>
+            <div class="flex space-x-4">
+                <a href="{% url 'dicom_server:query_interface' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    New Query
+                </a>
+                <a href="{% url 'dicom_server:retrieve_jobs' %}" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                    Retrieve Jobs
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Query Info -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Query Details</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+                <p class="text-sm text-gray-600">Query Level</p>
+                <p class="font-medium">{{ query.query_level }}</p>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Remote Node</p>
+                <p class="font-medium">{{ query.remote_node.name }}</p>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Initiated</p>
+                <p class="font-medium">{{ query.initiated_at|date:"Y-m-d H:i" }}</p>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600">Status</p>
+                <span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">{{ query.get_status_display }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results -->
+    {% if results %}
+        <div class="space-y-4">
+            {% for result in results %}
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <h3 class="text-lg font-semibold text-gray-900">
+                                {{ result.patient_name|default:"Unknown Patient" }}
+                            </h3>
+                            {% if result.retrieved %}
+                                <span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">Retrieved</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                            <div>
+                                <p class="text-sm text-gray-600">Patient ID</p>
+                                <p class="font-medium">{{ result.patient_id|default:"-" }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Study Date</p>
+                                <p class="font-medium">{{ result.study_date|date:"Y-m-d"|default:"-" }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Modality</p>
+                                <p class="font-medium">{{ result.modality|default:"-" }}</p>
+                            </div>
+                            <div class="md:col-span-2">
+                                <p class="text-sm text-gray-600">Study Description</p>
+                                <p class="font-medium">{{ result.study_description|default:"-" }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Instances</p>
+                                <p class="font-medium">{{ result.number_of_instances|default:"-" }}</p>
+                            </div>
+                            {% if result.series_description %}
+                            <div class="md:col-span-3">
+                                <p class="text-sm text-gray-600">Series Description</p>
+                                <p class="font-medium">{{ result.series_description }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- UIDs (collapsible) -->
+                        <details class="mt-4">
+                            <summary class="cursor-pointer text-sm text-blue-600 hover:text-blue-700">Show UIDs</summary>
+                            <div class="mt-2 p-3 bg-gray-50 rounded text-xs font-mono">
+                                {% if result.study_instance_uid %}
+                                <p><span class="text-gray-600">Study UID:</span> {{ result.study_instance_uid }}</p>
+                                {% endif %}
+                                {% if result.series_instance_uid %}
+                                <p class="mt-1"><span class="text-gray-600">Series UID:</span> {{ result.series_instance_uid }}</p>
+                                {% endif %}
+                            </div>
+                        </details>
+                    </div>
+                    
+                    <!-- Retrieve Actions -->
+                    <div class="flex flex-col space-y-2 ml-4">
+                        {% if query.remote_node.supports_c_move or query.remote_node.supports_c_get %}
+                            {% if result.series_instance_uid %}
+                                <button onclick="retrieveSeries({{ result.id }})" 
+                                        class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm whitespace-nowrap"
+                                        {% if result.retrieved %}disabled{% endif %}>
+                                    Retrieve Series
+                                </button>
+                            {% endif %}
+                            <button onclick="retrieveStudy({{ result.id }})" 
+                                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm whitespace-nowrap"
+                                    {% if result.retrieved %}disabled{% endif %}>
+                                Retrieve Study
+                            </button>
+                        {% else %}
+                            <p class="text-sm text-gray-500 italic">Retrieve not supported</p>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Retrieve Status -->
+                <div id="retrieve-status-{{ result.id }}" class="mt-4 hidden"></div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if results.has_other_pages %}
+        <div class="mt-6 flex justify-center">
+            <nav class="flex space-x-2">
+                {% if results.has_previous %}
+                    <a href="?page={{ results.previous_page_number }}" class="px-4 py-2 bg-white border rounded hover:bg-gray-50">Previous</a>
+                {% endif %}
+                
+                <span class="px-4 py-2 bg-blue-600 text-white rounded">
+                    Page {{ results.number }} of {{ results.paginator.num_pages }}
+                </span>
+                
+                {% if results.has_next %}
+                    <a href="?page={{ results.next_page_number }}" class="px-4 py-2 bg-white border rounded hover:bg-gray-50">Next</a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="bg-white rounded-lg shadow-md p-12 text-center">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">No Results Found</h3>
+            <p class="mt-2 text-gray-600">Try adjusting your search criteria.</p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+function retrieveStudy(resultId) {
+    const statusDiv = document.getElementById(`retrieve-status-${resultId}`);
+    statusDiv.innerHTML = '<div class="p-4 bg-blue-50 text-blue-700 rounded">Initiating retrieve...</div>';
+    statusDiv.classList.remove('hidden');
+    
+    fetch(`/dicom-server/qr/retrieve/study/${resultId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusDiv.innerHTML = `
+                <div class="p-4 bg-green-50 text-green-700 rounded">
+                    <p class="font-medium">✓ ${data.message}</p>
+                    <p class="text-sm mt-1">Job ID: ${data.job_id}</p>
+                    <a href="/dicom-server/qr/retrieve/jobs/" class="text-sm underline mt-2 inline-block">View retrieve jobs →</a>
+                </div>
+            `;
+        } else {
+            statusDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ ${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        statusDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ Error: ${error.message}</div>`;
+    });
+}
+
+function retrieveSeries(resultId) {
+    const statusDiv = document.getElementById(`retrieve-status-${resultId}`);
+    statusDiv.innerHTML = '<div class="p-4 bg-blue-50 text-blue-700 rounded">Initiating retrieve...</div>';
+    statusDiv.classList.remove('hidden');
+    
+    fetch(`/dicom-server/qr/retrieve/series/${resultId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            statusDiv.innerHTML = `
+                <div class="p-4 bg-green-50 text-green-700 rounded">
+                    <p class="font-medium">✓ ${data.message}</p>
+                    <p class="text-sm mt-1">Job ID: ${data.job_id}</p>
+                    <a href="/dicom-server/qr/retrieve/jobs/" class="text-sm underline mt-2 inline-block">View retrieve jobs →</a>
+                </div>
+            `;
+        } else {
+            statusDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ ${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        statusDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ Error: ${error.message}</div>`;
+    });
+}
+</script>
+{% endblock %}

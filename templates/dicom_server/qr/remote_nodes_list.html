@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ page_title }} - DRAW Client{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <!-- Page Header -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Remote DICOM Nodes</h1>
+                <p class="text-gray-600">Manage remote PACS and modalities for Query/Retrieve operations</p>
+            </div>
+            <div class="flex space-x-4">
+                <a href="{% url 'dicom_server:dashboard' %}" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
+                    ← Back to Dashboard
+                </a>
+                <a href="{% url 'dicom_server:remote_node_add' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    + Add Remote Node
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remote Nodes List -->
+    {% if nodes %}
+        <div class="grid grid-cols-1 gap-6">
+            {% for node in nodes %}
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3 mb-2">
+                            <h3 class="text-xl font-semibold text-gray-900">{{ node.name }}</h3>
+                            {% if node.is_active %}
+                                <span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">Active</span>
+                            {% else %}
+                                <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">Inactive</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <p class="text-sm text-gray-600">Connection</p>
+                                <p class="font-medium">{{ node.ae_title }}@{{ node.host }}:{{ node.port }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Query/Retrieve Model</p>
+                                <p class="font-medium">{{ node.get_query_retrieve_model_display }}</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Capabilities</p>
+                                <div class="flex space-x-2 mt-1">
+                                    {% if node.supports_c_find %}
+                                        <span class="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">C-FIND</span>
+                                    {% endif %}
+                                    {% if node.supports_c_move %}
+                                        <span class="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded">C-MOVE</span>
+                                    {% endif %}
+                                    {% if node.supports_c_get %}
+                                        <span class="px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded">C-GET</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-600">Last Connection</p>
+                                <p class="font-medium">
+                                    {% if node.last_successful_connection %}
+                                        {{ node.last_successful_connection|date:"Y-m-d H:i" }}
+                                    {% else %}
+                                        Never
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        {% if node.description %}
+                        <div class="mt-4">
+                            <p class="text-sm text-gray-600">Description</p>
+                            <p class="text-gray-700">{{ node.description }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="flex flex-col space-y-2 ml-4">
+                        <button onclick="testConnection({{ node.id }})" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm">
+                            Test Connection
+                        </button>
+                        <a href="{% url 'dicom_server:remote_node_edit' node.id %}" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-center text-sm">
+                            Edit
+                        </a>
+                        <a href="{% url 'dicom_server:remote_node_delete' node.id %}" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition text-center text-sm">
+                            Delete
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Test Result Area -->
+                <div id="test-result-{{ node.id }}" class="mt-4 hidden"></div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="bg-white rounded-lg shadow-md p-12 text-center">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"></path>
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">No Remote Nodes</h3>
+            <p class="mt-2 text-gray-600">Get started by adding your first remote DICOM node.</p>
+            <a href="{% url 'dicom_server:remote_node_add' %}" class="mt-4 inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                Add Remote Node
+            </a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+function testConnection(nodeId) {
+    const resultDiv = document.getElementById(`test-result-${nodeId}`);
+    resultDiv.innerHTML = '<div class="p-4 bg-blue-50 text-blue-700 rounded">Testing connection...</div>';
+    resultDiv.classList.remove('hidden');
+    
+    fetch(`/dicom-server/qr/nodes/${nodeId}/test/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div class="p-4 bg-green-50 text-green-700 rounded">
+                    <p class="font-medium">✓ ${data.message}</p>
+                    ${data.last_connection ? `<p class="text-sm mt-1">Last connection: ${new Date(data.last_connection).toLocaleString()}</p>` : ''}
+                </div>
+            `;
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            resultDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ ${data.message}</div>`;
+        }
+    })
+    .catch(error => {
+        resultDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ Error: ${error.message}</div>`;
+    });
+}
+</script>
+{% endblock %}
