@@ -11,13 +11,20 @@
             <h1 class="text-3xl font-bold text-gray-900 mb-2">DICOM Server Dashboard</h1>
             <p class="text-gray-600">Monitor and manage your DICOM SCP service</p>
         </div>
-        <a href="{% url 'dicom_server:config' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-            </svg>
-            Configuration
-        </a>
+        <div class="flex items-center space-x-4">
+            <!-- Auto-refresh Toggle -->
+            <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" id="auto-refresh-toggle" class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <span class="text-sm text-gray-700">Auto-refresh</span>
+            </label>
+            <a href="{% url 'dicom_server:config' %}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                Configuration
+            </a>
+        </div>
     </div>
 
     <!-- Service Status Card -->
@@ -299,6 +306,9 @@
 
 <!-- Auto-refresh script -->
 <script>
+    let refreshInterval;
+    const REFRESH_INTERVAL = 30000; // 30 seconds
+    
     function updateServiceStatus() {
         fetch('{% url "dicom_server:service_status_api" %}')
             .then(response => response.json())
@@ -314,8 +324,52 @@
             })
             .catch(error => console.error('Error updating status:', error));
     }
-
-    // Update every 5 seconds
-    setInterval(updateServiceStatus, 5000);
+    
+    function startRefresh() {
+        if (!refreshInterval) {
+            refreshInterval = setInterval(updateServiceStatus, REFRESH_INTERVAL);
+        }
+    }
+    
+    function stopRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+    }
+    
+    // Handle auto-refresh toggle
+    const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
+    
+    // Load saved preference from localStorage
+    const savedPreference = localStorage.getItem('autoRefreshEnabled');
+    if (savedPreference === 'true') {
+        autoRefreshToggle.checked = true;
+        if (!document.hidden) {
+            startRefresh();
+        }
+    }
+    
+    // Toggle auto-refresh on checkbox change
+    autoRefreshToggle.addEventListener('change', function() {
+        if (this.checked) {
+            localStorage.setItem('autoRefreshEnabled', 'true');
+            startRefresh();
+        } else {
+            localStorage.setItem('autoRefreshEnabled', 'false');
+            stopRefresh();
+        }
+    });
+    
+    // Pause updates when tab is not visible (only if auto-refresh is enabled)
+    document.addEventListener('visibilitychange', function() {
+        if (autoRefreshToggle.checked) {
+            if (document.hidden) {
+                stopRefresh();
+            } else {
+                startRefresh();
+            }
+        }
+    });
 </script>
 {% endblock %}
