@@ -54,12 +54,20 @@ def dicom_server_config(request):
     """
     DICOM server configuration page.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     config, created = DicomServerConfig.objects.get_or_create(pk=1)
     
     if request.method == 'POST':
         form = DicomServerConfigForm(request.POST, instance=config)
         if form.is_valid():
-            form.save()
+            saved_config = form.save()
+            # Log the saved values
+            logger.info(f"Configuration saved - CT: {saved_config.support_ct_image_storage}, MR: {saved_config.support_mr_image_storage}, RT Struct: {saved_config.support_rt_structure_storage}")
+            # Verify it was actually saved to DB
+            config.refresh_from_db()
+            logger.info(f"After refresh - CT: {config.support_ct_image_storage}, MR: {config.support_mr_image_storage}, RT Struct: {config.support_rt_structure_storage}")
             messages.success(request, 'DICOM server configuration updated successfully.')
             return redirect('dicom_server:config')
         else:

@@ -255,6 +255,56 @@
             </div>
         </div>
 
+        <!-- Storage SOP Classes -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Storage SOP Classes</h2>
+            <p class="text-sm text-gray-600 mb-4">Select which types of DICOM images the server can accept.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_ct_image_storage }}
+                        <span class="text-sm font-medium text-gray-700">CT Image Storage</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Computed Tomography images</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_mr_image_storage }}
+                        <span class="text-sm font-medium text-gray-700">MR Image Storage</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Magnetic Resonance images</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_rt_structure_storage }}
+                        <span class="text-sm font-medium text-gray-700">RT Structure Set Storage</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Radiation therapy structures</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_rt_plan_storage }}
+                        <span class="text-sm font-medium text-gray-700">RT Plan Storage</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Radiation therapy plans</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_rt_dose_storage }}
+                        <span class="text-sm font-medium text-gray-700">RT Dose Storage</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Radiation dose distributions</p>
+                </div>
+                <div>
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        {{ form.support_secondary_capture }}
+                        <span class="text-sm font-medium text-gray-700">Secondary Capture</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-6">Screenshots and derived images</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Transfer Syntax Support -->
         <div class="bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-semibold text-gray-900 mb-4">Transfer Syntax Support</h2>

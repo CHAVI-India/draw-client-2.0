@@ -11,6 +11,7 @@ from pathlib import Path
 
 from pynetdicom import AE, evt, debug_logger
 from pynetdicom.sop_class import (
+    Verification,
     PatientRootQueryRetrieveInformationModelFind,
     StudyRootQueryRetrieveInformationModelFind,
     PatientStudyOnlyQueryRetrieveInformationModelFind,
@@ -58,6 +59,9 @@ class DicomQueryRetrieveService:
             logger.warning("DicomServerConfig not found, using default AE title: DRAW_SCU")
         
         self.ae = AE(ae_title=ae_title)
+        
+        # Add presentation context for C-ECHO (Verification)
+        self.ae.add_requested_context(Verification)
         
         # Add presentation contexts for C-FIND
         self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelFind)

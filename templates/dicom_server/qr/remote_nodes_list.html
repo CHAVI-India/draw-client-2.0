@@ -117,6 +117,12 @@
 <script>
 function testConnection(nodeId) {
     const resultDiv = document.getElementById(`test-result-${nodeId}`);
+    if (!resultDiv) {
+        console.error('Result div not found for node:', nodeId);
+        alert('Error: Could not find result display area');
+        return;
+    }
+    
     resultDiv.innerHTML = '<div class="p-4 bg-blue-50 text-blue-700 rounded">Testing connection...</div>';
     resultDiv.classList.remove('hidden');
     
@@ -127,22 +133,41 @@ function testConnection(nodeId) {
             'Content-Type': 'application/json',
         },
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
     .then(data => {
+        console.log('Connection test response:', data);
         if (data.success) {
             resultDiv.innerHTML = `
-                <div class="p-4 bg-green-50 text-green-700 rounded">
-                    <p class="font-medium">✓ ${data.message}</p>
+                <div class="p-4 bg-green-50 text-green-700 rounded border border-green-200">
+                    <p class="font-medium text-lg">✓ Connection Successful!</p>
+                    <p class="text-sm mt-1">${data.message}</p>
                     ${data.last_connection ? `<p class="text-sm mt-1">Last connection: ${new Date(data.last_connection).toLocaleString()}</p>` : ''}
                 </div>
             `;
-            setTimeout(() => location.reload(), 2000);
+            // Reload after 3 seconds to update the last connection time
+            setTimeout(() => location.reload(), 3000);
         } else {
-            resultDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ ${data.message}</div>`;
+            resultDiv.innerHTML = `
+                <div class="p-4 bg-red-50 text-red-700 rounded border border-red-200">
+                    <p class="font-medium text-lg">✗ Connection Failed</p>
+                    <p class="text-sm mt-1">${data.message}</p>
+                </div>
+            `;
         }
     })
     .catch(error => {
-        resultDiv.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded">✗ Error: ${error.message}</div>`;
+        console.error('Connection test error:', error);
+        resultDiv.innerHTML = `
+            <div class="p-4 bg-red-50 text-red-700 rounded border border-red-200">
+                <p class="font-medium text-lg">✗ Error</p>
+                <p class="text-sm mt-1">${error.message}</p>
+            </div>
+        `;
     });
 }
 </script>
