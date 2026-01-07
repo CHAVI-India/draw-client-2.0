@@ -163,6 +163,24 @@ class DicomSCPService:
             # Add all storage presentation contexts to support any DICOM file type
             for context in AllStoragePresentationContexts:
                 self.ae.add_supported_context(context.abstract_syntax)
+            
+            # For C-GET: Enable SCP/SCU role negotiation on storage contexts
+            # C-GET requires the server to act as Storage SCU to send files back
+            # on the same association (unlike C-MOVE which creates a new association)
+            if self.config.enable_c_get:
+                for cx in self.ae.supported_contexts:
+                    # Only set roles for storage contexts, not QR contexts
+                    if cx.abstract_syntax not in [
+                        PatientRootQueryRetrieveInformationModelFind,
+                        StudyRootQueryRetrieveInformationModelFind,
+                        PatientRootQueryRetrieveInformationModelMove,
+                        StudyRootQueryRetrieveInformationModelMove,
+                        PatientRootQueryRetrieveInformationModelGet,
+                        StudyRootQueryRetrieveInformationModelGet,
+                        Verification
+                    ]:
+                        cx.scp_role = True
+                        cx.scu_role = False
         else:
             # If not using C-GET/C-MOVE, only add specific storage contexts based on config
             if self.config.support_ct_image_storage:
@@ -262,9 +280,11 @@ class DicomSCPService:
             self.service_status.process_id = os.getpid()
             self.service_status.save()
             
-            # Update config
-            self.config.last_service_start = timezone.now()
-            self.config.save()
+            # Update config last_service_start without triggering updated_at
+            from django.db.models import F
+            DicomServerConfig.objects.filter(pk=1).update(
+                last_service_start=timezone.now()
+            )
             
             logger.info(f"DICOM SCP service started on {self.config.host}:{self.config.port}")
             return True

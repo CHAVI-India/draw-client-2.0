@@ -63,17 +63,28 @@ def dicom_server_config(request):
     config, created = DicomServerConfig.objects.get_or_create(pk=1)
     
     if request.method == 'POST':
+        # Log what was received from the form
+        logger.info(f"Form POST data - enable_c_get: {request.POST.get('enable_c_get')}, enable_c_move: {request.POST.get('enable_c_move')}, enable_c_find: {request.POST.get('enable_c_find')}")
+        logger.info(f"Before save - enable_c_get: {config.enable_c_get}, enable_c_move: {config.enable_c_move}")
+        
         form = DicomServerConfigForm(request.POST, instance=config)
         if form.is_valid():
+            # Log cleaned data before save
+            logger.info(f"Form cleaned_data - enable_c_get: {form.cleaned_data.get('enable_c_get')}, enable_c_move: {form.cleaned_data.get('enable_c_move')}")
+            
             saved_config = form.save()
+            
             # Log the saved values
-            logger.info(f"Configuration saved - CT: {saved_config.support_ct_image_storage}, MR: {saved_config.support_mr_image_storage}, RT Struct: {saved_config.support_rt_structure_storage}")
+            logger.info(f"After save - enable_c_get: {saved_config.enable_c_get}, enable_c_move: {saved_config.enable_c_move}")
+            
             # Verify it was actually saved to DB
             config.refresh_from_db()
-            logger.info(f"After refresh - CT: {config.support_ct_image_storage}, MR: {config.support_mr_image_storage}, RT Struct: {config.support_rt_structure_storage}")
+            logger.info(f"After refresh - enable_c_get: {config.enable_c_get}, enable_c_move: {config.enable_c_move}")
+            
             messages.success(request, 'DICOM server configuration updated successfully.')
             return redirect('dicom_server:config')
         else:
+            logger.error(f"Form validation errors: {form.errors}")
             messages.error(request, 'Please correct the errors below.')
     else:
         form = DicomServerConfigForm(instance=config)

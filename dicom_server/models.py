@@ -946,6 +946,25 @@ class RemoteDicomNode(models.Model):
         ae_str = "/".join(ae_display) if ae_display else "No AE"
         return f"{self.name} ({ae_str}@{self.host}:{self.port})"
     
+    def save(self, *args, **kwargs):
+        """
+        Save the RemoteDicomNode and sync with DestinationAETitle for C-MOVE operations.
+        """
+        super().save(*args, **kwargs)
+        
+        # If this node has an outgoing AE title and host/port configured,
+        # create/update a DestinationAETitle entry for C-MOVE operations
+        if self.outgoing_ae_title and self.host and self.port:
+            DestinationAETitle.objects.update_or_create(
+                ae_title=self.outgoing_ae_title,
+                defaults={
+                    'host': self.host,
+                    'port': self.port,
+                    'description': f"Auto-synced from Remote Node: {self.name}",
+                    'is_active': self.is_active and self.supports_c_move
+                }
+            )
+    
     @property
     def node_type(self):
         """Return the type of node based on configuration."""

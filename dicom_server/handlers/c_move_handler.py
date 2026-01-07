@@ -86,48 +86,45 @@ def handle_c_move(service, event):
                 event,
                 error_message=f"Destination AE '{move_destination}' not configured"
             )
-            yield 0  # No sub-operations
+            yield 0xA801  # Refused: Move Destination unknown
             return
         
-        # First yield: number of sub-operations (total files to send)
+        # First yield: destination address, port, and kwargs with presentation contexts
+        # pynetdicom will create the association itself, so we need to provide contexts
+        # Use StoragePresentationContexts (not All) to stay under 128 context limit
+        from pynetdicom import StoragePresentationContexts
+        
+        logger.info(f"Yielding destination: {dest_config['host']}:{dest_config['port']} (AE: {dest_config['ae_title']})")
+        logger.info(f"Our AE Title for C-STORE: {service.config.ae_title}")
+        
+        yield (dest_config['host'], dest_config['port'], {
+            'contexts': StoragePresentationContexts,
+            'ae_title': dest_config['ae_title']  # Called AE title (destination)
+        })
+        
+        # Second yield: number of sub-operations (total files to send)
         num_sub_operations = len(matches)
         yield num_sub_operations
         
-        # Send files to destination
+        # Yield datasets for pynetdicom to send via C-STORE
         success_count = 0
         failure_count = 0
         warning_count = 0
         
         for file_path in matches:
             try:
-                # Send file to destination
-                status = _send_file_to_destination(
-                    service,
-                    file_path,
-                    dest_config['ae_title'],
-                    dest_config['host'],
-                    dest_config['port']
-                )
+                # Read the DICOM file and yield it for pynetdicom to send
+                ds = dcmread(file_path)
                 
-                if status == 0x0000:  # Success
-                    success_count += 1
-                    # Yield pending status with identifier
-                    identifier = Dataset()
-                    identifier.QueryRetrieveLevel = query_level
-                    yield (0xFF00, identifier)  # Pending
-                elif status in [0xB000, 0xB007, 0xB006]:  # Warning
-                    warning_count += 1
-                    identifier = Dataset()
-                    identifier.QueryRetrieveLevel = query_level
-                    yield (status, identifier)
-                else:  # Failure
-                    failure_count += 1
-                    identifier = Dataset()
-                    identifier.QueryRetrieveLevel = query_level
-                    yield (status, identifier)
+                # Yield the dataset - pynetdicom will send it via C-STORE
+                # For C-MOVE, we just yield the dataset and pynetdicom handles the rest
+                yield (0xFF00, ds)  # Pending with dataset
+                
+                # Count as success - pynetdicom will handle actual status tracking
+                success_count += 1
                     
             except Exception as e:
-                logger.error(f"Error sending file {file_path}: {str(e)}")
+                logger.error(f"Error reading file {file_path}: {str(e)}")
                 failure_count += 1
         
         # Log the transaction
@@ -271,12 +268,18 @@ def _send_file_to_destination(service, file_path, dest_ae, dest_host, dest_port)
         # Create Application Entity for sending
         ae = AE(ae_title=service.config.ae_title)
         
-        # Add ALL storage presentation contexts with multiple transfer syntaxes
-        # This ensures compatibility with various PACS systems
-        for context in AllStoragePresentationContexts:
-            ae.add_requested_context(context.abstract_syntax, context.transfer_syntax)
+        logger.info(f"Creating AE for C-STORE to destination: {dest_ae} at {dest_host}:{dest_port}")
+        logger.info(f"Our AE Title: {service.config.ae_title}")
+        
+        # Add ALL storage presentation contexts
+        # AllStoragePresentationContexts is a list of PresentationContext objects
+        ae.requested_contexts = AllStoragePresentationContexts
+        
+        logger.info(f"Added {len(ae.requested_contexts)} presentation contexts")
+        logger.debug(f"Requested contexts: {[cx.abstract_syntax for cx in ae.requested_contexts[:5]]}...")
         
         # Associate with destination
+        logger.info(f"Attempting to associate with {dest_ae} at {dest_host}:{dest_port}")
         assoc = ae.associate(dest_host, dest_port, ae_title=dest_ae)
         
         if assoc.is_established:
