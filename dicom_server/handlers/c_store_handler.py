@@ -37,6 +37,10 @@ def handle_c_store(service, event):
     remote_ip = event.assoc.requestor.address
     
     try:
+        # Get fresh config for validation and processing settings
+        from ..models import DicomServerConfig
+        fresh_config = DicomServerConfig.objects.get(pk=1)
+        
         # Validate calling AE if required
         if not service._validate_calling_ae(calling_ae):
             logger.warning(f"C-STORE rejected: Calling AE '{calling_ae}' not authorized")
@@ -63,11 +67,11 @@ def handle_c_store(service, event):
         ds = event.dataset
         ds.file_meta = event.file_meta
         
-        # Validate DICOM if required
-        if service.config.validate_dicom_on_receive:
+        # Validate DICOM if required (use fresh config)
+        if fresh_config.validate_dicom_on_receive:
             if not _validate_dicom_dataset(ds):
                 logger.error("C-STORE rejected: Invalid DICOM dataset")
-                if service.config.reject_invalid_dicom:
+                if fresh_config.reject_invalid_dicom:
                     service._log_transaction(
                         'C-STORE',
                         'REJECTED',
@@ -117,8 +121,8 @@ def handle_c_store(service, event):
         duration = time.time() - start_time
         transfer_speed_mbps = (file_size / (1024 * 1024)) / duration if duration > 0 else 0
         
-        # Log the transaction
-        if service.config.log_received_files:
+        # Log the transaction (use fresh config)
+        if fresh_config.log_received_files:
             logger.info(f"C-STORE: Received {filename} from {calling_ae} ({file_size} bytes)")
         
         service._log_transaction(
@@ -143,9 +147,9 @@ def handle_c_store(service, event):
         service.service_status.last_file_received_at = timezone.now()
         service.service_status.save()
         
-        # Incrementally update storage cache (fast operation)
-        service.config.cached_storage_usage_bytes += file_size
-        service.config.save(update_fields=['cached_storage_usage_bytes'])
+        # Incrementally update storage cache (fast operation) - use fresh config
+        fresh_config.cached_storage_usage_bytes += file_size
+        fresh_config.save(update_fields=['cached_storage_usage_bytes'])
         
         # Note: DICOM Handler integration is handled by the dicom_handler app
         # Files stored here will be automatically picked up by the handler's polling mechanism
@@ -196,16 +200,22 @@ def _check_storage_limits(service):
     Check if storage limits have been reached.
     """
     try:
+        from ..models import DicomServerConfig
+        
+        # Always fetch fresh configuration from database to avoid stale cached values
+        dicom_config = DicomServerConfig.objects.get(pk=1)
         system_config = SystemConfiguration.objects.get(pk=1)
         storage_path = system_config.folder_configuration
         
         if storage_path:
             usage = get_storage_usage(storage_path)
             current_usage_gb = usage['total_gb']
-            max_storage_gb = service.config.max_storage_size_gb
+            max_storage_gb = dicom_config.max_storage_size_gb
+            
+            logger.info(f"Storage check: {current_usage_gb}GB used / {max_storage_gb}GB max")
             
             if current_usage_gb >= max_storage_gb:
-                if service.config.enable_storage_cleanup:
+                if dicom_config.enable_storage_cleanup:
                     # Attempt automatic cleanup
                     logger.warning(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB. Attempting cleanup...")
                     cleanup_performed = check_and_cleanup_if_needed(service)
@@ -236,14 +246,17 @@ def _get_storage_path(service, ds):
     """
     Determine storage path based on configuration.
     """
-    # Get base path from SystemConfiguration
+    # Get base path from SystemConfiguration and fresh config for structure
     try:
+        from ..models import DicomServerConfig
         system_config = SystemConfiguration.objects.get(pk=1)
+        fresh_config = DicomServerConfig.objects.get(pk=1)
         base_path = system_config.folder_configuration
     except:
         base_path = '/app/datastore'  # Fallback
+        fresh_config = service.config  # Fallback to cached
     
-    structure = service.config.storage_structure
+    structure = fresh_config.storage_structure
     
     if structure == 'flat':
         return base_path
@@ -279,7 +292,13 @@ def _get_filename(service, ds):
     """
     Determine filename based on configuration.
     """
-    naming = service.config.file_naming_convention
+    # Get fresh config for naming convention
+    try:
+        from ..models import DicomServerConfig
+        fresh_config = DicomServerConfig.objects.get(pk=1)
+        naming = fresh_config.file_naming_convention
+    except:
+        naming = service.config.file_naming_convention  # Fallback to cached
     
     if naming == 'sop_uid':
         sop_uid = getattr(ds, 'SOPInstanceUID', None)
@@ -326,7 +345,11 @@ def _trigger_dicom_handler_integration(service, file_path, ds):
     Trigger integration with DICOM Handler processing chain.
     """
     try:
-        if service.config.copy_to_handler_folder:
+        # Get fresh config for handler integration settings
+        from ..models import DicomServerConfig
+        fresh_config = DicomServerConfig.objects.get(pk=1)
+        
+        if fresh_config.copy_to_handler_folder:
             # Copy file to DICOM Handler folder
             from dicom_handler.models import SystemConfiguration
             system_config = SystemConfiguration.objects.get(pk=1)
@@ -351,7 +374,7 @@ def _trigger_dicom_handler_integration(service, file_path, ds):
                 shutil.copy2(file_path, dest_path)
                 logger.info(f"Copied DICOM file to handler folder: {dest_path}")
         
-        if service.config.trigger_processing_chain:
+        if fresh_config.trigger_processing_chain:
             # Trigger the DICOM processing chain
             # This would typically be done via Celery task
             logger.info("Processing chain trigger configured but not yet implemented")

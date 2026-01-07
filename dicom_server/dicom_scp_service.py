@@ -57,6 +57,7 @@ class DicomSCPService:
         self._is_running = False
         self.config = None
         self.service_status = None
+        self._config_last_updated = None
         
     def initialize(self):
         """
@@ -93,12 +94,60 @@ class DicomSCPService:
             self.ae.dimse_timeout = self.config.dimse_timeout
             self.ae.maximum_associations = self.config.max_associations
             
+            self._config_last_updated = self.config.updated_at
             logger.info(f"DICOM SCP initialized: {self.config.ae_title} on {self.config.host}:{self.config.port}")
             return True
             
         except Exception as e:
             logger.error(f"Failed to initialize DICOM SCP: {str(e)}")
             return False
+    
+    def refresh_config(self, force=False):
+        """
+        Refresh configuration from database if it has been updated.
+        This allows hot-reloading of certain settings without service restart.
+        
+        Args:
+            force: If True, refresh regardless of update timestamp
+            
+        Returns:
+            bool: True if config was refreshed, False otherwise
+        """
+        try:
+            # Check if config has been updated in database
+            latest_config = DicomServerConfig.objects.get(pk=1)
+            
+            if force or (self._config_last_updated and latest_config.updated_at > self._config_last_updated):
+                logger.info("Configuration has been updated, refreshing...")
+                self.config = latest_config
+                self._config_last_updated = latest_config.updated_at
+                
+                # Update logging level
+                log_level = getattr(logging, self.config.logging_level, logging.INFO)
+                logger.setLevel(log_level)
+                
+                logger.info("Configuration refreshed successfully")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh configuration: {str(e)}")
+            return False
+    
+    def get_fresh_config(self):
+        """
+        Get fresh configuration from database.
+        Use this for critical settings that need to be always up-to-date.
+        
+        Returns:
+            DicomServerConfig: Fresh configuration object from database
+        """
+        try:
+            return DicomServerConfig.objects.get(pk=1)
+        except Exception as e:
+            logger.error(f"Failed to get fresh config: {str(e)}")
+            return self.config  # Fallback to cached config
     
     def _configure_sop_classes(self):
         """
@@ -487,11 +536,13 @@ class DicomSCPService:
     def _handle_c_echo(self, event):
         """
         Handle C-ECHO request (verification).
+        C-ECHO is always allowed regardless of AE validation settings,
+        as it's used for connectivity testing.
         """
         calling_ae = event.assoc.requestor.ae_title
         remote_ip = event.assoc.requestor.address
         
-        logger.debug(f"C-ECHO request from {calling_ae} ({remote_ip})")
+        logger.info(f"C-ECHO request from {calling_ae} ({remote_ip})")
         
         self._log_transaction(
             'C-ECHO',

@@ -161,8 +161,10 @@ def check_and_cleanup_if_needed(service):
     """
     try:
         from dicom_handler.models import SystemConfiguration
+        from .models import DicomServerConfig
         
-        # Get storage path from SystemConfiguration
+        # Always fetch fresh configuration from database to avoid stale cached values
+        dicom_config = DicomServerConfig.objects.get(pk=1)
         system_config = SystemConfiguration.objects.get(pk=1)
         storage_path = system_config.folder_configuration
         
@@ -171,13 +173,15 @@ def check_and_cleanup_if_needed(service):
             return False
         
         # Check if cleanup is enabled
-        if not service.config.enable_storage_cleanup:
+        if not dicom_config.enable_storage_cleanup:
             return False
         
         # Get current usage
         usage = get_storage_usage(storage_path)
         current_gb = usage['total_gb']
-        max_gb = service.config.max_storage_size_gb
+        max_gb = dicom_config.max_storage_size_gb
+        
+        logger.info(f"Cleanup check: {current_gb}GB used / {max_gb}GB max")
         
         # Check if we're over the limit
         if current_gb >= max_gb:
@@ -190,7 +194,7 @@ def check_and_cleanup_if_needed(service):
             # Perform cleanup
             cleanup_stats = cleanup_old_files(
                 storage_path,
-                service.config.storage_retention_days,
+                dicom_config.storage_retention_days,
                 target_free_gb
             )
             
