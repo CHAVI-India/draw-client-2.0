@@ -92,9 +92,24 @@ def handle_c_get(service, event):
                 # If the file's transfer syntax doesn't match, convert it
                 if current_transfer_syntax and current_transfer_syntax != accepted_transfer_syntax:
                     logger.debug(f"Converting from {current_transfer_syntax} to {accepted_transfer_syntax}")
-                    # Decompress if needed, then let pynetdicom handle the encoding
-                    if hasattr(ds, 'decompress'):
-                        ds.decompress()
+                    # Check if the dataset is compressed and needs decompression
+                    try:
+                        # Only decompress if the current transfer syntax is compressed
+                        compressed_syntaxes = [
+                            '1.2.840.10008.1.2.4.50',  # JPEG Baseline
+                            '1.2.840.10008.1.2.4.51',  # JPEG Extended
+                            '1.2.840.10008.1.2.4.57',  # JPEG Lossless
+                            '1.2.840.10008.1.2.4.70',  # JPEG Lossless SV1
+                            '1.2.840.10008.1.2.4.90',  # JPEG 2000 Lossless
+                            '1.2.840.10008.1.2.4.91',  # JPEG 2000
+                            '1.2.840.10008.1.2.5',     # RLE Lossless
+                        ]
+                        if current_transfer_syntax in compressed_syntaxes:
+                            ds.decompress()
+                            logger.debug(f"Decompressed dataset from {current_transfer_syntax}")
+                    except Exception as e:
+                        logger.debug(f"Decompression not needed or failed: {str(e)}")
+                    
                     # Update the transfer syntax in file_meta
                     if hasattr(ds, 'file_meta'):
                         ds.file_meta.TransferSyntaxUID = accepted_transfer_syntax
