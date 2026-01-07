@@ -293,6 +293,7 @@ class DicomSCPService:
         # Association handlers
         handlers.append((evt.EVT_CONN_OPEN, self._handle_connection_open))
         handlers.append((evt.EVT_CONN_CLOSE, self._handle_connection_close))
+        handlers.append((evt.EVT_REQUESTED, self._handle_association_requested))
         handlers.append((evt.EVT_ACCEPTED, self._handle_association_accepted))
         handlers.append((evt.EVT_REJECTED, self._handle_association_rejected))
         handlers.append((evt.EVT_RELEASED, self._handle_association_released))
@@ -405,6 +406,43 @@ class DicomSCPService:
         # Update active connections
         self.service_status.active_connections = max(0, self.service_status.active_connections - 1)
         self.service_status.save()
+    
+    def _handle_association_requested(self, event):
+        """
+        Handle association requested event.
+        Validate calling AE and remote IP before accepting association.
+        Returns 0x0000 to accept, or rejection code to reject.
+        """
+        calling_ae = event.assoc.requestor.ae_title
+        remote_ip = event.assoc.requestor.address
+        
+        # Validate calling AE title
+        if not self._validate_calling_ae(calling_ae):
+            logger.warning(f"Association rejected: Calling AE '{calling_ae}' not authorized")
+            self._log_transaction(
+                'ASSOCIATION',
+                'REJECTED',
+                event,
+                error_message=f"Calling AE '{calling_ae}' not authorized"
+            )
+            # Return rejection code: calling AE title not recognized
+            return 0x0003
+        
+        # Validate remote IP
+        if not self._validate_remote_ip(remote_ip):
+            logger.warning(f"Association rejected: Remote IP '{remote_ip}' not authorized")
+            self._log_transaction(
+                'ASSOCIATION',
+                'REJECTED',
+                event,
+                error_message=f"Remote IP '{remote_ip}' not authorized"
+            )
+            # Return rejection code: called AE title not recognized (closest match)
+            return 0x0007
+        
+        logger.debug(f"Association request validated from {calling_ae} ({remote_ip})")
+        # Return 0x0000 to accept the association
+        return 0x0000
     
     def _handle_association_accepted(self, event):
         """Handle association accepted event."""
