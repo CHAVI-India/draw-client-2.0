@@ -1,10 +1,12 @@
 """
 C-FIND handler for DICOM query operations.
+Uses database models for efficient querying.
 """
 
 import logging
 import os
 from pathlib import Path
+from django.db.models import Q
 
 from pydicom import dcmread
 from pydicom.dataset import Dataset
@@ -68,70 +70,271 @@ def handle_c_find(service, event):
 
 def _search_dicom_storage(service, query_ds, query_level):
     """
-    Search DICOM storage for matching files.
+    Search DICOM storage using database models.
     
-    This is a basic implementation that scans the storage directory.
-    For production use, consider implementing a database index.
+    Queries Patient, DICOMStudy, and DICOMSeries models for efficient searching.
     """
-    matches = []
-    storage_path = service.config.storage_root_path
+    from dicom_handler.models import Patient, DICOMStudy, DICOMSeries
     
-    if not os.path.exists(storage_path):
-        return matches
+    matches = []
     
     # Extract query parameters
-    patient_id = getattr(query_ds, 'PatientID', None)
-    study_uid = getattr(query_ds, 'StudyInstanceUID', None)
-    series_uid = getattr(query_ds, 'SeriesInstanceUID', None)
+    query_params = {
+        'PatientID': getattr(query_ds, 'PatientID', None),
+        'PatientName': getattr(query_ds, 'PatientName', None),
+        'StudyInstanceUID': getattr(query_ds, 'StudyInstanceUID', None),
+        'StudyDate': getattr(query_ds, 'StudyDate', None),
+        'StudyTime': getattr(query_ds, 'StudyTime', None),
+        'StudyDescription': getattr(query_ds, 'StudyDescription', None),
+        'AccessionNumber': getattr(query_ds, 'AccessionNumber', None),
+        'ModalitiesInStudy': getattr(query_ds, 'ModalitiesInStudy', None),
+        'SeriesInstanceUID': getattr(query_ds, 'SeriesInstanceUID', None),
+        'SeriesNumber': getattr(query_ds, 'SeriesNumber', None),
+        'SeriesDescription': getattr(query_ds, 'SeriesDescription', None),
+        'Modality': getattr(query_ds, 'Modality', None),
+    }
     
-    # Scan storage directory for DICOM files
-    for root, dirs, files in os.walk(storage_path):
-        for filename in files:
-            if filename.endswith('.dcm'):
-                file_path = os.path.join(root, filename)
-                
-                try:
-                    ds = dcmread(file_path, stop_before_pixels=True)
-                    
-                    # Check if this file matches the query
-                    if _matches_query(ds, patient_id, study_uid, series_uid, query_level):
-                        # Create response dataset based on query level
-                        response_ds = _create_response_dataset(ds, query_level)
-                        matches.append(response_ds)
-                        
-                        # Limit results to avoid overwhelming the client
-                        if len(matches) >= 100:
-                            logger.warning("C-FIND result limit reached (100 matches)")
-                            return matches
-                            
-                except Exception as e:
-                    logger.debug(f"Error reading DICOM file {file_path}: {str(e)}")
-                    continue
+    try:
+        if query_level == 'PATIENT':
+            matches = _query_patients(query_params)
+        elif query_level == 'STUDY':
+            matches = _query_studies(query_params)
+        elif query_level == 'SERIES':
+            matches = _query_series(query_params)
+        else:
+            logger.warning(f"Unsupported query level: {query_level}")
+            return matches
+        
+        logger.info(f"C-FIND found {len(matches)} matches at {query_level} level")
+        return matches
+        
+    except Exception as e:
+        logger.error(f"Error querying database: {str(e)}")
+        return []
+
+
+def _query_patients(query_params):
+    """
+    Query Patient model and return matching DICOM datasets.
+    """
+    from dicom_handler.models import Patient
     
-    logger.info(f"C-FIND found {len(matches)} matches")
+    queryset = Patient.objects.all()
+    
+    # Apply filters with wildcard support
+    if query_params.get('PatientID'):
+        queryset = _apply_wildcard_filter(queryset, 'patient_id', query_params['PatientID'])
+    
+    if query_params.get('PatientName'):
+        queryset = _apply_wildcard_filter(queryset, 'patient_name', str(query_params['PatientName']))
+    
+    # Limit results
+    queryset = queryset[:100]
+    
+    # Convert to DICOM datasets
+    matches = []
+    for patient in queryset:
+        ds = Dataset()
+        if patient.patient_id:
+            ds.PatientID = patient.patient_id
+        if patient.patient_name:
+            ds.PatientName = patient.patient_name
+        if patient.patient_date_of_birth:
+            ds.PatientBirthDate = patient.patient_date_of_birth.strftime('%Y%m%d')
+        if patient.patient_gender:
+            ds.PatientSex = patient.patient_gender
+        matches.append(ds)
+    
     return matches
 
 
-def _matches_query(ds, patient_id, study_uid, series_uid, query_level):
+def _query_studies(query_params):
     """
-    Check if a DICOM dataset matches the query parameters.
+    Query DICOMStudy model and return matching DICOM datasets.
     """
-    # Patient ID matching
-    if patient_id and hasattr(ds, 'PatientID'):
-        if patient_id != ds.PatientID:
-            return False
+    from dicom_handler.models import DICOMStudy
     
-    # Study UID matching
-    if study_uid and hasattr(ds, 'StudyInstanceUID'):
-        if study_uid != ds.StudyInstanceUID:
-            return False
+    queryset = DICOMStudy.objects.select_related('patient').all()
     
-    # Series UID matching (only for SERIES level queries)
-    if query_level == 'SERIES' and series_uid and hasattr(ds, 'SeriesInstanceUID'):
-        if series_uid != ds.SeriesInstanceUID:
-            return False
+    # Patient level filters
+    if query_params.get('PatientID'):
+        queryset = _apply_wildcard_filter(queryset, 'patient__patient_id', query_params['PatientID'])
     
-    return True
+    if query_params.get('PatientName'):
+        queryset = _apply_wildcard_filter(queryset, 'patient__patient_name', str(query_params['PatientName']))
+    
+    # Study level filters
+    if query_params.get('StudyInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'study_instance_uid', query_params['StudyInstanceUID'])
+    
+    if query_params.get('StudyDate'):
+        queryset = _apply_date_filter(queryset, 'study_date', query_params['StudyDate'])
+    
+    if query_params.get('StudyDescription'):
+        queryset = _apply_wildcard_filter(queryset, 'study_description', query_params['StudyDescription'])
+    
+    if query_params.get('AccessionNumber'):
+        queryset = _apply_wildcard_filter(queryset, 'accession_number', query_params['AccessionNumber'])
+    
+    # Limit results
+    queryset = queryset[:100]
+    
+    # Convert to DICOM datasets
+    matches = []
+    for study in queryset:
+        ds = Dataset()
+        # Patient info
+        if study.patient.patient_id:
+            ds.PatientID = study.patient.patient_id
+        if study.patient.patient_name:
+            ds.PatientName = study.patient.patient_name
+        if study.patient.patient_date_of_birth:
+            ds.PatientBirthDate = study.patient.patient_date_of_birth.strftime('%Y%m%d')
+        if study.patient.patient_gender:
+            ds.PatientSex = study.patient.patient_gender
+        # Study info
+        if study.study_instance_uid:
+            ds.StudyInstanceUID = study.study_instance_uid
+        if study.study_date:
+            ds.StudyDate = study.study_date.strftime('%Y%m%d')
+        if study.study_description:
+            ds.StudyDescription = study.study_description
+        if study.study_modality:
+            ds.ModalitiesInStudy = study.study_modality
+        matches.append(ds)
+    
+    return matches
+
+
+def _query_series(query_params):
+    """
+    Query DICOMSeries model and return matching DICOM datasets.
+    """
+    from dicom_handler.models import DICOMSeries
+    
+    queryset = DICOMSeries.objects.select_related('study__patient').all()
+    
+    # Patient level filters
+    if query_params.get('PatientID'):
+        queryset = _apply_wildcard_filter(queryset, 'study__patient__patient_id', query_params['PatientID'])
+    
+    if query_params.get('PatientName'):
+        queryset = _apply_wildcard_filter(queryset, 'study__patient__patient_name', str(query_params['PatientName']))
+    
+    # Study level filters
+    if query_params.get('StudyInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'study__study_instance_uid', query_params['StudyInstanceUID'])
+    
+    if query_params.get('StudyDate'):
+        queryset = _apply_date_filter(queryset, 'study__study_date', query_params['StudyDate'])
+    
+    if query_params.get('StudyDescription'):
+        queryset = _apply_wildcard_filter(queryset, 'study__study_description', query_params['StudyDescription'])
+    
+    # Series level filters
+    if query_params.get('SeriesInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid', query_params['SeriesInstanceUID'])
+    
+    if query_params.get('SeriesDescription'):
+        queryset = _apply_wildcard_filter(queryset, 'series_description', query_params['SeriesDescription'])
+    
+    # Limit results
+    queryset = queryset[:100]
+    
+    # Convert to DICOM datasets
+    matches = []
+    for series in queryset:
+        ds = Dataset()
+        # Patient info
+        if series.study.patient.patient_id:
+            ds.PatientID = series.study.patient.patient_id
+        if series.study.patient.patient_name:
+            ds.PatientName = series.study.patient.patient_name
+        if series.study.patient.patient_date_of_birth:
+            ds.PatientBirthDate = series.study.patient.patient_date_of_birth.strftime('%Y%m%d')
+        if series.study.patient.patient_gender:
+            ds.PatientSex = series.study.patient.patient_gender
+        # Study info
+        if series.study.study_instance_uid:
+            ds.StudyInstanceUID = series.study.study_instance_uid
+        if series.study.study_date:
+            ds.StudyDate = series.study.study_date.strftime('%Y%m%d')
+        if series.study.study_description:
+            ds.StudyDescription = series.study.study_description
+        # Series info
+        if series.series_instance_uid:
+            ds.SeriesInstanceUID = series.series_instance_uid
+        if series.series_date:
+            ds.SeriesDate = series.series_date.strftime('%Y%m%d')
+        if series.series_description:
+            ds.SeriesDescription = series.series_description
+        if series.instance_count:
+            ds.NumberOfSeriesRelatedInstances = str(series.instance_count)
+        matches.append(ds)
+    
+    return matches
+
+
+def _apply_wildcard_filter(queryset, field_name, pattern):
+    """
+    Apply wildcard filter to Django queryset.
+    Converts DICOM wildcards (* and ?) to Django ORM filters.
+    """
+    import re
+    
+    pattern = str(pattern)
+    
+    # If no wildcards, use exact match (case-insensitive)
+    if '*' not in pattern and '?' not in pattern:
+        return queryset.filter(**{f'{field_name}__iexact': pattern})
+    
+    # Convert DICOM wildcards to Django regex
+    regex_pattern = re.escape(pattern)
+    regex_pattern = regex_pattern.replace(r'\*', '.*')  # * matches any sequence
+    regex_pattern = regex_pattern.replace(r'\?', '.')   # ? matches single char
+    regex_pattern = f'^{regex_pattern}$'
+    
+    return queryset.filter(**{f'{field_name}__iregex': regex_pattern})
+
+
+def _apply_date_filter(queryset, field_name, date_value):
+    """
+    Apply date filter to Django queryset.
+    Supports single dates, wildcards, and ranges (YYYYMMDD-YYYYMMDD).
+    """
+    from datetime import datetime
+    
+    date_str = str(date_value)
+    
+    # Check for range query
+    if '-' in date_str:
+        parts = date_str.split('-')
+        if len(parts) == 2:
+            start_str = parts[0] if parts[0] else '00000000'
+            end_str = parts[1] if parts[1] else '99999999'
+            
+            try:
+                start_date = datetime.strptime(start_str, '%Y%m%d').date()
+                end_date = datetime.strptime(end_str, '%Y%m%d').date()
+                return queryset.filter(**{
+                    f'{field_name}__gte': start_date,
+                    f'{field_name}__lte': end_date
+                })
+            except ValueError:
+                logger.warning(f"Invalid date range: {date_str}")
+                return queryset
+    
+    # Single date or wildcard
+    if '*' in date_str or '?' in date_str:
+        return _apply_wildcard_filter(queryset, field_name, date_str)
+    
+    # Exact date
+    try:
+        date_obj = datetime.strptime(date_str, '%Y%m%d').date()
+        return queryset.filter(**{field_name: date_obj})
+    except ValueError:
+        logger.warning(f"Invalid date format: {date_str}")
+        return queryset
 
 
 def _create_response_dataset(ds, query_level):

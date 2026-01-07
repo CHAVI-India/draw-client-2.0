@@ -90,13 +90,19 @@ class DicomQueryRetrieveService:
             tuple: (success: bool, message: str)
         """
         try:
+            # Check if node supports outgoing operations (Q/R)
+            if not remote_node.outgoing_ae_title:
+                # Node only supports incoming connections (C-STORE only)
+                logger.info(f"Node {remote_node.name} is configured for incoming connections only (no Q/R support)")
+                return False, "This node is configured for incoming connections only. Connection test requires Query/Retrieve capabilities."
+            
             logger.info(f"Testing connection to {remote_node.name} ({remote_node.host}:{remote_node.port})")
             
             # Create association
             assoc = self.ae.associate(
                 remote_node.host,
                 remote_node.port,
-                ae_title=remote_node.ae_title,
+                ae_title=remote_node.outgoing_ae_title,
                 max_pdu=remote_node.max_pdu_size
             )
             
@@ -161,7 +167,7 @@ class DicomQueryRetrieveService:
             assoc = self.ae.associate(
                 remote_node.host,
                 remote_node.port,
-                ae_title=remote_node.ae_title,
+                ae_title=remote_node.outgoing_ae_title,
                 max_pdu=remote_node.max_pdu_size
             )
             
@@ -253,7 +259,7 @@ class DicomQueryRetrieveService:
             assoc = self.ae.associate(
                 remote_node.host,
                 remote_node.port,
-                ae_title=remote_node.ae_title,
+                ae_title=remote_node.outgoing_ae_title,
                 max_pdu=remote_node.max_pdu_size
             )
             
@@ -344,7 +350,7 @@ class DicomQueryRetrieveService:
             assoc = self.ae.associate(
                 remote_node.host,
                 remote_node.port,
-                ae_title=remote_node.ae_title,
+                ae_title=remote_node.outgoing_ae_title,
                 max_pdu=remote_node.max_pdu_size
             )
             

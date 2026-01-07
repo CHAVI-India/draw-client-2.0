@@ -7,18 +7,21 @@ from .models import RemoteDicomNode
 
 
 class RemoteDicomNodeForm(forms.ModelForm):
-    """Form for creating/editing remote DICOM nodes."""
+    """Form for creating/editing unified remote DICOM nodes (both incoming and outgoing)."""
     
     class Meta:
         model = RemoteDicomNode
         fields = [
             'name',
-            'ae_title',
             'host',
             'port',
+            'allow_incoming',
+            'incoming_ae_title',
+            'expected_ip',
             'supports_c_find',
             'supports_c_move',
             'supports_c_get',
+            'outgoing_ae_title',
             'query_retrieve_model',
             'timeout',
             'max_pdu_size',
@@ -28,19 +31,65 @@ class RemoteDicomNodeForm(forms.ModelForm):
         ]
         widgets = {
             'name': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., Main PACS'}),
-            'ae_title': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., PACS_AE'}),
             'host': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., 192.168.1.100'}),
             'port': forms.NumberInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': '11112'}),
+            'incoming_ae_title': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., CT_SCANNER'}),
+            'outgoing_ae_title': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., PACS_QR'}),
+            'expected_ip': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'e.g., 192.168.1.50 (optional)'}),
             'query_retrieve_model': forms.Select(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'timeout': forms.NumberInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'max_pdu_size': forms.NumberInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'move_destination_ae': forms.TextInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'placeholder': 'Leave empty to use local AE title'}),
             'description': forms.Textarea(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'rows': 3}),
+            'allow_incoming': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'supports_c_find': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'supports_c_move': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'supports_c_get': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
         }
+    
+    def clean_incoming_ae_title(self):
+        """Clean and normalize incoming AE Title: strip whitespace and convert to uppercase."""
+        ae_title = self.cleaned_data.get('incoming_ae_title', '')
+        if ae_title:
+            ae_title = ae_title.strip().upper()
+        return ae_title
+    
+    def clean_outgoing_ae_title(self):
+        """Clean and normalize outgoing AE Title: strip whitespace and convert to uppercase."""
+        ae_title = self.cleaned_data.get('outgoing_ae_title', '')
+        if ae_title:
+            ae_title = ae_title.strip().upper()
+        return ae_title
+    
+    def clean(self):
+        """Validate that at least one capability is configured and required fields are present."""
+        cleaned_data = super().clean()
+        allow_incoming = cleaned_data.get('allow_incoming')
+        supports_c_find = cleaned_data.get('supports_c_find')
+        supports_c_move = cleaned_data.get('supports_c_move')
+        supports_c_get = cleaned_data.get('supports_c_get')
+        
+        # At least one capability must be enabled
+        if not any([allow_incoming, supports_c_find, supports_c_move, supports_c_get]):
+            raise forms.ValidationError(
+                "At least one capability must be enabled (incoming connections or Query/Retrieve operations)."
+            )
+        
+        # If incoming is enabled, incoming_ae_title is required
+        if allow_incoming and not cleaned_data.get('incoming_ae_title'):
+            raise forms.ValidationError("Incoming AE Title is required when allowing incoming connections.")
+        
+        # If outgoing capabilities are enabled, host, port, and outgoing_ae_title are required
+        if any([supports_c_find, supports_c_move, supports_c_get]):
+            if not cleaned_data.get('host'):
+                raise forms.ValidationError("Host is required for Query/Retrieve operations.")
+            if not cleaned_data.get('port'):
+                raise forms.ValidationError("Port is required for Query/Retrieve operations.")
+            if not cleaned_data.get('outgoing_ae_title'):
+                raise forms.ValidationError("Outgoing AE Title is required for Query/Retrieve operations.")
+        
+        return cleaned_data
 
 
 class DicomQueryForm(forms.Form):

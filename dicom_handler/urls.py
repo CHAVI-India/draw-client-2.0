@@ -75,7 +75,8 @@ urlpatterns = [
     path('rt-structure-ratings/', views.rt_structure_ratings_list, name='rt_structure_ratings_list'),
     path('rt-structure-ratings/export-csv/', views.export_rt_structure_ratings_csv, name='export_rt_structure_ratings_csv'),
     
-    # Patient Details
+    # Patient Management
+    path('patients/', views.patient_list, name='patient_list'),
     path('patient/<uuid:patient_uuid>/', views.patient_details, name='patient_details'),
     
     # Manual Autosegmentation API URLs

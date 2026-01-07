@@ -2143,6 +2143,46 @@ def check_api_health(request):
         }, status=500)
 
 @login_required
+def patient_list(request):
+    """
+    View for displaying list of all patients with search and pagination.
+    """
+    search_query = request.GET.get('search', '').strip()
+    
+    # Get all patients
+    patients = Patient.objects.all()
+    
+    # Apply search filter if provided
+    if search_query:
+        patients = patients.filter(
+            models.Q(patient_name__icontains=search_query) |
+            models.Q(patient_id__icontains=search_query) |
+            models.Q(deidentified_patient_id__icontains=search_query)
+        )
+    
+    # Order by most recent
+    patients = patients.order_by('-created_at')
+    
+    # Add study count annotation
+    patients = patients.annotate(
+        study_count=models.Count('dicomstudy', distinct=True)
+    )
+    
+    # Pagination
+    paginator = Paginator(patients, 25)  # 25 patients per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'total_patients': patients.count(),
+    }
+    
+    return render(request, 'dicom_handler/patient_list.html', context)
+
+
+@login_required
 def patient_details(request, patient_uuid):
     """
     View for displaying comprehensive patient details with hierarchical data:

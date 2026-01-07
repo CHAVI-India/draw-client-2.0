@@ -7,41 +7,52 @@ The DICOM Server module provides a complete DICOM SCP (Service Class Provider) i
 ## Features
 
 ### Core Functionality
-- **C-STORE**: Receive and store DICOM files
+- **C-STORE**: Receive and store DICOM files from modalities and PACS
 - **C-ECHO**: Verification/connectivity testing
-- **C-FIND**: Query for studies/series (Patient/Study Root)
-- **C-MOVE/C-GET**: Retrieve operations (placeholder implementation)
+- **C-FIND**: Query for studies/series/images (Patient Root, Study Root, Patient-Study Only)
+- **C-MOVE**: Retrieve DICOM files and send to third-party destination
+- **C-GET**: Retrieve DICOM files and send back to requestor
 
 ### Configuration Options
-- Network settings (AE Title, host, port, timeouts)
-- Storage management (path, structure, naming, size limits)
+- Network settings (AE Title, host, port, timeouts, max PDU size)
+- Storage management (path, structure, naming, size limits, cleanup)
 - Security (AE Title validation, IP whitelisting)
 - SOP Class support (CT, MR, RT Structure, RT Plan, RT Dose, Secondary Capture)
 - Transfer syntax support (Implicit/Explicit VR, JPEG, JPEG2000, RLE)
+- DIMSE services (C-ECHO, C-STORE, C-FIND, C-MOVE, C-GET)
+- Query/Retrieve configuration (remote nodes, query models, timeouts)
 - Integration with DICOM Handler processing chain
 
 ### Management Features
 - Web-based service control (start/stop/restart)
-- Real-time status monitoring
-- Transaction logging and audit trail
+- Real-time status monitoring with auto-refresh toggle
+- Transaction logging and audit trail with pagination
 - Performance metrics and statistics
 - Storage usage tracking
+- Query/Retrieve interface for remote PACS queries
+- Remote DICOM node management
+- Query history and retrieve job tracking
 
 ## Architecture
 
 ```
 dicom_server/
-├── models.py                    # Database models (config, transactions, status)
+├── models.py                    # Database models (config, transactions, status, Q/R)
 ├── admin.py                     # Django admin interface
-├── views.py                     # Web interface views
+├── views.py                     # Main web interface views
+├── views_qr.py                  # Query/Retrieve interface views
 ├── forms.py                     # Configuration forms
+├── forms_qr.py                  # Query/Retrieve forms
 ├── urls.py                      # URL routing
 ├── apps.py                      # App initialization (auto-start)
 ├── dicom_scp_service.py        # Main DICOM SCP service
+├── query_retrieve_service.py   # Query/Retrieve SCU service
 ├── service_manager.py          # Service control utilities
 └── handlers/
     ├── c_store_handler.py      # C-STORE implementation
-    └── c_find_handler.py       # C-FIND implementation
+    ├── c_find_handler.py       # C-FIND implementation
+    ├── c_move_handler.py       # C-MOVE implementation
+    └── c_get_handler.py        # C-GET implementation
 ```
 
 ## Step-by-Step Configuration Guide
@@ -87,7 +98,7 @@ In the **Network Configuration** section:
 
 3. **Port**: Set the DICOM service port
    - Default: `11112`
-   - Must be between 1024-65535
+   - Must be between 1-65535
    - Ensure port is not already in use
 
 4. **Max Associations**: Maximum concurrent connections
@@ -161,20 +172,35 @@ In the **Security & Access Control** section:
 - Your PACS system
 - Any workstations that send DICOM files
 
-### Step 7: Configure DIMSE Services (Optional)
+### Step 7: Configure Storage SOP Classes
+
+In the **Storage SOP Classes** section:
+
+Enable the DICOM image types you want to accept:
+- **CT Image Storage**: Computed Tomography images (recommended: enabled)
+- **MR Image Storage**: Magnetic Resonance images (recommended: enabled)
+- **RT Structure Set Storage**: Radiation therapy structures (recommended: enabled)
+- **RT Plan Storage**: Radiation therapy plans (optional)
+- **RT Dose Storage**: Radiation dose distributions (optional)
+- **Secondary Capture**: Screenshots and derived images (optional)
+
+**Note**: At least one storage SOP class must be enabled to receive DICOM files.
+
+### Step 8: Configure DIMSE Services (Optional)
 
 In the **DIMSE Services** section:
 
 Enable the services you want to support:
 - **C-ECHO**: Verification/connectivity testing (recommended: enabled)
 - **C-STORE**: Receive DICOM files (recommended: enabled)
-- **C-FIND**: Query for studies/series (optional)
-- **C-MOVE**: Retrieve files to third-party destination (optional)
-- **C-GET**: Retrieve files to requestor (optional)
+- **C-FIND**: Query for studies/series (enable if you want to support queries)
+- **C-MOVE**: Retrieve files to third-party destination (enable for Q/R functionality)
+- **C-GET**: Retrieve files to requestor (enable for Q/R functionality)
 
 **For basic file reception, enable C-ECHO and C-STORE only.**
+**For Query/Retrieve functionality, also enable C-FIND and C-MOVE or C-GET.**
 
-### Step 8: Configure Logging (Optional)
+### Step 9: Configure Logging (Optional)
 
 In the **Logging & Monitoring** section:
 
@@ -188,7 +214,7 @@ In the **Logging & Monitoring** section:
 3. **Log Received Files**: Log each received file
 4. **Enable Performance Metrics**: Track transfer speeds and timing
 
-### Step 9: Start the DICOM Service
+### Step 10: Start the DICOM Service
 
 **Navigate to**: DICOM Server → Dashboard
 
@@ -208,7 +234,7 @@ In the **Logging & Monitoring** section:
 - Review Django logs for error messages
 - Ensure all required packages are installed (`psutil`, `pynetdicom`, `pydicom`)
 
-### Step 10: Test the Service
+### Step 11: Test the Service
 
 #### Option A: Using the Test Script
 
@@ -239,7 +265,7 @@ On your CT/MRI/PACS system:
 3. Test the connection using the modality's built-in test function
 4. Send a test study
 
-### Step 11: Verify File Reception
+### Step 12: Verify File Reception
 
 After sending test files:
 
@@ -263,7 +289,31 @@ After sending test files:
    - Verify files are being automatically processed
    - Check that series appear in the processing queue
 
-### Step 12: Configure Auto-Start (Optional)
+### Step 13: Configure Query/Retrieve (Optional)
+
+If you want to query and retrieve from remote PACS systems:
+
+**Navigate to**: DICOM Server → Query/Retrieve → Remote Nodes
+
+1. Click **"Add Remote Node"** button
+2. Fill in the remote PACS information:
+   - **Name**: Friendly name (e.g., "Main PACS")
+   - **AE Title**: Remote system's AE title
+   - **Host**: Remote system's IP address or hostname
+   - **Port**: Remote system's DICOM port (typically 104 or 11112)
+   - **Supports C-FIND**: Check if remote supports queries
+   - **Supports C-MOVE**: Check if remote supports C-MOVE retrieve
+   - **Supports C-GET**: Check if remote supports C-GET retrieve
+   - **Query/Retrieve Model**: Select "Study Root" (most common)
+   - **Move Destination AE**: Your local AE title (for C-MOVE)
+3. Click **"Save"**
+4. Click **"Test Connection"** to verify connectivity
+
+**For testing, you can use public DICOM servers**:
+- Medical Connections: `www.dicomserver.co.uk:11112` (AE: `ANY-SCP`)
+- Orthanc Demo: `demo.orthanc-server.com:4242` (AE: `ORTHANC`)
+
+### Step 14: Configure Auto-Start (Optional)
 
 If you want the service to start automatically when Django starts:
 
@@ -274,7 +324,7 @@ If you want the service to start automatically when Django starts:
 3. Click **"Save Configuration"**
 4. Restart Django to test auto-start
 
-### Step 13: Monitor and Maintain
+### Step 15: Monitor and Maintain
 
 **Regular Monitoring**:
 - Check dashboard daily for service status
@@ -595,13 +645,222 @@ For production use:
 9. Configure firewall rules for DICOM port
 10. Test connectivity from actual modalities
 
+## Understanding C-GET vs C-MOVE
+
+Both C-GET and C-MOVE are DICOM retrieve operations, but they work differently:
+
+### C-MOVE (Move to Third Party)
+
+**How it works**:
+1. You (SCU) send a C-MOVE request to a remote PACS (SCP)
+2. The PACS retrieves the requested images
+3. The PACS sends the images to a **third-party destination** (not back to you)
+4. You must specify a "Move Destination AE" that the PACS knows about
+
+**Workflow**:
+```
+[Your System] --C-MOVE request--> [Remote PACS]
+                                       |
+                                       | C-STORE
+                                       v
+                              [Destination System]
+```
+
+**Requirements**:
+- The destination system must be configured on the remote PACS
+- The destination system must be running and accepting C-STORE
+- You need to know the AE title the PACS uses for the destination
+
+**Use Cases**:
+- Retrieving images to your local DICOM server
+- Routing images between PACS systems
+- Standard in most clinical PACS environments
+
+**Configuration**:
+- Set **"Move Destination AE"** to your local DICOM server's AE title
+- Ensure your DICOM server is running and accepting C-STORE
+- The remote PACS must have your system configured as a destination
+
+### C-GET (Get Directly)
+
+**How it works**:
+1. You (SCU) send a C-GET request to a remote PACS (SCP)
+2. The PACS retrieves the requested images
+3. The PACS sends the images **directly back to you** over the same association
+4. No third-party destination needed
+
+**Workflow**:
+```
+[Your System] <--C-GET request/C-STORE response--> [Remote PACS]
+```
+
+**Requirements**:
+- Your system must accept C-STORE operations
+- Single association handles both request and response
+- Simpler configuration than C-MOVE
+
+**Use Cases**:
+- Quick retrieval without complex routing
+- When you don't want to configure destinations on remote PACS
+- Modern PACS implementations
+
+**Configuration**:
+- No destination AE needed
+- Ensure your system can accept incoming C-STORE
+- Some older PACS systems may not support C-GET
+
+### Which Should You Use?
+
+**Use C-MOVE when**:
+- Working with traditional clinical PACS systems
+- You need to route images to different destinations
+- The remote PACS doesn't support C-GET
+- You want images stored on your DICOM server (not just received temporarily)
+
+**Use C-GET when**:
+- You want simpler configuration
+- The remote PACS supports C-GET
+- You're retrieving directly to your application
+- You don't need complex routing
+
+**In DRAW Client**:
+- Both are supported
+- C-MOVE is recommended for retrieving to your local DICOM server
+- Configure your local DICOM server's AE title as the Move Destination
+- Ensure your DICOM server is running before initiating C-MOVE
+
+## Query/Retrieve Usage Guide
+
+### Querying Remote PACS
+
+**Navigate to**: DICOM Server → Query/Retrieve → Query Interface
+
+1. **Select Remote Node**: Choose the PACS you want to query
+2. **Select Query Level**:
+   - **Patient**: Search for patients
+   - **Study**: Search for studies (most common)
+   - **Series**: Search for specific series
+   - **Image**: Search for individual images
+3. **Enter Search Criteria**:
+   - Patient ID, Patient Name
+   - Study Date, Study Description
+   - Modality (CT, MR, etc.)
+   - Use wildcards (*) for partial matches
+4. Click **"Search"**
+5. Review results in the results table
+
+### Retrieving Images
+
+From the query results:
+
+1. **Select images** to retrieve (checkbox)
+2. Click **"Retrieve Selected"** button
+3. Choose retrieve method:
+   - **C-MOVE**: Images sent to your DICOM server
+   - **C-GET**: Images sent directly to this application
+4. Monitor progress in **Retrieve Jobs** page
+5. Check your DICOM server dashboard for received files
+
+### Viewing Query History
+
+**Navigate to**: DICOM Server → Query/Retrieve → Query History
+
+- View all previous queries
+- See query parameters and result counts
+- Re-run previous queries
+- Filter by remote node or date
+
+### Monitoring Retrieve Jobs
+
+**Navigate to**: DICOM Server → Query/Retrieve → Retrieve Jobs
+
+- View active and completed retrieve operations
+- Monitor progress (pending, in progress, completed, failed)
+- See number of images retrieved
+- Review any errors
+
+## Configuration Reference
+
+### Network Settings
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| AE Title | DRAW_SCP | 1-16 chars | Application Entity title (uppercase) |
+| Host | 0.0.0.0 | IP address | Network interface to bind |
+| Port | 11112 | 1-65535 | DICOM service port |
+| Max Associations | 10 | 1-100 | Concurrent connections allowed |
+| Max PDU Size | 16384 | 4096-131072 | Protocol Data Unit size (bytes) |
+| Network Timeout | 30 | 5-300 | Network timeout (seconds) |
+| ACSE Timeout | 30 | 5-300 | Association timeout (seconds) |
+| DIMSE Timeout | 30 | 5-300 | Message timeout (seconds) |
+
+### Storage Settings
+
+| Setting | Default | Options | Description |
+|---------|---------|---------|-------------|
+| Storage Structure | series | flat, patient, study, series, date | File organization method |
+| File Naming | sop_uid | sop_uid, instance_number, timestamp, sequential | Filename format |
+| Max Storage Size | 100 GB | 1-10000 GB | Storage limit |
+| Enable Cleanup | False | True/False | Auto-delete old files when full |
+| Retention Days | 30 | 1-3650 | Minimum age before deletion |
+
+### Storage SOP Classes
+
+| SOP Class | Default | UID | Description |
+|-----------|---------|-----|-------------|
+| CT Image Storage | True | 1.2.840.10008.5.1.4.1.1.2 | CT images |
+| MR Image Storage | True | 1.2.840.10008.5.1.4.1.1.4 | MR images |
+| RT Structure Set | True | 1.2.840.10008.5.1.4.1.1.481.3 | RT structures |
+| RT Plan Storage | True | 1.2.840.10008.5.1.4.1.1.481.5 | RT plans |
+| RT Dose Storage | True | 1.2.840.10008.5.1.4.1.1.481.2 | RT dose |
+| Secondary Capture | True | 1.2.840.10008.5.1.4.1.1.7 | Screenshots |
+
+### DIMSE Services
+
+| Service | Default | Description |
+|---------|---------|-------------|
+| C-ECHO | True | Verification/connectivity testing |
+| C-STORE | True | Receive DICOM files |
+| C-FIND | False | Query for studies/series |
+| C-MOVE | False | Retrieve to third-party destination |
+| C-GET | False | Retrieve to requestor |
+
+### Transfer Syntaxes
+
+| Transfer Syntax | Default | UID | Description |
+|-----------------|---------|-----|-------------|
+| Implicit VR Little Endian | True | 1.2.840.10008.1.2 | Default uncompressed |
+| Explicit VR Little Endian | True | 1.2.840.10008.1.2.1 | Explicit uncompressed |
+| Explicit VR Big Endian | False | 1.2.840.10008.1.2.2 | Big endian (rare) |
+| JPEG Baseline | True | 1.2.840.10008.1.2.4.50 | Lossy compression |
+| JPEG Lossless | True | 1.2.840.10008.1.2.4.70 | Lossless compression |
+| JPEG 2000 Lossless | False | 1.2.840.10008.1.2.4.90 | JPEG2000 lossless |
+| RLE Lossless | False | 1.2.840.10008.1.2.5 | Run-length encoding |
+
+### Remote Node Settings
+
+| Setting | Required | Description |
+|---------|----------|-------------|
+| Name | Yes | Friendly name for the remote node |
+| AE Title | Yes | Remote system's AE title |
+| Host | Yes | IP address or hostname |
+| Port | Yes | Remote DICOM port |
+| Supports C-FIND | No | Enable query operations |
+| Supports C-MOVE | No | Enable C-MOVE retrieve |
+| Supports C-GET | No | Enable C-GET retrieve |
+| Query/Retrieve Model | Yes | Patient Root, Study Root, or Patient-Study Only |
+| Timeout | No | Connection timeout (default: 30s) |
+| Max PDU Size | No | Maximum PDU size (default: 16384) |
+| Move Destination AE | No | AE title for C-MOVE destination |
+
 ## Future Enhancements
 
 Potential improvements:
-- C-MOVE/C-GET full implementation
-- Database-indexed C-FIND (faster queries)
-- Storage cleanup automation
-- Advanced routing rules
-- TLS/SSL support
-- DICOM modality worklist (MWL)
+- Database-indexed C-FIND (faster queries on large datasets)
+- Advanced routing rules for received files
+- TLS/SSL support for secure DICOM communication
+- DICOM modality worklist (MWL) support
 - Scheduled retrieve operations
+- Batch query/retrieve operations
+- Query result caching
+- Advanced filtering in Query/Retrieve interface

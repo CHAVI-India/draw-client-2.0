@@ -40,7 +40,7 @@ from pydicom.uid import (
 from django.utils import timezone
 from django.db import transaction as db_transaction
 
-from .models import DicomServerConfig, AllowedAETitle, DicomTransaction, DicomServiceStatus
+from .models import DicomServerConfig, RemoteDicomNode, DicomTransaction, DicomServiceStatus
 
 logger = logging.getLogger(__name__)
 
@@ -257,10 +257,17 @@ class DicomSCPService:
     def restart(self):
         """
         Restart the DICOM SCP service.
+        Reloads configuration from database before restarting.
         """
         logger.info("Restarting DICOM SCP service...")
         self.stop()
         time.sleep(2)
+        
+        # Reload configuration from database
+        if not self.initialize():
+            logger.error("Failed to reload configuration during restart")
+            return False
+        
         return self.start()
     
     def _run_server(self, handlers):
@@ -311,21 +318,21 @@ class DicomSCPService:
     
     def _validate_calling_ae(self, calling_ae_title):
         """
-        Validate calling AE title against allowed list.
+        Validate calling AE title against allowed list using unified RemoteDicomNode model.
         """
         if not self.config.require_calling_ae_validation:
             return True
         
         try:
-            allowed_ae = AllowedAETitle.objects.filter(
-                ae_title=calling_ae_title,
+            remote_node = RemoteDicomNode.objects.filter(
+                incoming_ae_title=calling_ae_title,
+                allow_incoming=True,
                 is_active=True
             ).first()
             
-            if allowed_ae:
-                # Update last connection time
-                allowed_ae.last_connection = timezone.now()
-                allowed_ae.save()
+            if remote_node:
+                # Update last incoming connection time
+                remote_node.update_last_incoming_connection()
                 return True
             
             return False

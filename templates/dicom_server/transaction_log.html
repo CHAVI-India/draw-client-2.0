@@ -165,9 +165,48 @@
                     </tbody>
                 </table>
             </div>
+            
+            <!-- Pagination -->
+            {% if transactions.has_other_pages %}
             <div class="px-6 py-4 bg-gray-50 border-t border-gray-200">
-                <p class="text-sm text-gray-600">Showing {{ transactions|length }} most recent transactions (limited to 100)</p>
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-gray-600">
+                        Showing {{ transactions.start_index }} to {{ transactions.end_index }} of {{ paginator.count }} transactions
+                    </div>
+                    <nav class="flex items-center space-x-2">
+                        {% if transactions.has_previous %}
+                            <a href="?page=1{% if selected_type %}&type={{ selected_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_ae_title %}&ae_title={{ selected_ae_title }}{% endif %}" 
+                               class="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                First
+                            </a>
+                            <a href="?page={{ transactions.previous_page_number }}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_ae_title %}&ae_title={{ selected_ae_title }}{% endif %}" 
+                               class="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                Previous
+                            </a>
+                        {% endif %}
+                        
+                        <span class="px-4 py-2 text-sm text-gray-700">
+                            Page {{ transactions.number }} of {{ paginator.num_pages }}
+                        </span>
+                        
+                        {% if transactions.has_next %}
+                            <a href="?page={{ transactions.next_page_number }}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_ae_title %}&ae_title={{ selected_ae_title }}{% endif %}" 
+                               class="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                Next
+                            </a>
+                            <a href="?page={{ paginator.num_pages }}{% if selected_type %}&type={{ selected_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}{% if selected_ae_title %}&ae_title={{ selected_ae_title }}{% endif %}" 
+                               class="px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                Last
+                            </a>
+                        {% endif %}
+                    </nav>
+                </div>
             </div>
+            {% else %}
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <p class="text-sm text-gray-600">Showing {{ transactions|length }} transactions</p>
+            </div>
+            {% endif %}
         {% else %}
             <div class="text-center py-12">
                 <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

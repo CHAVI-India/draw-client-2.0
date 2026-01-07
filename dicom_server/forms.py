@@ -1,5 +1,5 @@
 from django import forms
-from .models import DicomServerConfig, AllowedAETitle
+from .models import DicomServerConfig
 
 
 class DicomServerConfigForm(forms.ModelForm):
@@ -48,9 +48,6 @@ class DicomServerConfigForm(forms.ModelForm):
             'log_connection_attempts',
             'log_received_files',
             'enable_performance_metrics',
-            'notify_on_receive',
-            'notify_on_error',
-            'notification_email',
             'validate_dicom_on_receive',
             'reject_invalid_dicom',
         ]
@@ -69,7 +66,6 @@ class DicomServerConfigForm(forms.ModelForm):
             'storage_retention_days': forms.NumberInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'allowed_ip_addresses': forms.Textarea(attrs={'rows': 3, 'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'logging_level': forms.Select(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
-            'notification_email': forms.EmailInput(attrs={'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'}),
             'auto_start': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'enable_storage_cleanup': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'require_calling_ae_validation': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
@@ -95,29 +91,8 @@ class DicomServerConfigForm(forms.ModelForm):
             'log_connection_attempts': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'log_received_files': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'enable_performance_metrics': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
-            'notify_on_receive': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
-            'notify_on_error': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'validate_dicom_on_receive': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'reject_invalid_dicom': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
-        }
-    
-    def clean_ae_title(self):
-        """Clean and normalize AE Title: strip whitespace and convert to uppercase."""
-        ae_title = self.cleaned_data.get('ae_title', '')
-        if ae_title:
-            ae_title = ae_title.strip().upper()
-        return ae_title
-
-
-class AllowedAETitleForm(forms.ModelForm):
-    """
-    Form for adding/editing allowed AE titles.
-    """
-    class Meta:
-        model = AllowedAETitle
-        fields = ['ae_title', 'description', 'ip_address', 'is_active']
-        widgets = {
-            'ae_title': forms.TextInput(attrs={'class': 'uppercase'}),
         }
     
     def clean_ae_title(self):

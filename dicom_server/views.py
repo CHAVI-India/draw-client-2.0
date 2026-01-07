@@ -4,9 +4,10 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.db.models import Count, Q
 from django.utils import timezone
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from datetime import timedelta
-from .models import DicomServerConfig, AllowedAETitle, DicomTransaction, DicomServiceStatus
-from .forms import DicomServerConfigForm, AllowedAETitleForm
+from .models import DicomServerConfig, RemoteDicomNode, DicomTransaction, DicomServiceStatus
+from .forms import DicomServerConfigForm
 
 
 @login_required
@@ -22,7 +23,7 @@ def dicom_server_dashboard(request):
     last_24h = timezone.now() - timedelta(hours=24)
     recent_transactions = DicomTransaction.objects.filter(
         timestamp__gte=last_24h
-    ).order_by('-timestamp')[:50]
+    ).order_by('-timestamp')[:10]
     
     # Get transaction statistics
     transaction_stats = DicomTransaction.objects.filter(
@@ -35,15 +36,17 @@ def dicom_server_dashboard(request):
         c_echo=Count('transaction_id', filter=Q(transaction_type='C-ECHO')),
     )
     
-    # Get allowed AE titles
-    allowed_ae_titles = AllowedAETitle.objects.filter(is_active=True).order_by('ae_title')
+    # Get all active remote nodes (both incoming and outgoing)
+    remote_nodes = RemoteDicomNode.objects.filter(
+        is_active=True
+    ).order_by('name')
     
     context = {
         'config': config,
         'service_status': service_status,
         'recent_transactions': recent_transactions,
         'transaction_stats': transaction_stats,
-        'allowed_ae_titles': allowed_ae_titles,
+        'remote_nodes': remote_nodes,
     }
     
     return render(request, 'dicom_server/dashboard.html', context)
@@ -86,83 +89,67 @@ def dicom_server_config(request):
 @login_required
 def allowed_ae_titles(request):
     """
-    Manage allowed AE titles.
+    Redirect to unified remote nodes management.
+    Legacy endpoint for backward compatibility.
     """
-    ae_titles = AllowedAETitle.objects.all().order_by('ae_title')
-    
-    if request.method == 'POST':
-        form = AllowedAETitleForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, f'AE Title "{form.cleaned_data["ae_title"]}" added successfully.')
-            return redirect('dicom_server:allowed_ae_titles')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = AllowedAETitleForm()
-    
-    context = {
-        'ae_titles': ae_titles,
-        'form': form,
-    }
-    
-    return render(request, 'dicom_server/allowed_ae_titles.html', context)
+    messages.info(request, 'AE Title management has been merged into Remote Nodes. You can now manage both incoming and outgoing connections in one place.')
+    return redirect('dicom_server:remote_nodes_list')
 
 
 @login_required
 def delete_ae_title(request, ae_title_id):
     """
-    Delete an allowed AE title.
+    Legacy endpoint - redirect to remote nodes.
     """
-    ae_title = get_object_or_404(AllowedAETitle, pk=ae_title_id)
-    ae_title_name = ae_title.ae_title
-    ae_title.delete()
-    messages.success(request, f'AE Title "{ae_title_name}" deleted successfully.')
-    return redirect('dicom_server:allowed_ae_titles')
+    return redirect('dicom_server:remote_nodes_list')
 
 
 @login_required
 def toggle_ae_title(request, ae_title_id):
     """
-    Toggle active status of an AE title.
+    Legacy endpoint - redirect to remote nodes.
     """
-    ae_title = get_object_or_404(AllowedAETitle, pk=ae_title_id)
-    ae_title.is_active = not ae_title.is_active
-    ae_title.save()
-    status = 'activated' if ae_title.is_active else 'deactivated'
-    messages.success(request, f'AE Title "{ae_title.ae_title}" {status} successfully.')
-    return redirect('dicom_server:allowed_ae_titles')
+    return redirect('dicom_server:remote_nodes_list')
 
 
 @login_required
 def transaction_log(request):
     """
-    View transaction log with filtering.
+    View transaction log with filtering and pagination.
     """
     transactions = DicomTransaction.objects.all().order_by('-timestamp')
     
     # Apply filters
-    transaction_type = request.GET.get('type')
-    status = request.GET.get('status')
-    ae_title = request.GET.get('ae_title')
+    transaction_type = request.GET.get('type', '')
+    status = request.GET.get('status', '')
+    ae_title = request.GET.get('ae_title', '')
     
     if transaction_type:
         transactions = transactions.filter(transaction_type=transaction_type)
     if status:
         transactions = transactions.filter(status=status)
     if ae_title:
-        transactions = transactions.filter(calling_ae_title=ae_title)
+        transactions = transactions.filter(calling_ae_title__icontains=ae_title)
     
-    # Pagination (show 100 per page)
-    transactions = transactions[:100]
+    # Pagination - 25 transactions per page
+    paginator = Paginator(transactions, 25)
+    page = request.GET.get('page', 1)
+    
+    try:
+        transactions_page = paginator.page(page)
+    except PageNotAnInteger:
+        transactions_page = paginator.page(1)
+    except EmptyPage:
+        transactions_page = paginator.page(paginator.num_pages)
     
     context = {
-        'transactions': transactions,
+        'transactions': transactions_page,
         'transaction_types': DicomTransaction.TRANSACTION_TYPE_CHOICES,
         'statuses': DicomTransaction.STATUS_CHOICES,
         'selected_type': transaction_type,
         'selected_status': status,
         'selected_ae_title': ae_title,
+        'paginator': paginator,
     }
     
     return render(request, 'dicom_server/transaction_log.html', context)

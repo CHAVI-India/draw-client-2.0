@@ -226,10 +226,24 @@
         {% endif %}
     </div>
 
-    <!-- Query/Retrieve Quick Actions -->
+    <!-- Quick Actions -->
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4">Query/Retrieve</h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <a href="{% url 'dicom_handler:patient_list' %}" class="block p-4 bg-green-50 rounded-lg hover:bg-green-100 transition group">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-600 rounded-lg group-hover:bg-green-700 transition">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="font-semibold text-gray-900">Patient List</p>
+                        <p class="text-sm text-gray-600">Browse stored data</p>
+                    </div>
+                </div>
+            </a>
+
             <a href="{% url 'dicom_server:query_interface' %}" class="block p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition group">
                 <div class="flex items-center">
                     <div class="p-3 bg-blue-600 rounded-lg group-hover:bg-blue-700 transition">
@@ -274,32 +288,90 @@
         </div>
     </div>
 
-    <!-- Allowed AE Titles -->
+    <!-- Remote DICOM Nodes -->
     <div class="bg-white rounded-lg shadow-md p-6">
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-semibold text-gray-900">Allowed AE Titles</h2>
-            <a href="{% url 'dicom_server:allowed_ae_titles' %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            <h2 class="text-xl font-semibold text-gray-900">Remote DICOM Nodes</h2>
+            <a href="{% url 'dicom_server:remote_nodes_list' %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium">
                 Manage →
             </a>
         </div>
         
-        {% if allowed_ae_titles %}
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {% for ae in allowed_ae_titles %}
-                    <div class="border border-gray-200 rounded-lg p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="font-semibold text-gray-900">{{ ae.ae_title }}</span>
-                            <span class="w-2 h-2 bg-green-500 rounded-full"></span>
-                        </div>
-                        <p class="text-sm text-gray-600">{{ ae.description|default:"No description" }}</p>
-                        {% if ae.ip_address %}
-                            <p class="text-xs text-gray-500 mt-1">IP: {{ ae.ip_address }}</p>
-                        {% endif %}
-                    </div>
-                {% endfor %}
+        {% if remote_nodes %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">AE Titles</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capabilities</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Host:Port</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for node in remote_nodes %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ node.name }}</td>
+                                <td class="px-4 py-3 text-sm">
+                                    {% if node.node_type == 'bidirectional' %}
+                                        <span class="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">Bidirectional</span>
+                                    {% elif node.node_type == 'incoming' %}
+                                        <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">Incoming</span>
+                                    {% elif node.node_type == 'outgoing' %}
+                                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Outgoing</span>
+                                    {% else %}
+                                        <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-medium">Unconfigured</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600">
+                                    {% if node.incoming_ae_title %}
+                                        <div class="text-xs"><span class="font-medium text-blue-600">IN:</span> {{ node.incoming_ae_title }}</div>
+                                    {% endif %}
+                                    {% if node.outgoing_ae_title %}
+                                        <div class="text-xs"><span class="font-medium text-green-600">OUT:</span> {{ node.outgoing_ae_title }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600">
+                                    <div class="flex flex-wrap gap-1">
+                                        {% if node.allow_incoming %}
+                                            <span class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">C-STORE</span>
+                                        {% endif %}
+                                        {% if node.supports_c_find %}
+                                            <span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">C-FIND</span>
+                                        {% endif %}
+                                        {% if node.supports_c_move %}
+                                            <span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">C-MOVE</span>
+                                        {% endif %}
+                                        {% if node.supports_c_get %}
+                                            <span class="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">C-GET</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600">
+                                    {% if node.host %}{{ node.host }}:{{ node.port }}{% else %}-{% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    {% if node.is_active %}
+                                        <span class="flex items-center text-green-600">
+                                            <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                                            Active
+                                        </span>
+                                    {% else %}
+                                        <span class="flex items-center text-gray-400">
+                                            <span class="w-2 h-2 bg-gray-400 rounded-full mr-2"></span>
+                                            Inactive
+                                        </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         {% else %}
-            <p class="text-gray-500 text-center py-4">No allowed AE titles configured</p>
+            <p class="text-gray-500 text-center py-4">No remote nodes configured. <a href="{% url 'dicom_server:remote_nodes_list' %}" class="text-blue-600 hover:text-blue-800">Add a node</a> to get started.</p>
         {% endif %}
     </div>
 </div>

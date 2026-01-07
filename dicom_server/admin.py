@@ -51,10 +51,6 @@ class DicomServerConfigAdmin(admin.ModelAdmin):
         ('Logging & Monitoring', {
             'fields': ('logging_level', 'log_connection_attempts', 'log_received_files', 'enable_performance_metrics')
         }),
-        ('Notifications', {
-            'fields': ('notify_on_receive', 'notify_on_error', 'notification_email'),
-            'classes': ('collapse',)
-        }),
         ('Validation Settings', {
             'fields': ('validate_dicom_on_receive', 'reject_invalid_dicom'),
             'classes': ('collapse',)
@@ -188,25 +184,30 @@ class DicomServiceStatusAdmin(admin.ModelAdmin):
 
 @admin.register(RemoteDicomNode)
 class RemoteDicomNodeAdmin(admin.ModelAdmin):
-    list_display = ('name', 'ae_title', 'host', 'port', 'is_active', 'supports_c_find', 
-                   'supports_c_move', 'supports_c_get', 'last_successful_connection')
-    list_filter = ('is_active', 'supports_c_find', 'supports_c_move', 'supports_c_get', 
-                   'query_retrieve_model')
-    search_fields = ('name', 'ae_title', 'host', 'description')
-    readonly_fields = ('created_at', 'updated_at', 'last_successful_connection')
+    list_display = ('name', 'incoming_ae_title', 'outgoing_ae_title', 'host', 'port', 
+                   'allow_incoming', 'is_active', 'last_successful_connection')
+    list_filter = ('is_active', 'allow_incoming', 'supports_c_find', 'supports_c_move', 
+                   'supports_c_get', 'query_retrieve_model')
+    search_fields = ('name', 'incoming_ae_title', 'outgoing_ae_title', 'host', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'last_successful_connection', 
+                      'last_incoming_connection', 'node_type', 'capabilities_summary')
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'ae_title', 'host', 'port', 'description')
+            'fields': ('name', 'host', 'port', 'description')
         }),
-        ('Capabilities', {
-            'fields': ('supports_c_find', 'supports_c_move', 'supports_c_get', 'query_retrieve_model')
+        ('Incoming Connections', {
+            'fields': ('allow_incoming', 'incoming_ae_title', 'expected_ip', 'last_incoming_connection')
+        }),
+        ('Outgoing Query/Retrieve', {
+            'fields': ('supports_c_find', 'supports_c_move', 'supports_c_get', 
+                      'outgoing_ae_title', 'query_retrieve_model')
         }),
         ('Connection Settings', {
             'fields': ('timeout', 'max_pdu_size', 'move_destination_ae')
         }),
         ('Status', {
-            'fields': ('is_active', 'last_successful_connection')
+            'fields': ('is_active', 'node_type', 'capabilities_summary', 'last_successful_connection')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

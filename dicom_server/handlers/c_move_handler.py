@@ -70,7 +70,8 @@ def handle_c_move(service, event):
                 study_instance_uid=getattr(query_ds, 'StudyInstanceUID', None),
                 series_instance_uid=getattr(query_ds, 'SeriesInstanceUID', None)
             )
-            yield (0x0000, None)  # Success - no matches
+            # First yield must be number of sub-operations (0 for no matches)
+            yield 0
             return
         
         # Get destination AE configuration
@@ -84,8 +85,12 @@ def handle_c_move(service, event):
                 event,
                 error_message=f"Destination AE '{move_destination}' not configured"
             )
-            yield (0xA801, None)  # Refused: Move Destination unknown
+            yield 0  # No sub-operations
             return
+        
+        # First yield: number of sub-operations (total files to send)
+        num_sub_operations = len(matches)
+        yield num_sub_operations
         
         # Send files to destination
         success_count = 0
@@ -152,68 +157,56 @@ def handle_c_move(service, event):
 
 def _search_dicom_storage(service, query_ds, query_level):
     """
-    Search DICOM storage for matching files and return file paths.
+    Search DICOM storage using database models and return file paths.
     
     Returns:
         list: List of file paths matching the query
     """
-    matches = []
-    storage_path = service.config.storage_root_path
+    from dicom_handler.models import DICOMSeries, DICOMInstance
     
-    if not os.path.exists(storage_path):
-        return matches
+    matches = []
     
     # Extract query parameters
     patient_id = getattr(query_ds, 'PatientID', None)
     study_uid = getattr(query_ds, 'StudyInstanceUID', None)
     series_uid = getattr(query_ds, 'SeriesInstanceUID', None)
     
-    # Scan storage directory for DICOM files
-    for root, dirs, files in os.walk(storage_path):
-        for filename in files:
-            if filename.endswith('.dcm'):
-                file_path = os.path.join(root, filename)
-                
-                try:
-                    ds = dcmread(file_path, stop_before_pixels=True)
-                    
-                    # Check if this file matches the query
-                    if _matches_query(ds, patient_id, study_uid, series_uid, query_level):
-                        matches.append(file_path)
-                        
-                        # Limit results
-                        if len(matches) >= 1000:
-                            logger.warning("C-MOVE result limit reached (1000 matches)")
-                            return matches
+    try:
+        # Query database for matching series
+        queryset = DICOMSeries.objects.select_related('study__patient').all()
+        
+        if patient_id:
+            queryset = queryset.filter(study__patient__patient_id__iexact=patient_id)
+        
+        if study_uid:
+            queryset = queryset.filter(study__study_instance_uid__iexact=study_uid)
+        
+        if series_uid:
+            queryset = queryset.filter(series_instance_uid__iexact=series_uid)
+        
+        # Get file paths from series_root_path
+        for series in queryset:
+            if series.series_root_path and os.path.exists(series.series_root_path):
+                # Get all .dcm files in the series directory
+                for root, dirs, files in os.walk(series.series_root_path):
+                    for filename in files:
+                        if filename.endswith('.dcm'):
+                            file_path = os.path.join(root, filename)
+                            matches.append(file_path)
                             
-                except Exception as e:
-                    logger.debug(f"Error reading DICOM file {file_path}: {str(e)}")
-                    continue
-    
-    logger.info(f"C-MOVE found {len(matches)} matching files")
-    return matches
+                            # Limit results
+                            if len(matches) >= 1000:
+                                logger.warning("C-MOVE result limit reached (1000 matches)")
+                                return matches
+        
+        logger.info(f"C-MOVE found {len(matches)} matching files from database")
+        return matches
+        
+    except Exception as e:
+        logger.error(f"Error querying database for C-MOVE: {str(e)}")
+        return []
 
 
-def _matches_query(ds, patient_id, study_uid, series_uid, query_level):
-    """
-    Check if a DICOM dataset matches the query parameters.
-    """
-    # Patient ID matching
-    if patient_id and hasattr(ds, 'PatientID'):
-        if patient_id != ds.PatientID:
-            return False
-    
-    # Study UID matching
-    if study_uid and hasattr(ds, 'StudyInstanceUID'):
-        if study_uid != ds.StudyInstanceUID:
-            return False
-    
-    # Series UID matching
-    if series_uid and hasattr(ds, 'SeriesInstanceUID'):
-        if series_uid != ds.SeriesInstanceUID:
-            return False
-    
-    return True
 
 
 def _get_destination_config(service, ae_title):

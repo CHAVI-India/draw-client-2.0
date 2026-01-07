@@ -46,8 +46,8 @@ class DicomServerConfig(models.Model):
     )
     port = models.IntegerField(
         default=11112,
-        validators=[MinValueValidator(1024), MaxValueValidator(65535)],
-        help_text="Port number for DICOM communication (default: 11112, range: 1024-65535)."
+        validators=[MinValueValidator(1), MaxValueValidator(65535)],
+        help_text="Port number for DICOM communication (default: 11112, range: 1-65535)."
     )
     max_associations = models.IntegerField(
         default=10,
@@ -248,23 +248,6 @@ class DicomServerConfig(models.Model):
     enable_performance_metrics = models.BooleanField(
         default=True,
         help_text="Track and log performance metrics (transfer speeds, processing times)."
-    )
-    
-    # Notification Settings
-    notify_on_receive = models.BooleanField(
-        default=False,
-        help_text="Send notification when new DICOM data is received."
-    )
-    
-    notify_on_error = models.BooleanField(
-        default=True,
-        help_text="Send notification when errors occur during DICOM operations."
-    )
-    
-    notification_email = models.EmailField(
-        blank=True,
-        null=True,
-        help_text="Email address for notifications (leave blank to disable email notifications)."
     )
     
     # Validation Settings
@@ -617,7 +600,7 @@ class DestinationAETitle(models.Model):
         help_text="Hostname or IP address of the destination."
     )
     port = models.IntegerField(
-        validators=[MinValueValidator(1024), MaxValueValidator(65535)],
+        validators=[MinValueValidator(1), MaxValueValidator(65535)],
         default=11112,
         help_text="Port number of the destination DICOM service."
     )
@@ -773,8 +756,8 @@ class DicomServiceStatus(models.Model):
 
 class RemoteDicomNode(models.Model):
     """
-    Model representing a remote DICOM node (PACS, modality, or other SCP).
-    Used for Query/Retrieve operations.
+    Unified model representing a remote DICOM node (PACS, modality, or other SCP).
+    Handles both incoming connections (who can send to us) and outgoing Query/Retrieve operations.
     """
     
     # Identification
@@ -783,8 +766,28 @@ class RemoteDicomNode(models.Model):
         unique=True,
         help_text="Friendly name for this DICOM node (e.g., 'Main PACS', 'CT Scanner 1')"
     )
-    ae_title = models.CharField(
+    
+    # Network Information
+    host = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Hostname or IP address of the remote DICOM node (required for outgoing operations)"
+    )
+    port = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(65535)],
+        blank=True,
+        null=True,
+        help_text="Port number for DICOM communication (required for outgoing operations)"
+    )
+    
+    # Incoming Connection Settings (replaces AllowedAETitle functionality)
+    allow_incoming = models.BooleanField(
+        default=False,
+        help_text="Allow this node to send DICOM files to our server (C-STORE)"
+    )
+    incoming_ae_title = models.CharField(
         max_length=16,
+        blank=True,
         validators=[
             RegexValidator(
                 regex=r'^[A-Z0-9_\-]+$',
@@ -792,29 +795,43 @@ class RemoteDicomNode(models.Model):
                 code='invalid_ae_title'
             )
         ],
-        help_text="Application Entity Title of the remote DICOM node"
+        help_text="AE Title used when this node sends files to us (required if allow_incoming is True)"
     )
-    host = models.CharField(
-        max_length=255,
-        help_text="Hostname or IP address of the remote DICOM node"
+    expected_ip = models.GenericIPAddressField(
+        blank=True,
+        null=True,
+        help_text="Expected IP address for incoming connections (optional, for documentation/validation)"
     )
-    port = models.IntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(65535)],
-        help_text="Port number for DICOM communication"
+    last_incoming_connection = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this node successfully sent files to us"
     )
     
-    # Capabilities
+    # Outgoing Query/Retrieve Capabilities
     supports_c_find = models.BooleanField(
-        default=True,
+        default=False,
         help_text="Remote node supports C-FIND (query) operations"
     )
     supports_c_move = models.BooleanField(
-        default=True,
+        default=False,
         help_text="Remote node supports C-MOVE (retrieve) operations"
     )
     supports_c_get = models.BooleanField(
         default=False,
         help_text="Remote node supports C-GET (retrieve) operations"
+    )
+    outgoing_ae_title = models.CharField(
+        max_length=16,
+        blank=True,
+        validators=[
+            RegexValidator(
+                regex=r'^[A-Z0-9_\-]+$',
+                message='AE Title must contain only uppercase letters, numbers, underscores, and hyphens.',
+                code='invalid_ae_title'
+            )
+        ],
+        help_text="AE Title used for Query/Retrieve operations (required if any Q/R capability is enabled)"
     )
     
     # Query/Retrieve Models
@@ -827,6 +844,7 @@ class RemoteDicomNode(models.Model):
         max_length=20,
         choices=QUERY_RETRIEVE_MODELS,
         default='study',
+        blank=True,
         help_text="Query/Retrieve Information Model supported by this node"
     )
     
@@ -852,7 +870,7 @@ class RemoteDicomNode(models.Model):
     # Status
     is_active = models.BooleanField(
         default=True,
-        help_text="Whether this node is active and available for queries"
+        help_text="Whether this node is active"
     )
     
     # Metadata
@@ -865,7 +883,7 @@ class RemoteDicomNode(models.Model):
     last_successful_connection = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Last time a successful connection was made to this node"
+        help_text="Last time a successful outgoing connection was made to this node"
     )
     
     class Meta:
@@ -874,12 +892,52 @@ class RemoteDicomNode(models.Model):
         verbose_name_plural = "Remote DICOM Nodes"
     
     def __str__(self):
-        return f"{self.name} ({self.ae_title}@{self.host}:{self.port})"
+        ae_display = []
+        if self.incoming_ae_title:
+            ae_display.append(f"IN:{self.incoming_ae_title}")
+        if self.outgoing_ae_title:
+            ae_display.append(f"OUT:{self.outgoing_ae_title}")
+        ae_str = "/".join(ae_display) if ae_display else "No AE"
+        return f"{self.name} ({ae_str}@{self.host}:{self.port})"
+    
+    @property
+    def node_type(self):
+        """Return the type of node based on configuration."""
+        incoming = self.allow_incoming
+        outgoing = any([self.supports_c_find, self.supports_c_move, self.supports_c_get])
+        
+        if incoming and outgoing:
+            return "bidirectional"
+        elif incoming:
+            return "incoming"
+        elif outgoing:
+            return "outgoing"
+        else:
+            return "unconfigured"
+    
+    @property
+    def capabilities_summary(self):
+        """Return a summary of node capabilities."""
+        caps = []
+        if self.allow_incoming:
+            caps.append("C-STORE (receive)")
+        if self.supports_c_find:
+            caps.append("C-FIND")
+        if self.supports_c_move:
+            caps.append("C-MOVE")
+        if self.supports_c_get:
+            caps.append("C-GET")
+        return ", ".join(caps) if caps else "No capabilities configured"
     
     def update_last_connection(self):
-        """Update the last successful connection timestamp."""
+        """Update the last successful outgoing connection timestamp."""
         self.last_successful_connection = timezone.now()
         self.save(update_fields=['last_successful_connection'])
+    
+    def update_last_incoming_connection(self):
+        """Update the last successful incoming connection timestamp."""
+        self.last_incoming_connection = timezone.now()
+        self.save(update_fields=['last_incoming_connection'])
 
 
 class DicomQuery(models.Model):
