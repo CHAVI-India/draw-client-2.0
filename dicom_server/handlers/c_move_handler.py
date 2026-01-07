@@ -10,7 +10,8 @@ from pathlib import Path
 from pydicom import dcmread
 from pydicom.dataset import Dataset
 from pynetdicom import AE
-from pynetdicom.sop_class import CTImageStorage, MRImageStorage
+from pynetdicom.sop_class import CTImageStorage, MRImageStorage, RTStructureSetStorage, RTPlanStorage, RTDoseStorage
+from pynetdicom import AllStoragePresentationContexts
 
 logger = logging.getLogger(__name__)
 
@@ -270,10 +271,10 @@ def _send_file_to_destination(service, file_path, dest_ae, dest_host, dest_port)
         # Create Application Entity for sending
         ae = AE(ae_title=service.config.ae_title)
         
-        # Add presentation contexts for common SOP classes
-        ae.add_requested_context(CTImageStorage)
-        ae.add_requested_context(MRImageStorage)
-        # Add more as needed based on SOP Class UID
+        # Add ALL storage presentation contexts with multiple transfer syntaxes
+        # This ensures compatibility with various PACS systems
+        for context in AllStoragePresentationContexts:
+            ae.add_requested_context(context.abstract_syntax, context.transfer_syntax)
         
         # Associate with destination
         assoc = ae.associate(dest_host, dest_port, ae_title=dest_ae)
