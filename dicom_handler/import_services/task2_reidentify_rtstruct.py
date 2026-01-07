@@ -255,12 +255,25 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
             ds.StudyDescription = study.study_description
         if study.study_date:
             ds.StudyDate = study.study_date.strftime('%Y%m%d')
+        if study.study_time:
+            ds.StudyTime = study.study_time.strftime('%H%M%S')
+        
+        # Replace AccessionNumber with original value from database
+        if study.accession_number:
+            ds.AccessionNumber = study.accession_number
+        else:
+            ds.AccessionNumber = "202514789"  # Fallback to default if not available
+        
+        # Replace StudyID with original value from database
+        if study.study_id:
+            ds.StudyID = study.study_id
+        else:
+            ds.StudyID = ""  # Empty if not available
 
-        logger.debug(f"Reidentified Patient ID, Name, DOB, Gender, Study ID, Description, Study Date fields. Proceeding with other tags")
+        logger.debug(f"Reidentified Patient ID, Name, DOB, Gender, Study UID, Description, Study Date/Time, AccessionNumber, StudyID fields. Proceeding with other tags")
 
         # Set fixed values as specified
         ds.ReferringPhysicianName = "DRAW"
-        ds.AccessionNumber = "202514789"
         
         logger.debug(f"Reidentified Referring Physician Name, Accession Number fields. Proceeding with other tags")
         # Replace the series description

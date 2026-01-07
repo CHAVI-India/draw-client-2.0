@@ -95,6 +95,8 @@ FIELDS_TO_MASK = [
     'OperatorIdentificationSequence',  # (0008,1072)
     'PersonAddress',  # (0040,1102)
     'TelephoneNumbers',  # (0040,1103)
+    'AccessionNumber',  # (0008,0050) - Deidentified separately
+    'StudyID',  # (0020,0010) - Deidentified separately
 ]
 
 def mask_sensitive_data(data, field_name=""):
@@ -218,6 +220,20 @@ def deidentify_dicom_file(file_path, uid_mappings, date_mappings, output_path):
                 dicom_data.PatientID = uid_mappings['patient_id']
             else:
                 dicom_data.PatientID = str(uuid.uuid4())
+        
+        # Replace AccessionNumber with deidentified value
+        if hasattr(dicom_data, 'AccessionNumber'):
+            if 'accession_number' in uid_mappings:
+                dicom_data.AccessionNumber = uid_mappings['accession_number']
+            else:
+                dicom_data.AccessionNumber = '#'
+        
+        # Replace StudyID with deidentified value
+        if hasattr(dicom_data, 'StudyID'):
+            if 'study_id' in uid_mappings:
+                dicom_data.StudyID = uid_mappings['study_id']
+            else:
+                dicom_data.StudyID = '#'
         
         # Replace dates with consistent random dates
         for element in dicom_data:
@@ -355,6 +371,13 @@ def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappin
             
             if 'StudyDate' in date_mappings:
                 study.deidentified_study_date = date_mappings['StudyDate']
+            
+            # Store deidentified accession number and study ID
+            if 'accession_number' in uid_mappings:
+                study.deidentified_accession_number = uid_mappings['accession_number']
+            
+            if 'study_id' in uid_mappings:
+                study.deidentified_study_id = uid_mappings['study_id']
             
             study.save()
             

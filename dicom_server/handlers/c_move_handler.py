@@ -158,11 +158,12 @@ def handle_c_move(service, event):
 def _search_dicom_storage(service, query_ds, query_level):
     """
     Search DICOM storage using database models and return file paths.
+    Uses DICOMInstance model for accurate file tracking with SOP Instance UIDs.
     
     Returns:
         list: List of file paths matching the query
     """
-    from dicom_handler.models import DICOMSeries, DICOMInstance
+    from dicom_handler.models import DICOMInstance, DICOMSeries
     
     matches = []
     
@@ -170,34 +171,43 @@ def _search_dicom_storage(service, query_ds, query_level):
     patient_id = getattr(query_ds, 'PatientID', None)
     study_uid = getattr(query_ds, 'StudyInstanceUID', None)
     series_uid = getattr(query_ds, 'SeriesInstanceUID', None)
+    sop_instance_uid = getattr(query_ds, 'SOPInstanceUID', None)
     
     try:
-        # Query database for matching series
-        queryset = DICOMSeries.objects.select_related('study__patient').all()
+        # Query database for matching instances using DICOMInstance model
+        # This provides accurate SOP Instance UID tracking
+        queryset = DICOMInstance.objects.select_related(
+            'series_instance_uid__study__patient'
+        ).all()
         
+        # Apply filters based on query parameters
         if patient_id:
-            queryset = queryset.filter(study__patient__patient_id__iexact=patient_id)
+            queryset = queryset.filter(
+                series_instance_uid__study__patient__patient_id__iexact=patient_id
+            )
         
         if study_uid:
-            queryset = queryset.filter(study__study_instance_uid__iexact=study_uid)
+            queryset = queryset.filter(
+                series_instance_uid__study__study_instance_uid__iexact=study_uid
+            )
         
         if series_uid:
-            queryset = queryset.filter(series_instance_uid__iexact=series_uid)
+            queryset = queryset.filter(
+                series_instance_uid__series_instance_uid__iexact=series_uid
+            )
         
-        # Get file paths from series_root_path
-        for series in queryset:
-            if series.series_root_path and os.path.exists(series.series_root_path):
-                # Get all .dcm files in the series directory
-                for root, dirs, files in os.walk(series.series_root_path):
-                    for filename in files:
-                        if filename.endswith('.dcm'):
-                            file_path = os.path.join(root, filename)
-                            matches.append(file_path)
-                            
-                            # Limit results
-                            if len(matches) >= 1000:
-                                logger.warning("C-MOVE result limit reached (1000 matches)")
-                                return matches
+        if sop_instance_uid:
+            queryset = queryset.filter(sop_instance_uid__iexact=sop_instance_uid)
+        
+        # Limit results to prevent overwhelming the system
+        queryset = queryset[:1000]
+        
+        # Collect file paths from instances
+        for instance in queryset:
+            if instance.instance_path and os.path.exists(instance.instance_path):
+                matches.append(instance.instance_path)
+            else:
+                logger.warning(f"File not found for SOP Instance UID: {instance.sop_instance_uid}")
         
         logger.info(f"C-MOVE found {len(matches)} matching files from database")
         return matches

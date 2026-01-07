@@ -135,14 +135,30 @@ def _query_patients(query_params):
     matches = []
     for patient in queryset:
         ds = Dataset()
+        
+        # Set QueryRetrieveLevel
+        ds.QueryRetrieveLevel = 'PATIENT'
+        
         if patient.patient_id:
             ds.PatientID = patient.patient_id
+        else:
+            ds.PatientID = ''
+            
         if patient.patient_name:
             ds.PatientName = patient.patient_name
+        else:
+            ds.PatientName = ''
+            
         if patient.patient_date_of_birth:
             ds.PatientBirthDate = patient.patient_date_of_birth.strftime('%Y%m%d')
+        else:
+            ds.PatientBirthDate = ''
+            
         if patient.patient_gender:
             ds.PatientSex = patient.patient_gender
+        else:
+            ds.PatientSex = ''
+            
         matches.append(ds)
     
     return matches
@@ -152,7 +168,8 @@ def _query_studies(query_params):
     """
     Query DICOMStudy model and return matching DICOM datasets.
     """
-    from dicom_handler.models import DICOMStudy
+    from dicom_handler.models import DICOMStudy, DICOMSeries
+    from django.db.models import Count, Sum
     
     queryset = DICOMStudy.objects.select_related('patient').all()
     
@@ -183,24 +200,84 @@ def _query_studies(query_params):
     matches = []
     for study in queryset:
         ds = Dataset()
+        
+        # Set QueryRetrieveLevel - CRITICAL for retrieve operations
+        ds.QueryRetrieveLevel = 'STUDY'
+        
         # Patient info
         if study.patient.patient_id:
             ds.PatientID = study.patient.patient_id
+        else:
+            ds.PatientID = ''  # Include empty value if not present
+            
         if study.patient.patient_name:
             ds.PatientName = study.patient.patient_name
+        else:
+            ds.PatientName = ''  # Include empty value if not present
+            
         if study.patient.patient_date_of_birth:
             ds.PatientBirthDate = study.patient.patient_date_of_birth.strftime('%Y%m%d')
+        else:
+            ds.PatientBirthDate = ''  # Include empty value if not present
+            
         if study.patient.patient_gender:
             ds.PatientSex = study.patient.patient_gender
-        # Study info
+        else:
+            ds.PatientSex = ''  # Include empty value if not present
+            
+        # Study info - REQUIRED fields for retrieve operations
         if study.study_instance_uid:
             ds.StudyInstanceUID = study.study_instance_uid
+        else:
+            ds.StudyInstanceUID = ''  # Include empty value if not present
+            
         if study.study_date:
             ds.StudyDate = study.study_date.strftime('%Y%m%d')
+        else:
+            ds.StudyDate = ''  # Include empty value if not present
+            
+        # StudyTime - include actual value or empty if not available
+        if study.study_time:
+            ds.StudyTime = study.study_time.strftime('%H%M%S')
+        else:
+            ds.StudyTime = ''
+        
         if study.study_description:
             ds.StudyDescription = study.study_description
+        else:
+            ds.StudyDescription = ''  # Include empty value if not present
+            
+        # AccessionNumber - REQUIRED for many PACS systems
+        if study.accession_number:
+            ds.AccessionNumber = study.accession_number
+        else:
+            ds.AccessionNumber = ''
+        
+        # StudyID - REQUIRED for many PACS systems
+        if study.study_id:
+            ds.StudyID = study.study_id
+        else:
+            ds.StudyID = ''
+        
         if study.study_modality:
             ds.ModalitiesInStudy = study.study_modality
+        else:
+            ds.ModalitiesInStudy = ''
+            
+        # NumberOfStudyRelatedInstances - calculate from series
+        try:
+            total_instances = DICOMSeries.objects.filter(
+                study=study
+            ).aggregate(total=Sum('instance_count'))['total']
+            
+            if total_instances:
+                ds.NumberOfStudyRelatedInstances = str(total_instances)
+            else:
+                ds.NumberOfStudyRelatedInstances = '0'
+        except Exception as e:
+            logger.warning(f"Could not calculate instance count for study {study.study_instance_uid}: {e}")
+            ds.NumberOfStudyRelatedInstances = '0'
+            
         matches.append(ds)
     
     return matches
@@ -245,31 +322,88 @@ def _query_series(query_params):
     matches = []
     for series in queryset:
         ds = Dataset()
+        
+        # Set QueryRetrieveLevel - CRITICAL for retrieve operations
+        ds.QueryRetrieveLevel = 'SERIES'
+        
         # Patient info
         if series.study.patient.patient_id:
             ds.PatientID = series.study.patient.patient_id
+        else:
+            ds.PatientID = ''
+            
         if series.study.patient.patient_name:
             ds.PatientName = series.study.patient.patient_name
+        else:
+            ds.PatientName = ''
+            
         if series.study.patient.patient_date_of_birth:
             ds.PatientBirthDate = series.study.patient.patient_date_of_birth.strftime('%Y%m%d')
+        else:
+            ds.PatientBirthDate = ''
+            
         if series.study.patient.patient_gender:
             ds.PatientSex = series.study.patient.patient_gender
-        # Study info
+        else:
+            ds.PatientSex = ''
+            
+        # Study info - REQUIRED for retrieve operations
         if series.study.study_instance_uid:
             ds.StudyInstanceUID = series.study.study_instance_uid
+        else:
+            ds.StudyInstanceUID = ''
+            
         if series.study.study_date:
             ds.StudyDate = series.study.study_date.strftime('%Y%m%d')
+        else:
+            ds.StudyDate = ''
+            
+        if series.study.study_time:
+            ds.StudyTime = series.study.study_time.strftime('%H%M%S')
+        else:
+            ds.StudyTime = ''
+        
         if series.study.study_description:
             ds.StudyDescription = series.study.study_description
-        # Series info
+        else:
+            ds.StudyDescription = ''
+            
+        if series.study.accession_number:
+            ds.AccessionNumber = series.study.accession_number
+        else:
+            ds.AccessionNumber = ''
+            
+        if series.study.study_id:
+            ds.StudyID = series.study.study_id
+        else:
+            ds.StudyID = ''
+        
+        # Series info - REQUIRED for retrieve operations
         if series.series_instance_uid:
             ds.SeriesInstanceUID = series.series_instance_uid
+        else:
+            ds.SeriesInstanceUID = ''
+            
         if series.series_date:
             ds.SeriesDate = series.series_date.strftime('%Y%m%d')
+        else:
+            ds.SeriesDate = ''
+            
+        ds.SeriesTime = ''
+        
         if series.series_description:
             ds.SeriesDescription = series.series_description
+        else:
+            ds.SeriesDescription = ''
+            
+        ds.SeriesNumber = ''
+        ds.Modality = ''
+        
         if series.instance_count:
             ds.NumberOfSeriesRelatedInstances = str(series.instance_count)
+        else:
+            ds.NumberOfSeriesRelatedInstances = '0'
+            
         matches.append(ds)
     
     return matches

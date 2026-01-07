@@ -133,8 +133,11 @@ def process_single_file(file_info):
                 'patient_birth_date': getattr(dicom_data, 'PatientBirthDate', None),
                 'study_instance_uid': getattr(dicom_data, 'StudyInstanceUID', ''),
                 'study_date': getattr(dicom_data, 'StudyDate', None),
+                'study_time': getattr(dicom_data, 'StudyTime', None),
                 'study_description': getattr(dicom_data, 'StudyDescription', ''),
                 'study_protocol': getattr(dicom_data, 'ProtocolName', ''),
+                'accession_number': getattr(dicom_data, 'AccessionNumber', ''),
+                'study_id': getattr(dicom_data, 'StudyID', ''),
                 'series_description': getattr(dicom_data, 'SeriesDescription', ''),
                 'modality': modality,
                 'series_instance_uid': getattr(dicom_data, 'SeriesInstanceUID', ''),
@@ -200,6 +203,20 @@ def bulk_create_database_records(processed_files):
             except:
                 pass
         
+        study_time = None
+        if metadata['study_time']:
+            try:
+                # StudyTime format: HHMMSS.FFFFFF or HHMMSS
+                time_str = str(metadata['study_time'])
+                # Handle fractional seconds
+                if '.' in time_str:
+                    time_str = time_str.split('.')[0]
+                # Pad if needed
+                time_str = time_str.ljust(6, '0')
+                study_time = datetime.strptime(time_str[:6], '%H%M%S').time()
+            except:
+                pass
+        
         series_date = None
         if metadata['series_date']:
             try:
@@ -224,9 +241,12 @@ def bulk_create_database_records(processed_files):
                 'patient_id': patient_key,
                 'study_instance_uid': metadata['study_instance_uid'],
                 'study_date': study_date,
+                'study_time': study_time,
                 'study_description': metadata['study_description'],
                 'study_protocol': metadata['study_protocol'],
-                'study_modality': metadata['modality']
+                'study_modality': metadata['modality'],
+                'accession_number': metadata['accession_number'],
+                'study_id': metadata['study_id']
             }
         
         # Group series
@@ -281,9 +301,12 @@ def bulk_create_database_records(processed_files):
                 study_instance_uid=study_data['study_instance_uid'],
                 defaults={
                     'study_date': study_data['study_date'],
+                    'study_time': study_data['study_time'],
                     'study_description': study_data['study_description'],
                     'study_protocol': study_data['study_protocol'],
-                    'study_modality': study_data['study_modality']
+                    'study_modality': study_data['study_modality'],
+                    'accession_number': study_data['accession_number'],
+                    'study_id': study_data['study_id']
                 }
             )
             study_objects[study_key] = study
@@ -380,8 +403,11 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
             # Extract study information
             study_instance_uid = getattr(dicom_data, 'StudyInstanceUID', '')
             study_date = getattr(dicom_data, 'StudyDate', None)
+            study_time = getattr(dicom_data, 'StudyTime', None)
             study_description = getattr(dicom_data, 'StudyDescription', '')
             study_protocol = getattr(dicom_data, 'ProtocolName', '')
+            accession_number = getattr(dicom_data, 'AccessionNumber', '')
+            study_id = getattr(dicom_data, 'StudyID', '')
             series_description = getattr(dicom_data, 'SeriesDescription', '')
             modality = getattr(dicom_data, 'Modality', '')
             
@@ -392,15 +418,29 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
                 except:
                     study_date = None
             
+            # Convert study time
+            if study_time:
+                try:
+                    time_str = str(study_time)
+                    if '.' in time_str:
+                        time_str = time_str.split('.')[0]
+                    time_str = time_str.ljust(6, '0')
+                    study_time = datetime.strptime(time_str[:6], '%H%M%S').time()
+                except:
+                    study_time = None
+            
             # Get or create study
             study, created = DICOMStudy.objects.get_or_create(
                 patient=patient,
                 study_instance_uid=study_instance_uid,
                 defaults={
                     'study_date': study_date,
+                    'study_time': study_time,
                     'study_description': study_description,
                     'study_protocol': study_protocol,
-                    'study_modality': modality
+                    'study_modality': modality,
+                    'accession_number': accession_number,
+                    'study_id': study_id
                 }
             )
             
