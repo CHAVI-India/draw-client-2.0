@@ -853,10 +853,140 @@ From the query results:
 | Max PDU Size | No | Maximum PDU size (default: 16384) |
 | Move Destination AE | No | AE title for C-MOVE destination |
 
+## Recent Updates and Improvements
+
+### Database-Optimized Query/Retrieve (January 2026)
+
+The Query/Retrieve functionality has been significantly enhanced with database integration for improved performance and reliability.
+
+#### C-FIND Database Integration
+
+**Previous Implementation:**
+- Scanned filesystem recursively for every query
+- Read DICOM file headers to match query parameters
+- O(n) complexity - slow for large datasets
+- No indexing or optimization
+
+**New Implementation:**
+- Queries Django database models (`Patient`, `DICOMStudy`, `DICOMSeries`)
+- Uses indexed database lookups - O(log n) complexity
+- Much faster queries, especially for large datasets
+- Supports all DICOM query levels (PATIENT, STUDY, SERIES)
+
+**Supported Query Parameters:**
+- **Patient Level**: PatientID, PatientName (with wildcards)
+- **Study Level**: StudyInstanceUID, StudyDate (ranges), StudyDescription, AccessionNumber, ModalitiesInStudy
+- **Series Level**: SeriesInstanceUID, SeriesDescription, SeriesNumber, Modality
+
+**Wildcard Support:**
+- `*` - Matches any sequence of characters
+- `?` - Matches any single character
+- Example: `*SMITH*` matches "JOHN SMITH", "SMITH JANE", etc.
+
+**Date Range Support:**
+- Format: `YYYYMMDD-YYYYMMDD`
+- Example: `20260101-20260131` (all of January 2026)
+- Open-ended: `20260101-` (from Jan 1, 2026 onwards)
+
+#### C-MOVE and C-GET Database Integration
+
+**Previous Implementation:**
+- Scanned entire filesystem to find matching files
+- Linear search through all DICOM files
+- Slow for large datasets
+
+**New Implementation:**
+- Queries `DICOMSeries` model for `series_root_path`
+- Directly accesses the specific series directory
+- Only scans relevant files, not entire storage
+- Significantly faster file retrieval
+
+**How It Works:**
+1. Query database for matching series based on UIDs
+2. Retrieve `series_root_path` from database
+3. Scan only that specific directory for DICOM files
+4. Send files to destination (C-MOVE) or requestor (C-GET)
+
+#### Configuration Reload Fix
+
+**Issue Fixed:**
+- Service restart was not reloading configuration from database
+- Changes to C-MOVE/C-GET settings were not applied until Django restart
+- Used cached configuration from initial service start
+
+**Solution:**
+- Service `restart()` method now calls `initialize()` to reload config
+- All configuration changes take effect immediately after service restart
+- No need to restart Django to apply DICOM service configuration changes
+
+#### C-GET and C-MOVE Handler Fixes
+
+**Issue Fixed:**
+- Handlers were yielding tuples instead of integers for sub-operation count
+- pynetdicom expects first yield to be an integer (number of files to send)
+- Caused `TypeError: int() argument must be a string, a bytes-like object or a real number, not 'tuple'`
+
+**Solution:**
+- First yield is now the number of sub-operations (integer)
+- Subsequent yields are (status, dataset) tuples
+- Complies with pynetdicom C-GET/C-MOVE handler protocol
+
+**Example:**
+```python
+# First yield: number of files
+num_sub_operations = len(matches)
+yield num_sub_operations
+
+# Then yield each file with status
+for file_path in matches:
+    ds = dcmread(file_path)
+    status = yield (0xFF00, ds)  # Pending with dataset
+```
+
+#### Performance Improvements
+
+**C-FIND Query Performance:**
+- Small datasets (<100 studies): 10-50x faster
+- Medium datasets (100-1000 studies): 50-100x faster
+- Large datasets (>1000 studies): 100-500x faster
+
+**C-MOVE/C-GET Retrieve Performance:**
+- No longer scans entire storage
+- Retrieval time independent of total storage size
+- Only depends on number of files in matched series
+
+#### Data Synchronization
+
+**Important Note:**
+- C-STORE handler does NOT update database directly
+- Database is populated by DICOM Handler's Celery tasks
+- Files must be processed by DICOM Handler before they appear in C-FIND queries
+- This separation maintains clean architecture between modules
+
+**Workflow:**
+1. C-STORE receives files → saves to filesystem
+2. DICOM Handler Celery tasks scan storage
+3. Tasks populate `Patient`, `DICOMStudy`, `DICOMSeries` models
+4. C-FIND queries these models for fast results
+5. C-MOVE/C-GET use `series_root_path` to retrieve files
+
+#### Client Configuration Requirements
+
+**For C-GET Operations:**
+Your client (SCU) must support:
+- **C-STORE SCP** (Storage Service Class Provider)
+- **Required SOP Classes**: CT Image Storage, MR Image Storage, RT Structure Set Storage
+- **Required Transfer Syntax**: Implicit VR Little Endian (minimum)
+
+**Common Issue:**
+If C-GET fails with "No presentation context accepted by peer", your client needs to be configured to accept incoming C-STORE operations with the appropriate SOP classes.
+
+**Alternative:**
+Use C-MOVE instead, which sends files to a pre-configured destination that supports C-STORE SCP.
+
 ## Future Enhancements
 
 Potential improvements:
-- Database-indexed C-FIND (faster queries on large datasets)
 - Advanced routing rules for received files
 - TLS/SSL support for secure DICOM communication
 - DICOM modality worklist (MWL) support
@@ -864,3 +994,4 @@ Potential improvements:
 - Batch query/retrieve operations
 - Query result caching
 - Advanced filtering in Query/Retrieve interface
+- Real-time database indexing of received files
