@@ -72,6 +72,33 @@ def handle_c_get(service, event):
                 # Read the DICOM file
                 ds = dcmread(file_path)
                 
+                # Check if the requestor accepts this SOP Class and Transfer Syntax
+                # Get the accepted presentation contexts from the association
+                sop_class_uid = ds.SOPClassUID
+                current_transfer_syntax = ds.file_meta.TransferSyntaxUID if hasattr(ds, 'file_meta') else None
+                
+                # Find an accepted presentation context for this SOP Class
+                accepted_contexts = [cx for cx in event.assoc.accepted_contexts 
+                                   if cx.abstract_syntax == sop_class_uid]
+                
+                if not accepted_contexts:
+                    logger.warning(f"No accepted context for SOP Class {sop_class_uid}, skipping file")
+                    failure_count += 1
+                    continue
+                
+                # Get the first accepted transfer syntax for this SOP Class
+                accepted_transfer_syntax = accepted_contexts[0].transfer_syntax[0]
+                
+                # If the file's transfer syntax doesn't match, convert it
+                if current_transfer_syntax and current_transfer_syntax != accepted_transfer_syntax:
+                    logger.debug(f"Converting from {current_transfer_syntax} to {accepted_transfer_syntax}")
+                    # Decompress if needed, then let pynetdicom handle the encoding
+                    if hasattr(ds, 'decompress'):
+                        ds.decompress()
+                    # Update the transfer syntax in file_meta
+                    if hasattr(ds, 'file_meta'):
+                        ds.file_meta.TransferSyntaxUID = accepted_transfer_syntax
+                
                 # Send the dataset back to the requestor
                 # The pynetdicom framework handles the C-STORE sub-operation
                 status = yield (0xFF00, ds)  # Pending with dataset
@@ -83,6 +110,7 @@ def handle_c_get(service, event):
                         warning_count += 1
                     else:  # Failure
                         failure_count += 1
+                        logger.warning(f"C-STORE failed with status: {status.Status:#06x}")
                 else:
                     success_count += 1
                     
