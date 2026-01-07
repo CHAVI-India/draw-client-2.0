@@ -153,7 +153,7 @@
                     {% if form.max_storage_size_gb.errors %}
                         <p class="text-red-600 text-xs mt-1">{{ form.max_storage_size_gb.errors.0 }}</p>
                     {% endif %}
-                    <p class="text-xs text-gray-500 mt-1">Current usage: {{ config.storage_usage_gb }} GB ({{ config.storage_usage_percent }}%)</p>
+                    <p class="text-xs text-gray-500 mt-1">Current usage: <span id="storage-usage-display" class="inline-block animate-pulse">Loading...</span></p>
                 </div>
                 <div>
                     <label class="flex items-center space-x-3 cursor-pointer">
@@ -421,4 +421,27 @@
         @apply w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500;
     }
 </style>
+
+<script>
+    // Lazy load storage statistics
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('{% url "dicom_server:service_status_api" %}')
+            .then(response => response.json())
+            .then(data => {
+                const storageDisplay = document.getElementById('storage-usage-display');
+                if (storageDisplay) {
+                    storageDisplay.textContent = `${data.storage_usage_gb} GB (${data.storage_usage_percent}%)`;
+                    storageDisplay.classList.remove('animate-pulse');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading storage stats:', error);
+                const storageDisplay = document.getElementById('storage-usage-display');
+                if (storageDisplay) {
+                    storageDisplay.textContent = 'Error loading';
+                    storageDisplay.classList.remove('animate-pulse');
+                }
+            });
+    });
+</script>
 {% endblock %}

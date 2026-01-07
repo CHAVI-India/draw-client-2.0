@@ -197,6 +197,13 @@ def service_status_api(request):
     service_status, created = DicomServiceStatus.objects.get_or_create(pk=1)
     config, created = DicomServerConfig.objects.get_or_create(pk=1)
     
+    # Update storage cache if stale (in background thread to avoid blocking API)
+    if config.should_update_storage_cache(max_age_minutes=5):
+        from threading import Thread
+        thread = Thread(target=config.update_storage_cache)
+        thread.daemon = True
+        thread.start()
+    
     data = {
         'is_running': service_status.is_running,
         'uptime': service_status.uptime_formatted,

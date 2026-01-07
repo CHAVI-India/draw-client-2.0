@@ -121,8 +121,10 @@
             <div class="flex items-center justify-between">
                 <div>
                     <p class="text-sm text-gray-600 mb-1">Storage Used</p>
-                    <p class="text-3xl font-bold text-gray-900" id="storage-used">{{ config.storage_usage_gb }}</p>
-                    <p class="text-xs text-gray-500 mt-1">of {{ config.max_storage_size_gb }} GB (<span id="storage-percent">{{ config.storage_usage_percent }}</span>%)</p>
+                    <p class="text-3xl font-bold text-gray-900" id="storage-used">
+                        <span class="inline-block animate-pulse">...</span>
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">of {{ config.max_storage_size_gb }} GB (<span id="storage-percent"><span class="inline-block animate-pulse">...</span></span>%)</p>
                 </div>
                 <div class="p-3 bg-purple-100 rounded-full">
                     <svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -380,6 +382,7 @@
 <script>
     let refreshInterval;
     const REFRESH_INTERVAL = 30000; // 30 seconds
+    let storageDataLoaded = false;
     
     function updateServiceStatus() {
         fetch('{% url "dicom_server:service_status_api" %}')
@@ -393,9 +396,15 @@
                 document.getElementById('storage-used').textContent = data.storage_usage_gb;
                 document.getElementById('storage-percent').textContent = data.storage_usage_percent;
                 document.getElementById('total-errors').textContent = data.total_errors;
+                storageDataLoaded = true;
             })
             .catch(error => console.error('Error updating status:', error));
     }
+    
+    // Lazy load storage statistics on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        updateServiceStatus();
+    });
     
     function startRefresh() {
         if (!refreshInterval) {

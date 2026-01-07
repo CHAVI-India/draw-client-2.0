@@ -125,6 +125,17 @@ class DicomServerConfig(models.Model):
         help_text="Number of days to retain files before cleanup (only if cleanup is enabled)."
     )
     
+    # Cached Storage Statistics (to avoid slow filesystem walks on every page load)
+    cached_storage_usage_bytes = models.BigIntegerField(
+        default=0,
+        help_text="Cached storage usage in bytes. Updated periodically to avoid performance issues."
+    )
+    cached_storage_last_updated = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="Timestamp when storage cache was last updated."
+    )
+    
     # Security & Access Control
     require_calling_ae_validation = models.BooleanField(
         default=True,
@@ -342,26 +353,11 @@ class DicomServerConfig(models.Model):
     @property
     def storage_usage_gb(self):
         """
-        Calculate current storage usage in GB.
+        Return cached storage usage in GB.
+        Uses cached value to avoid slow filesystem walks on every page load.
+        Cache is updated by update_storage_cache() method.
         """
-        try:
-            from dicom_handler.models import SystemConfiguration
-            system_config = SystemConfiguration.objects.get(pk=1)
-            storage_path = system_config.folder_configuration
-            
-            if not storage_path or not os.path.exists(storage_path):
-                return 0
-            
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(storage_path):
-                for filename in filenames:
-                    filepath = os.path.join(dirpath, filename)
-                    if os.path.exists(filepath):
-                        total_size += os.path.getsize(filepath)
-            
-            return round(total_size / (1024**3), 2)
-        except:
-            return 0
+        return round(self.cached_storage_usage_bytes / (1024**3), 2)
     
     @property
     def storage_available_gb(self):
@@ -378,6 +374,56 @@ class DicomServerConfig(models.Model):
         if self.max_storage_size_gb == 0:
             return 0
         return round((self.storage_usage_gb / self.max_storage_size_gb) * 100, 2)
+    
+    def update_storage_cache(self):
+        """
+        Update the cached storage usage by walking the filesystem.
+        This is an expensive operation and should be called periodically,
+        not on every page load.
+        """
+        try:
+            from dicom_handler.models import SystemConfiguration
+            system_config = SystemConfiguration.objects.get(pk=1)
+            storage_path = system_config.folder_configuration
+            
+            if not storage_path or not os.path.exists(storage_path):
+                self.cached_storage_usage_bytes = 0
+                self.cached_storage_last_updated = timezone.now()
+                self.save(update_fields=['cached_storage_usage_bytes', 'cached_storage_last_updated'])
+                return 0
+            
+            total_size = 0
+            for dirpath, dirnames, filenames in os.walk(storage_path):
+                for filename in filenames:
+                    filepath = os.path.join(dirpath, filename)
+                    if os.path.exists(filepath):
+                        try:
+                            total_size += os.path.getsize(filepath)
+                        except (OSError, FileNotFoundError):
+                            # Skip files that can't be accessed
+                            continue
+            
+            self.cached_storage_usage_bytes = total_size
+            self.cached_storage_last_updated = timezone.now()
+            self.save(update_fields=['cached_storage_usage_bytes', 'cached_storage_last_updated'])
+            return round(total_size / (1024**3), 2)
+        except Exception as e:
+            # Log error but don't crash
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating storage cache: {e}")
+            return 0
+    
+    def should_update_storage_cache(self, max_age_minutes=5):
+        """
+        Check if storage cache should be updated based on age.
+        Returns True if cache is older than max_age_minutes or has never been updated.
+        """
+        if not self.cached_storage_last_updated:
+            return True
+        
+        age = timezone.now() - self.cached_storage_last_updated
+        return age.total_seconds() > (max_age_minutes * 60)
 
 
 class AllowedAETitle(models.Model):

@@ -143,6 +143,10 @@ def handle_c_store(service, event):
         service.service_status.last_file_received_at = timezone.now()
         service.service_status.save()
         
+        # Incrementally update storage cache (fast operation)
+        service.config.cached_storage_usage_bytes += file_size
+        service.config.save(update_fields=['cached_storage_usage_bytes'])
+        
         # Note: DICOM Handler integration is handled by the dicom_handler app
         # Files stored here will be automatically picked up by the handler's polling mechanism
         
