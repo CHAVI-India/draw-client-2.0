@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from pynetdicom import AE, evt, StoragePresentationContexts
+from pynetdicom import AE, evt, StoragePresentationContexts, AllStoragePresentationContexts
 from pynetdicom.sop_class import (
     Verification,
     CTImageStorage,
@@ -157,24 +157,31 @@ class DicomSCPService:
         if self.config.enable_c_echo:
             self.ae.add_supported_context(Verification)
         
-        # Storage SOP Classes
-        if self.config.support_ct_image_storage:
-            self.ae.add_supported_context(CTImageStorage)
-            
-        if self.config.support_mr_image_storage:
-            self.ae.add_supported_context(MRImageStorage)
-            
-        if self.config.support_rt_structure_storage:
-            self.ae.add_supported_context(RTStructureSetStorage)
-            
-        if self.config.support_rt_plan_storage:
-            self.ae.add_supported_context(RTPlanStorage)
-            
-        if self.config.support_rt_dose_storage:
-            self.ae.add_supported_context(RTDoseStorage)
-            
-        if self.config.support_secondary_capture:
-            self.ae.add_supported_context(SecondaryCaptureImageStorage)
+        # Storage SOP Classes - Add ALL storage contexts for C-GET/C-MOVE compatibility
+        # This ensures the SCP can send back any type of DICOM file during retrieve operations
+        if self.config.enable_c_get or self.config.enable_c_move:
+            # Add all storage presentation contexts to support any DICOM file type
+            for context in AllStoragePresentationContexts:
+                self.ae.add_supported_context(context.abstract_syntax)
+        else:
+            # If not using C-GET/C-MOVE, only add specific storage contexts based on config
+            if self.config.support_ct_image_storage:
+                self.ae.add_supported_context(CTImageStorage)
+                
+            if self.config.support_mr_image_storage:
+                self.ae.add_supported_context(MRImageStorage)
+                
+            if self.config.support_rt_structure_storage:
+                self.ae.add_supported_context(RTStructureSetStorage)
+                
+            if self.config.support_rt_plan_storage:
+                self.ae.add_supported_context(RTPlanStorage)
+                
+            if self.config.support_rt_dose_storage:
+                self.ae.add_supported_context(RTDoseStorage)
+                
+            if self.config.support_secondary_capture:
+                self.ae.add_supported_context(SecondaryCaptureImageStorage)
         
         # Query/Retrieve SOP Classes
         if self.config.enable_c_find:
