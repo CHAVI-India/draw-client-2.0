@@ -29,6 +29,11 @@ def handle_c_store(service, event):
     """
     Handle C-STORE request - receive and store DICOM file.
     
+    PERFORMANCE OPTIMIZED:
+    - Uses event.encoded_dataset() to write raw bytes directly to file
+    - Avoids expensive decode/re-encode cycle
+    - Only decodes dataset when validation or metadata extraction is required
+    
     Args:
         service: DicomSCPService instance
         event: C-STORE event from pynetdicom
@@ -68,31 +73,49 @@ def handle_c_store(service, event):
             )
             return 0xA700  # Refused: Out of Resources
         
-        # Get the dataset
-        ds = event.dataset
-        ds.file_meta = event.file_meta
+        # OPTIMIZATION: Only decode dataset if validation or metadata extraction is needed
+        # This avoids the expensive decode operation when not required
+        ds = None
+        patient_id = None
+        study_uid = None
+        series_uid = None
+        sop_instance_uid = None
+        sop_class_uid = None
         
-        # Validate DICOM if required (use fresh config)
-        if fresh_config.validate_dicom_on_receive:
-            if not _validate_dicom_dataset(ds):
-                logger.error("C-STORE rejected: Invalid DICOM dataset")
-                if fresh_config.reject_invalid_dicom:
-                    service._log_transaction(
-                        'C-STORE',
-                        'REJECTED',
-                        event,
-                        error_message="Invalid DICOM dataset"
-                    )
-                    service.service_status.total_errors += 1
-                    service.service_status.save()
-                    return 0xC000  # Error: Cannot understand
+        # Check if we need to decode the dataset
+        needs_decoding = (
+            fresh_config.validate_dicom_on_receive or
+            fresh_config.storage_structure != 'flat' or
+            fresh_config.file_naming_convention != 'timestamp'
+        )
         
-        # Extract DICOM metadata
-        patient_id = getattr(ds, 'PatientID', None)
-        study_uid = getattr(ds, 'StudyInstanceUID', None)
-        series_uid = getattr(ds, 'SeriesInstanceUID', None)
-        sop_instance_uid = getattr(ds, 'SOPInstanceUID', None)
-        sop_class_uid = getattr(ds, 'SOPClassUID', None)
+        if needs_decoding:
+            # Decode dataset only when necessary
+            ds = event.dataset
+            ds.file_meta = event.file_meta
+            
+            # Validate DICOM if required (use fresh config)
+            if fresh_config.validate_dicom_on_receive:
+                if not _validate_dicom_dataset(ds):
+                    logger.error("C-STORE rejected: Invalid DICOM dataset")
+                    if fresh_config.reject_invalid_dicom:
+                        service._log_transaction(
+                            'C-STORE',
+                            'REJECTED',
+                            event,
+                            error_message="Invalid DICOM dataset"
+                        )
+                        # Update error count asynchronously to avoid blocking
+                        from ..tasks import update_service_status_async
+                        update_service_status_async.delay({'total_errors': 1})
+                        return 0xC000  # Error: Cannot understand
+            
+            # Extract DICOM metadata
+            patient_id = getattr(ds, 'PatientID', None)
+            study_uid = getattr(ds, 'StudyInstanceUID', None)
+            series_uid = getattr(ds, 'SeriesInstanceUID', None)
+            sop_instance_uid = getattr(ds, 'SOPInstanceUID', None)
+            sop_class_uid = getattr(ds, 'SOPClassUID', None)
         
         # Check storage limits
         if not _check_storage_limits(service):
@@ -110,16 +133,20 @@ def handle_c_store(service, event):
             )
             return 0xA700  # Refused: Out of Resources
         
-        # Determine storage path
-        storage_path = _get_storage_path(service, ds)
+        # Determine storage path (pass ds which may be None)
+        storage_path = _get_storage_path(service, ds, fresh_config)
         os.makedirs(storage_path, exist_ok=True)
         
-        # Determine filename
-        filename = _get_filename(service, ds)
+        # Determine filename (pass ds which may be None)
+        filename = _get_filename(service, ds, fresh_config)
         file_path = os.path.join(storage_path, filename)
         
-        # Save the DICOM file
-        ds.save_as(file_path, enforce_file_format=True)
+        # OPTIMIZATION: Write raw encoded dataset directly to file
+        # This is MUCH faster than ds.save_as() as it skips decode/re-encode
+        with open(file_path, 'wb') as f:
+            # Write preamble, prefix, file meta information and raw dataset
+            f.write(event.encoded_dataset())
+        
         file_size = os.path.getsize(file_path)
         
         # Calculate transfer speed
@@ -175,8 +202,9 @@ def handle_c_store(service, event):
             event,
             error_message=f"Invalid DICOM: {str(e)}"
         )
-        service.service_status.total_errors += 1
-        service.service_status.save()
+        # Update error count asynchronously to avoid blocking
+        from ..tasks import update_service_status_async
+        update_service_status_async.delay({'total_errors': 1})
         return 0xC000  # Error: Cannot understand
         
     except Exception as e:
@@ -187,8 +215,9 @@ def handle_c_store(service, event):
             event,
             error_message=str(e)
         )
-        service.service_status.total_errors += 1
-        service.service_status.save()
+        # Update error count asynchronously to avoid blocking
+        from ..tasks import update_service_status_async
+        update_service_status_async.delay({'total_errors': 1})
         return 0xC000  # Error: Cannot understand
 
 
@@ -211,12 +240,19 @@ def _check_storage_limits(service):
     Check if storage limits have been reached.
     Uses memcached to avoid expensive filesystem scans on every file.
     Cache is valid for 30 seconds, then refreshed on next check.
+    
+    OPTIMIZATION: Uses cached config from service to avoid repeated DB queries
     """
     try:
         from ..models import DicomServerConfig
         
-        # Fetch configuration
-        dicom_config = DicomServerConfig.objects.get(pk=1)
+        # Use cached config from service to avoid DB query on every file
+        # Only fetch fresh config if cache is stale
+        if hasattr(service, 'config') and service.config:
+            dicom_config = service.config
+        else:
+            dicom_config = DicomServerConfig.objects.get(pk=1)
+        
         system_config = SystemConfiguration.objects.get(pk=1)
         storage_path = system_config.folder_configuration
         max_storage_gb = dicom_config.max_storage_size_gb
@@ -270,19 +306,26 @@ def _check_storage_limits(service):
     return True
 
 
-def _get_storage_path(service, ds):
+def _get_storage_path(service, ds, fresh_config=None):
     """
     Determine storage path based on configuration.
+    
+    Args:
+        service: DicomSCPService instance
+        ds: DICOM dataset (may be None if not decoded)
+        fresh_config: Fresh configuration (optional, will fetch if not provided)
     """
     # Get base path from SystemConfiguration and fresh config for structure
     try:
         from ..models import DicomServerConfig
         system_config = SystemConfiguration.objects.get(pk=1)
-        fresh_config = DicomServerConfig.objects.get(pk=1)
+        if fresh_config is None:
+            fresh_config = DicomServerConfig.objects.get(pk=1)
         base_path = system_config.folder_configuration
     except:
         base_path = '/app/datastore'  # Fallback
-        fresh_config = service.config  # Fallback to cached
+        if fresh_config is None:
+            fresh_config = service.config  # Fallback to cached
     
     structure = fresh_config.storage_structure
     
@@ -290,19 +333,19 @@ def _get_storage_path(service, ds):
         return base_path
     
     elif structure == 'patient':
-        patient_id = getattr(ds, 'PatientID', 'UNKNOWN')
+        patient_id = getattr(ds, 'PatientID', 'UNKNOWN') if ds else 'UNKNOWN'
         # Sanitize patient ID for filesystem
         patient_id = _sanitize_for_filesystem(patient_id)
         return os.path.join(base_path, patient_id)
     
     elif structure == 'study':
-        study_uid = getattr(ds, 'StudyInstanceUID', 'UNKNOWN')
+        study_uid = getattr(ds, 'StudyInstanceUID', 'UNKNOWN') if ds else 'UNKNOWN'
         return os.path.join(base_path, study_uid)
     
     elif structure == 'series':
-        patient_id = getattr(ds, 'PatientID', 'UNKNOWN')
-        study_uid = getattr(ds, 'StudyInstanceUID', 'UNKNOWN')
-        series_uid = getattr(ds, 'SeriesInstanceUID', 'UNKNOWN')
+        patient_id = getattr(ds, 'PatientID', 'UNKNOWN') if ds else 'UNKNOWN'
+        study_uid = getattr(ds, 'StudyInstanceUID', 'UNKNOWN') if ds else 'UNKNOWN'
+        series_uid = getattr(ds, 'SeriesInstanceUID', 'UNKNOWN') if ds else 'UNKNOWN'
         
         patient_id = _sanitize_for_filesystem(patient_id)
         
@@ -316,24 +359,30 @@ def _get_storage_path(service, ds):
         return base_path
 
 
-def _get_filename(service, ds):
+def _get_filename(service, ds, fresh_config=None):
     """
     Determine filename based on configuration.
+    
+    Args:
+        service: DicomSCPService instance
+        ds: DICOM dataset (may be None if not decoded)
+        fresh_config: Fresh configuration (optional, will fetch if not provided)
     """
     # Get fresh config for naming convention
     try:
         from ..models import DicomServerConfig
-        fresh_config = DicomServerConfig.objects.get(pk=1)
+        if fresh_config is None:
+            fresh_config = DicomServerConfig.objects.get(pk=1)
         naming = fresh_config.file_naming_convention
     except:
-        naming = service.config.file_naming_convention  # Fallback to cached
+        naming = service.config.file_naming_convention if service.config else 'timestamp'
     
-    if naming == 'sop_uid':
+    if naming == 'sop_uid' and ds:
         sop_uid = getattr(ds, 'SOPInstanceUID', None)
         if sop_uid:
             return f"{sop_uid}.dcm"
     
-    elif naming == 'instance_number':
+    elif naming == 'instance_number' and ds:
         instance_number = getattr(ds, 'InstanceNumber', None)
         if instance_number:
             return f"{instance_number:04d}.dcm"
@@ -349,7 +398,10 @@ def _get_filename(service, ds):
         return f"{timestamp}.dcm"
     
     # Default fallback
-    sop_uid = getattr(ds, 'SOPInstanceUID', datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    if ds:
+        sop_uid = getattr(ds, 'SOPInstanceUID', datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    else:
+        sop_uid = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     return f"{sop_uid}.dcm"
 
 

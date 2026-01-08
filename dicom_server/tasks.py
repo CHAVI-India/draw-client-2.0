@@ -43,6 +43,7 @@ def update_service_status_async(status_updates):
         status_updates (dict): Status fields to update
             - total_files_received: int
             - total_bytes_received: int
+            - total_errors: int
             - last_file_received_at: datetime
     """
     try:
@@ -57,6 +58,9 @@ def update_service_status_async(status_updates):
         
         if 'total_bytes_received' in status_updates:
             status.total_bytes_received = F('total_bytes_received') + status_updates['total_bytes_received']
+        
+        if 'total_errors' in status_updates:
+            status.total_errors = F('total_errors') + status_updates['total_errors']
         
         if 'last_file_received_at' in status_updates:
             status.last_file_received_at = status_updates['last_file_received_at']
