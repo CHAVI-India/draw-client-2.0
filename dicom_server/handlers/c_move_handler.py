@@ -224,27 +224,30 @@ def _search_dicom_storage(service, query_ds, query_level):
 
 def _get_destination_config(service, ae_title):
     """
-    Get destination AE configuration from database.
+    Get destination AE configuration from database using RemoteDicomNode model.
     
     Returns:
         dict: Destination configuration or None
     """
     try:
-        from ..models import DestinationAETitle
+        from ..models import RemoteDicomNode
         
-        dest = DestinationAETitle.objects.filter(
-            ae_title=ae_title,
+        # Look for a RemoteDicomNode with matching incoming_ae_title (for receiving C-STORE)
+        # The destination should be configured to receive files from us
+        dest = RemoteDicomNode.objects.filter(
+            incoming_ae_title=ae_title,
+            allow_incoming=True,
             is_active=True
         ).first()
         
-        if dest:
+        if dest and dest.host and dest.port:
             return {
-                'ae_title': dest.ae_title,
+                'ae_title': dest.incoming_ae_title,
                 'host': dest.host,
                 'port': dest.port
             }
         
-        logger.warning(f"Destination AE '{ae_title}' not found or not active")
+        logger.warning(f"Destination AE '{ae_title}' not found, not active, or missing host/port configuration")
         return None
         
     except Exception as e:
