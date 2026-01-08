@@ -92,6 +92,7 @@ def _search_dicom_storage(service, query_ds, query_level):
         'SeriesNumber': getattr(query_ds, 'SeriesNumber', None),
         'SeriesDescription': getattr(query_ds, 'SeriesDescription', None),
         'Modality': getattr(query_ds, 'Modality', None),
+        'SOPInstanceUID': getattr(query_ds, 'SOPInstanceUID', None),
     }
     
     try:
@@ -101,6 +102,8 @@ def _search_dicom_storage(service, query_ds, query_level):
             matches = _query_studies(query_params)
         elif query_level == 'SERIES':
             matches = _query_series(query_params)
+        elif query_level == 'IMAGE':
+            matches = _query_images(query_params)
         else:
             logger.warning(f"Unsupported query level: {query_level}")
             return matches
@@ -278,6 +281,148 @@ def _query_studies(query_params):
             logger.warning(f"Could not calculate instance count for study {study.study_instance_uid}: {e}")
             ds.NumberOfStudyRelatedInstances = '0'
             
+        matches.append(ds)
+    
+    return matches
+
+
+def _query_images(query_params):
+    """
+    Query DICOMInstance model and return matching DICOM datasets at IMAGE level.
+    """
+    from dicom_handler.models import DICOMInstance
+    
+    queryset = DICOMInstance.objects.select_related('series_instance_uid__study__patient').all()
+    
+    # Patient level filters
+    if query_params.get('PatientID'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__study__patient__patient_id', query_params['PatientID'])
+    
+    if query_params.get('PatientName'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__study__patient__patient_name', str(query_params['PatientName']))
+    
+    # Study level filters
+    if query_params.get('StudyInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__study__study_instance_uid', query_params['StudyInstanceUID'])
+    
+    if query_params.get('StudyDate'):
+        queryset = _apply_date_filter(queryset, 'series_instance_uid__study__study_date', query_params['StudyDate'])
+    
+    if query_params.get('StudyDescription'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__study__study_description', query_params['StudyDescription'])
+    
+    # Series level filters
+    if query_params.get('SeriesInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__series_instance_uid', query_params['SeriesInstanceUID'])
+    
+    if query_params.get('SeriesDescription'):
+        queryset = _apply_wildcard_filter(queryset, 'series_instance_uid__series_description', query_params['SeriesDescription'])
+    
+    # Instance (IMAGE) level filters
+    if query_params.get('SOPInstanceUID'):
+        queryset = _apply_wildcard_filter(queryset, 'sop_instance_uid', query_params['SOPInstanceUID'])
+    
+    # Limit results
+    queryset = queryset[:100]
+    
+    # Convert to DICOM datasets
+    matches = []
+    for instance in queryset:
+        ds = Dataset()
+        
+        # Set QueryRetrieveLevel - CRITICAL for retrieve operations
+        ds.QueryRetrieveLevel = 'IMAGE'
+        
+        # Patient info
+        if instance.series_instance_uid.study.patient.patient_id:
+            ds.PatientID = instance.series_instance_uid.study.patient.patient_id
+        else:
+            ds.PatientID = ''
+            
+        if instance.series_instance_uid.study.patient.patient_name:
+            ds.PatientName = instance.series_instance_uid.study.patient.patient_name
+        else:
+            ds.PatientName = ''
+            
+        if instance.series_instance_uid.study.patient.patient_date_of_birth:
+            ds.PatientBirthDate = instance.series_instance_uid.study.patient.patient_date_of_birth.strftime('%Y%m%d')
+        else:
+            ds.PatientBirthDate = ''
+            
+        if instance.series_instance_uid.study.patient.patient_gender:
+            ds.PatientSex = instance.series_instance_uid.study.patient.patient_gender
+        else:
+            ds.PatientSex = ''
+            
+        # Study info - REQUIRED for retrieve operations
+        if instance.series_instance_uid.study.study_instance_uid:
+            ds.StudyInstanceUID = instance.series_instance_uid.study.study_instance_uid
+        else:
+            ds.StudyInstanceUID = ''
+            
+        if instance.series_instance_uid.study.study_date:
+            ds.StudyDate = instance.series_instance_uid.study.study_date.strftime('%Y%m%d')
+        else:
+            ds.StudyDate = ''
+            
+        if instance.series_instance_uid.study.study_time:
+            ds.StudyTime = instance.series_instance_uid.study.study_time.strftime('%H%M%S')
+        else:
+            ds.StudyTime = ''
+        
+        if instance.series_instance_uid.study.study_description:
+            ds.StudyDescription = instance.series_instance_uid.study.study_description
+        else:
+            ds.StudyDescription = ''
+            
+        if instance.series_instance_uid.study.accession_number:
+            ds.AccessionNumber = instance.series_instance_uid.study.accession_number
+        else:
+            ds.AccessionNumber = ''
+            
+        if instance.series_instance_uid.study.study_id:
+            ds.StudyID = instance.series_instance_uid.study.study_id
+        else:
+            ds.StudyID = ''
+        
+        # Series info - REQUIRED for retrieve operations
+        if instance.series_instance_uid.series_instance_uid:
+            ds.SeriesInstanceUID = instance.series_instance_uid.series_instance_uid
+        else:
+            ds.SeriesInstanceUID = ''
+            
+        if instance.series_instance_uid.series_date:
+            ds.SeriesDate = instance.series_instance_uid.series_date.strftime('%Y%m%d')
+        else:
+            ds.SeriesDate = ''
+            
+        ds.SeriesTime = ''
+        
+        if instance.series_instance_uid.series_description:
+            ds.SeriesDescription = instance.series_instance_uid.series_description
+        else:
+            ds.SeriesDescription = ''
+        
+        ds.SeriesNumber = ''
+        ds.Modality = ''
+        
+        # Instance (IMAGE) info - REQUIRED for IMAGE level
+        if instance.sop_instance_uid:
+            ds.SOPInstanceUID = instance.sop_instance_uid
+        else:
+            ds.SOPInstanceUID = ''
+        
+        # Read actual DICOM file to get SOPClassUID and InstanceNumber if available
+        if instance.instance_path and os.path.exists(instance.instance_path):
+            try:
+                file_ds = dcmread(instance.instance_path, stop_before_pixels=True)
+                if hasattr(file_ds, 'SOPClassUID'):
+                    ds.SOPClassUID = file_ds.SOPClassUID
+                if hasattr(file_ds, 'InstanceNumber'):
+                    ds.InstanceNumber = str(file_ds.InstanceNumber)
+            except Exception as e:
+                logger.warning(f"Could not read DICOM file for instance {instance.sop_instance_uid}: {e}")
+        
         matches.append(ds)
     
     return matches
