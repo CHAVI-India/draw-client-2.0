@@ -1,0 +1,20 @@
+services:
+  django-web:
+    network_mode: "host"
+    environment:
+      DJANGO_DB_HOST: localhost
+      DJANGO_DB_PORT: 5433
+      MEMCACHED_LOCATION: localhost:11212
+      RABBITMQ_URL: pyamqp://guest:guest@localhost:5675
+
+  celery:
+    extra_hosts:
+      - "django-web:host-gateway"
+
+  celery-beat:
+    extra_hosts:
+      - "django-web:host-gateway"
+
+  frontend-proxy:
+    extra_hosts:
+      - "django-web:host-gateway"

@@ -138,3 +138,10 @@ And the port is used then the following will change the external port.
 ```
 
 Here we have mapped the port 5436 on the host machine to the container 5432 port. Note that in the previous section the mapped host port was 5433.
+
+
+To use the docker-compose.c-move.yml file you need to 
+
+```bash
+docker-compose -f docker-compose.yml-f docker-compose.c-move.yml up -d
+```
