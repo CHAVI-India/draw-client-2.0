@@ -157,6 +157,7 @@ def _search_dicom_storage(service, query_ds, query_level):
     """
     Search DICOM storage using database models and return file paths.
     Uses DICOMInstance model for accurate file tracking with SOP Instance UIDs.
+    Supports PATIENT, STUDY, SERIES, and IMAGE query levels.
     
     Returns:
         list: List of file paths matching the query
@@ -178,7 +179,7 @@ def _search_dicom_storage(service, query_ds, query_level):
             'series_instance_uid__study__patient'
         ).all()
         
-        # Apply filters based on query parameters
+        # Apply filters based on query parameters and query level
         if patient_id:
             queryset = queryset.filter(
                 series_instance_uid__study__patient__patient_id__iexact=patient_id
@@ -197,8 +198,12 @@ def _search_dicom_storage(service, query_ds, query_level):
         if sop_instance_uid:
             queryset = queryset.filter(sop_instance_uid__iexact=sop_instance_uid)
         
-        # Limit results to prevent overwhelming the system
-        queryset = queryset[:1000]
+        # Limit results based on query level to prevent overwhelming the system
+        # IMAGE level queries should be more restrictive
+        if query_level == 'IMAGE':
+            queryset = queryset[:100]
+        else:
+            queryset = queryset[:1000]
         
         # Collect file paths from instances
         for instance in queryset:
@@ -207,7 +212,7 @@ def _search_dicom_storage(service, query_ds, query_level):
             else:
                 logger.warning(f"File not found for SOP Instance UID: {instance.sop_instance_uid}")
         
-        logger.info(f"C-MOVE found {len(matches)} matching files from database")
+        logger.info(f"C-MOVE found {len(matches)} matching files from database at {query_level} level")
         return matches
         
     except Exception as e:
