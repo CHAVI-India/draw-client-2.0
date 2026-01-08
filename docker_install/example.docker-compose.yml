@@ -51,6 +51,8 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    #extra_hosts:
+    #  - "ctkstore=<IPADDRESS>"
 
   celery:
     image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
