@@ -140,8 +140,21 @@ And the port is used then the following will change the external port.
 Here we have mapped the port 5436 on the host machine to the container 5432 port. Note that in the previous section the mapped host port was 5433.
 
 
-To use the docker-compose.c-move.yml file you need to 
+# Additional Note on Extra Hosts Parameter
+
+There is an extra hosts parameter provided in the docker compose to allow the dicom server to provide C-MOVE services. During C-MOVE service, the server has to negotitate the external IP address. 
+
+In the extra hosts section (needs to be uncommented) the IP address of the remote machine where the DICOM files will be transferred using the C-MOVE command needs to be provided. 
+
+Note that C-FIND and C-ECHO work without this paramter. 
 
 ```bash
-docker-compose -f docker-compose.yml-f docker-compose.c-move.yml up -d
+    extra_hosts:
+      - "ctkstore=172.12.12.21"
+      - 'varian=172.16.23.1'
 ```
+
+Note that this is only required if the C-MOVE service is used. You can add multiple extra hosts. 
+
+If the extra hosts parameter is used in the application the remote service should be identified by the hostname instead of the IP Address.
+
