@@ -94,6 +94,10 @@ class DicomSCPService:
             self.ae.dimse_timeout = self.config.dimse_timeout
             self.ae.maximum_associations = self.config.max_associations
             
+            # Performance optimization: Enable connection reuse
+            # This allows multiple C-STORE operations on a single association
+            self.ae.require_called_aet = False  # More lenient for connection reuse
+            
             self._config_last_updated = self.config.updated_at
             logger.info(f"DICOM SCP initialized: {self.config.ae_title} on {self.config.host}:{self.config.port}")
             return True
@@ -369,7 +373,8 @@ class DicomSCPService:
         # Association handlers
         handlers.append((evt.EVT_CONN_OPEN, self._handle_connection_open))
         handlers.append((evt.EVT_CONN_CLOSE, self._handle_connection_close))
-        handlers.append((evt.EVT_REQUESTED, self._handle_association_requested))
+        # Note: EVT_REQUESTED is a notification event, not intervention - cannot reject here
+        # Validation moved to EVT_ACCEPTED for proper handling
         handlers.append((evt.EVT_ACCEPTED, self._handle_association_accepted))
         handlers.append((evt.EVT_REJECTED, self._handle_association_rejected))
         handlers.append((evt.EVT_RELEASED, self._handle_association_released))
@@ -399,6 +404,12 @@ class DicomSCPService:
         """
         if not self.config.require_calling_ae_validation:
             return True
+        
+        # Allow empty AE title if validation is disabled
+        if not calling_ae_title or calling_ae_title.strip() == '':
+            if not self.config.require_calling_ae_validation:
+                return True
+            logger.debug("Empty calling AE title, checking if validation required")
         
         try:
             remote_node = RemoteDicomNode.objects.filter(
@@ -439,9 +450,12 @@ class DicomSCPService:
     
     def _log_transaction(self, transaction_type, status, event, **kwargs):
         """
-        Log DICOM transaction to database.
+        Log DICOM transaction to database asynchronously using Celery.
+        Non-blocking operation - queues the write to a background worker.
         """
         try:
+            from .tasks import log_dicom_transaction_async
+            
             transaction_data = {
                 'transaction_type': transaction_type,
                 'status': status,
@@ -452,10 +466,11 @@ class DicomSCPService:
             }
             transaction_data.update(kwargs)
             
-            DicomTransaction.objects.create(**transaction_data)
+            # Queue the database write to Celery worker (non-blocking)
+            log_dicom_transaction_async.delay(transaction_data)
             
         except Exception as e:
-            logger.error(f"Failed to log transaction: {str(e)}")
+            logger.error(f"Failed to queue transaction log: {str(e)}")
     
     # Event Handlers
     
@@ -485,45 +500,49 @@ class DicomSCPService:
     
     def _handle_association_requested(self, event):
         """
-        Handle association requested event.
-        Validate calling AE and remote IP before accepting association.
-        Returns 0x0000 to accept, or rejection code to reject.
+        Handle association requested event (NOTIFICATION EVENT).
+        Note: This is a notification event in pynetdicom, not an intervention event.
+        Return values are ignored. Validation is performed in EVT_ACCEPTED handler.
+        """
+        calling_ae = event.assoc.requestor.ae_title
+        remote_ip = event.assoc.requestor.address
+        
+        logger.debug(f"Association requested from {calling_ae} ({remote_ip})")
+    
+    def _handle_association_accepted(self, event):
+        """
+        Handle association accepted event.
+        Perform validation here since EVT_REQUESTED is a notification event.
+        If validation fails, abort the association.
         """
         calling_ae = event.assoc.requestor.ae_title
         remote_ip = event.assoc.requestor.address
         
         # Validate calling AE title
         if not self._validate_calling_ae(calling_ae):
-            logger.warning(f"Association rejected: Calling AE '{calling_ae}' not authorized")
+            logger.warning(f"Association validation failed: Calling AE '{calling_ae}' not authorized - aborting")
             self._log_transaction(
                 'ASSOCIATION',
                 'REJECTED',
                 event,
                 error_message=f"Calling AE '{calling_ae}' not authorized"
             )
-            # Return rejection code: calling AE title not recognized
-            return 0x0003
+            # Abort the association
+            event.assoc.abort()
+            return
         
         # Validate remote IP
         if not self._validate_remote_ip(remote_ip):
-            logger.warning(f"Association rejected: Remote IP '{remote_ip}' not authorized")
+            logger.warning(f"Association validation failed: Remote IP '{remote_ip}' not authorized - aborting")
             self._log_transaction(
                 'ASSOCIATION',
                 'REJECTED',
                 event,
                 error_message=f"Remote IP '{remote_ip}' not authorized"
             )
-            # Return rejection code: called AE title not recognized (closest match)
-            return 0x0007
-        
-        logger.debug(f"Association request validated from {calling_ae} ({remote_ip})")
-        # Return 0x0000 to accept the association
-        return 0x0000
-    
-    def _handle_association_accepted(self, event):
-        """Handle association accepted event."""
-        calling_ae = event.assoc.requestor.ae_title
-        remote_ip = event.assoc.requestor.address
+            # Abort the association
+            event.assoc.abort()
+            return
         
         logger.info(f"Association accepted from {calling_ae} ({remote_ip})")
         

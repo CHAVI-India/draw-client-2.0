@@ -55,9 +55,9 @@ class DicomServerConfig(models.Model):
         help_text="Maximum number of concurrent DICOM associations/connections."
     )
     max_pdu_size = models.IntegerField(
-        default=16384,
+        default=131072,
         validators=[MinValueValidator(4096), MaxValueValidator(131072)],
-        help_text="Maximum Protocol Data Unit size in bytes (default: 16384, range: 4096-131072)."
+        help_text="Maximum Protocol Data Unit size in bytes (default: 131072, range: 4096-131072)."
     )
     
     # Timeout Settings

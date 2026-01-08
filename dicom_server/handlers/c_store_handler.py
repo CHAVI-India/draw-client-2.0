@@ -12,12 +12,17 @@ from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 from django.utils import timezone
 from django.db import transaction as db_transaction
+from django.core.cache import cache
 
 from ..models import DicomTransaction
 from ..storage_cleanup import check_and_cleanup_if_needed, get_storage_usage
 from dicom_handler.models import SystemConfiguration
 
 logger = logging.getLogger(__name__)
+
+# Cache configuration for storage checks
+STORAGE_CACHE_KEY = 'dicom_storage_usage_gb'
+STORAGE_CACHE_TIMEOUT = 30  # Cache storage usage for 30 seconds
 
 
 def handle_c_store(service, event):
@@ -141,15 +146,21 @@ def handle_c_store(service, event):
             transfer_speed_mbps=transfer_speed_mbps
         )
         
-        # Update service statistics
-        service.service_status.total_files_received += 1
-        service.service_status.total_bytes_received += file_size
-        service.service_status.last_file_received_at = timezone.now()
-        service.service_status.save()
+        # Update service statistics asynchronously (non-blocking)
+        from ..tasks import update_service_status_async, update_storage_cache_async
         
-        # Incrementally update storage cache (fast operation) - use fresh config
-        fresh_config.cached_storage_usage_bytes += file_size
-        fresh_config.save(update_fields=['cached_storage_usage_bytes'])
+        update_service_status_async.delay({
+            'total_files_received': 1,
+            'total_bytes_received': file_size,
+            'last_file_received_at': timezone.now()
+        })
+        
+        # Incrementally update storage cache asynchronously (non-blocking)
+        update_storage_cache_async.delay(file_size)
+        
+        # Invalidate memcached storage check to force refresh on next check
+        # This ensures the cache stays reasonably accurate after file additions
+        cache.delete(STORAGE_CACHE_KEY)
         
         # Note: DICOM Handler integration is handled by the dicom_handler app
         # Files stored here will be automatically picked up by the handler's polling mechanism
@@ -198,44 +209,61 @@ def _validate_dicom_dataset(ds):
 def _check_storage_limits(service):
     """
     Check if storage limits have been reached.
+    Uses memcached to avoid expensive filesystem scans on every file.
+    Cache is valid for 30 seconds, then refreshed on next check.
     """
     try:
         from ..models import DicomServerConfig
         
-        # Always fetch fresh configuration from database to avoid stale cached values
+        # Fetch configuration
         dicom_config = DicomServerConfig.objects.get(pk=1)
         system_config = SystemConfiguration.objects.get(pk=1)
         storage_path = system_config.folder_configuration
+        max_storage_gb = dicom_config.max_storage_size_gb
         
-        if storage_path:
+        if not storage_path:
+            return True
+        
+        # Try to get cached storage usage
+        current_usage_gb = cache.get(STORAGE_CACHE_KEY)
+        
+        if current_usage_gb is None:
+            # Cache miss - perform actual filesystem scan
             usage = get_storage_usage(storage_path)
             current_usage_gb = usage['total_gb']
-            max_storage_gb = dicom_config.max_storage_size_gb
             
-            logger.info(f"Storage check: {current_usage_gb}GB used / {max_storage_gb}GB max")
-            
-            if current_usage_gb >= max_storage_gb:
-                if dicom_config.enable_storage_cleanup:
-                    # Attempt automatic cleanup
-                    logger.warning(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB. Attempting cleanup...")
-                    cleanup_performed = check_and_cleanup_if_needed(service)
+            # Cache the result for 30 seconds
+            cache.set(STORAGE_CACHE_KEY, current_usage_gb, STORAGE_CACHE_TIMEOUT)
+            logger.debug(f"Storage check (cached): {current_usage_gb}GB used / {max_storage_gb}GB max")
+        else:
+            # Cache hit - use cached value (no filesystem scan)
+            logger.debug(f"Storage check (from cache): {current_usage_gb}GB used / {max_storage_gb}GB max")
+        
+        # Check if limit reached
+        if current_usage_gb >= max_storage_gb:
+            if dicom_config.enable_storage_cleanup:
+                # Attempt automatic cleanup
+                logger.warning(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB. Attempting cleanup...")
+                cleanup_performed = check_and_cleanup_if_needed(service)
+                
+                if cleanup_performed:
+                    # Re-check storage after cleanup and update cache
+                    usage = get_storage_usage(storage_path)
+                    current_usage_gb = usage['total_gb']
+                    cache.set(STORAGE_CACHE_KEY, current_usage_gb, STORAGE_CACHE_TIMEOUT)
                     
-                    if cleanup_performed:
-                        # Re-check storage after cleanup
-                        usage = get_storage_usage(storage_path)
-                        current_usage_gb = usage['total_gb']
-                        
-                        if current_usage_gb >= max_storage_gb:
-                            logger.error("Storage still full after cleanup")
-                            return False
-                        else:
-                            logger.info(f"Cleanup successful, storage now at {current_usage_gb}GB / {max_storage_gb}GB")
-                    else:
-                        logger.error("Cleanup failed or not enough old files to delete")
+                    if current_usage_gb >= max_storage_gb:
+                        logger.error("Storage still full after cleanup")
                         return False
+                    else:
+                        logger.info(f"Cleanup successful, storage now at {current_usage_gb}GB / {max_storage_gb}GB")
                 else:
-                    logger.error(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB")
+                    logger.error("Cleanup failed or not enough old files to delete")
                     return False
+            else:
+                logger.error(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB")
+                return False
+                
     except Exception as e:
         logger.warning(f"Error checking storage limits: {str(e)}")
     
