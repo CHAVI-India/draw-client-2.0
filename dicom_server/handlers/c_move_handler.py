@@ -199,11 +199,8 @@ def _search_dicom_storage(service, query_ds, query_level):
             queryset = queryset.filter(sop_instance_uid__iexact=sop_instance_uid)
         
         # Limit results based on query level to prevent overwhelming the system
-        # IMAGE level queries should be more restrictive
-        if query_level == 'IMAGE':
-            queryset = queryset[:100]
-        else:
-            queryset = queryset[:1000]
+        # All query levels now have the same limit
+        queryset = queryset[:10000]
         
         # Collect file paths from instances
         for instance in queryset:
