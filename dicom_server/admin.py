@@ -42,6 +42,10 @@ class DicomServerConfigAdmin(admin.ModelAdmin):
         ('DIMSE Services', {
             'fields': ('enable_c_echo', 'enable_c_store', 'enable_c_find', 'enable_c_move', 'enable_c_get')
         }),
+        ('Query/Retrieve Configuration', {
+            'fields': ('max_query_results',),
+            'description': 'Maximum number of results to return for C-FIND queries. Affects C-MOVE/C-GET operations.'
+        }),
         ('Transfer Syntax Support', {
             'fields': ('support_implicit_vr_little_endian', 'support_explicit_vr_little_endian',
                       'support_explicit_vr_big_endian', 'support_jpeg_baseline',
