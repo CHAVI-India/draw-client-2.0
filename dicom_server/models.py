@@ -189,16 +189,23 @@ class DicomServerConfig(models.Model):
         help_text="Enable C-STORE (receive DICOM files) service."
     )
     enable_c_find = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Enable C-FIND (query) service for Patient/Study/Series level queries."
     )
     enable_c_move = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Enable C-MOVE (retrieve) service to send DICOM files to remote destinations."
     )
     enable_c_get = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Enable C-GET (retrieve) service to send DICOM files over the same association."
+    )
+    
+    # Query/Retrieve Configuration
+    max_query_results = models.IntegerField(
+        default=10000,
+        validators=[MinValueValidator(1), MaxValueValidator(1000000)],
+        help_text="Maximum number of results to return for C-FIND queries. Increase this if remote applications need to retrieve more than 100 studies/series via C-MOVE."
     )
     
     # Transfer Syntax Support

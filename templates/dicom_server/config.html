@@ -242,6 +242,21 @@
                     <p class="text-xs text-gray-500 mt-1 ml-6">Get service</p>
                 </div>
             </div>
+            
+            <!-- Query/Retrieve Configuration -->
+            <div class="mt-6 pt-6 border-t border-gray-200">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Query/Retrieve Configuration</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Max Query Results</label>
+                        {{ form.max_query_results }}
+                        {% if form.max_query_results.errors %}
+                            <p class="text-red-600 text-xs mt-1">{{ form.max_query_results.errors.0 }}</p>
+                        {% endif %}
+                        <p class="text-xs text-gray-500 mt-1">{{ form.max_query_results.help_text }}</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Storage SOP Classes -->

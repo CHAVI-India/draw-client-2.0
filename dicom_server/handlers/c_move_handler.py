@@ -166,6 +166,14 @@ def _search_dicom_storage(service, query_ds, query_level):
     
     matches = []
     
+    # Get max_query_results from service config
+    max_results = 10000  # Default fallback
+    try:
+        if hasattr(service, 'config') and service.config:
+            max_results = service.config.max_query_results
+    except Exception as e:
+        logger.warning(f"Could not get max_query_results from config, using default: {e}")
+    
     # Extract query parameters
     patient_id = getattr(query_ds, 'PatientID', None)
     study_uid = getattr(query_ds, 'StudyInstanceUID', None)
@@ -199,8 +207,7 @@ def _search_dicom_storage(service, query_ds, query_level):
             queryset = queryset.filter(sop_instance_uid__iexact=sop_instance_uid)
         
         # Limit results based on query level to prevent overwhelming the system
-        # All query levels now have the same limit
-        queryset = queryset[:10000]
+        queryset = queryset[:max_results]
         
         # Collect file paths from instances
         for instance in queryset:

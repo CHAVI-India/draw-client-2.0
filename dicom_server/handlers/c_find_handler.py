@@ -78,6 +78,14 @@ def _search_dicom_storage(service, query_ds, query_level):
     
     matches = []
     
+    # Get max_query_results from service config
+    max_results = 10000  # Default fallback
+    try:
+        if hasattr(service, 'config') and service.config:
+            max_results = service.config.max_query_results
+    except Exception as e:
+        logger.warning(f"Could not get max_query_results from config, using default: {e}")
+    
     # Extract query parameters
     query_params = {
         'PatientID': getattr(query_ds, 'PatientID', None),
@@ -97,13 +105,13 @@ def _search_dicom_storage(service, query_ds, query_level):
     
     try:
         if query_level == 'PATIENT':
-            matches = _query_patients(query_params)
+            matches = _query_patients(query_params, max_results)
         elif query_level == 'STUDY':
-            matches = _query_studies(query_params)
+            matches = _query_studies(query_params, max_results)
         elif query_level == 'SERIES':
-            matches = _query_series(query_params)
+            matches = _query_series(query_params, max_results)
         elif query_level == 'IMAGE':
-            matches = _query_images(query_params)
+            matches = _query_images(query_params, max_results)
         else:
             logger.warning(f"Unsupported query level: {query_level}")
             return matches
@@ -116,7 +124,7 @@ def _search_dicom_storage(service, query_ds, query_level):
         return []
 
 
-def _query_patients(query_params):
+def _query_patients(query_params, max_results=10000):
     """
     Query Patient model and return matching DICOM datasets.
     """
@@ -132,7 +140,7 @@ def _query_patients(query_params):
         queryset = _apply_wildcard_filter(queryset, 'patient_name', str(query_params['PatientName']))
     
     # Limit results
-    queryset = queryset[:100]
+    queryset = queryset[:max_results]
     
     # Convert to DICOM datasets
     matches = []
@@ -167,7 +175,7 @@ def _query_patients(query_params):
     return matches
 
 
-def _query_studies(query_params):
+def _query_studies(query_params, max_results=10000):
     """
     Query DICOMStudy model and return matching DICOM datasets.
     """
@@ -197,7 +205,7 @@ def _query_studies(query_params):
         queryset = _apply_wildcard_filter(queryset, 'accession_number', query_params['AccessionNumber'])
     
     # Limit results
-    queryset = queryset[:100]
+    queryset = queryset[:max_results]
     
     # Convert to DICOM datasets
     matches = []
@@ -286,7 +294,7 @@ def _query_studies(query_params):
     return matches
 
 
-def _query_images(query_params):
+def _query_images(query_params, max_results=10000):
     """
     Query DICOMInstance model and return matching DICOM datasets at IMAGE level.
     """
@@ -323,7 +331,7 @@ def _query_images(query_params):
         queryset = _apply_wildcard_filter(queryset, 'sop_instance_uid', query_params['SOPInstanceUID'])
     
     # Limit results
-    queryset = queryset[:100]
+    queryset = queryset[:max_results]
     
     # Convert to DICOM datasets
     matches = []
@@ -428,7 +436,7 @@ def _query_images(query_params):
     return matches
 
 
-def _query_series(query_params):
+def _query_series(query_params, max_results=10000):
     """
     Query DICOMSeries model and return matching DICOM datasets.
     """
@@ -461,7 +469,7 @@ def _query_series(query_params):
         queryset = _apply_wildcard_filter(queryset, 'series_description', query_params['SeriesDescription'])
     
     # Limit results
-    queryset = queryset[:100]
+    queryset = queryset[:max_results]
     
     # Convert to DICOM datasets
     matches = []
