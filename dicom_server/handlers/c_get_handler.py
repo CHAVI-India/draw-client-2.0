@@ -213,7 +213,7 @@ def _search_dicom_storage(service, query_ds, query_level):
         
         # Limit results based on query level to prevent overwhelming the system
         # All query levels now have the same limit
-        queryset = queryset[:1000]
+        queryset = queryset[:10000]
         
         # Collect file paths from instances
         for instance in queryset:

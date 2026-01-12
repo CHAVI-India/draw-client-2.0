@@ -21,7 +21,13 @@ from pynetdicom.sop_class import (
     PatientRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelGet,
 )
+from pynetdicom.presentation import build_context
 from pydicom.dataset import Dataset
+from pydicom.uid import (
+    ImplicitVRLittleEndian,
+    ExplicitVRLittleEndian,
+    ExplicitVRBigEndian
+)
 
 from django.utils import timezone
 from django.db import transaction as db_transaction
@@ -60,22 +66,30 @@ class DicomQueryRetrieveService:
         
         self.ae = AE(ae_title=ae_title)
         
+        # Define transfer syntaxes to use for all presentation contexts
+        # Use standard uncompressed transfer syntaxes for Q/R operations
+        transfer_syntaxes = [
+            ImplicitVRLittleEndian,
+            ExplicitVRLittleEndian,
+            ExplicitVRBigEndian
+        ]
+        
         # Add presentation context for C-ECHO (Verification)
-        self.ae.add_requested_context(Verification)
+        self.ae.add_requested_context(Verification, transfer_syntaxes)
         
         # Add presentation contexts for C-FIND
-        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelFind)
-        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind)
-        self.ae.add_requested_context(PatientStudyOnlyQueryRetrieveInformationModelFind)
+        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelFind, transfer_syntaxes)
+        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelFind, transfer_syntaxes)
+        self.ae.add_requested_context(PatientStudyOnlyQueryRetrieveInformationModelFind, transfer_syntaxes)
         
         # Add presentation contexts for C-MOVE
-        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelMove)
-        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove)
-        self.ae.add_requested_context(PatientStudyOnlyQueryRetrieveInformationModelMove)
+        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelMove, transfer_syntaxes)
+        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelMove, transfer_syntaxes)
+        self.ae.add_requested_context(PatientStudyOnlyQueryRetrieveInformationModelMove, transfer_syntaxes)
         
         # Add presentation contexts for C-GET
-        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet)
-        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet)
+        self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet, transfer_syntaxes)
+        self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet, transfer_syntaxes)
         
         logger.info(f"Query/Retrieve service initialized with AE title: {ae_title}")
     
