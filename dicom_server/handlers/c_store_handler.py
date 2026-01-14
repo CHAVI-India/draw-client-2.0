@@ -42,6 +42,7 @@ def handle_c_store(service, event):
         int: DICOM status code (0x0000 for success)
     """
     start_time = time.time()
+    logger.info(f"[TIMING] C-STORE handler started at {time.time()}")
     
     calling_ae = event.assoc.requestor.ae_title
     remote_ip = event.assoc.requestor.address
@@ -49,10 +50,15 @@ def handle_c_store(service, event):
     try:
         # Use cached config from service to avoid DB query on every file
         # The service config is refreshed periodically by the service itself
+        t1 = time.time()
         fresh_config = service.config
+        logger.info(f"[TIMING] Got config in {(time.time() - t1)*1000:.2f}ms")
         
         # Validate calling AE if required
-        if not service._validate_calling_ae(calling_ae):
+        t2 = time.time()
+        ae_valid = service._validate_calling_ae(calling_ae)
+        logger.info(f"[TIMING] AE validation took {(time.time() - t2)*1000:.2f}ms")
+        if not ae_valid:
             logger.warning(f"C-STORE rejected: Calling AE '{calling_ae}' not authorized")
             service._log_transaction(
                 'C-STORE',
@@ -63,7 +69,9 @@ def handle_c_store(service, event):
             return 0xA700  # Refused: Out of Resources
         
         # Validate remote IP if required
+        t3 = time.time()
         if not service._validate_remote_ip(remote_ip):
+            logger.info(f"[TIMING] IP validation took {(time.time() - t3)*1000:.2f}ms")
             logger.warning(f"C-STORE rejected: Remote IP '{remote_ip}' not authorized")
             service._log_transaction(
                 'C-STORE',
@@ -73,8 +81,11 @@ def handle_c_store(service, event):
             )
             return 0xA700  # Refused: Out of Resources
         
+        logger.info(f"[TIMING] IP validation took {(time.time() - t3)*1000:.2f}ms")
+        
         # OPTIMIZATION: Only decode dataset if validation or metadata extraction is needed
         # This avoids the expensive decode operation when not required
+        t4 = time.time()
         ds = None
         patient_id = None
         study_uid = None
@@ -91,8 +102,11 @@ def handle_c_store(service, event):
         
         if needs_decoding:
             # Decode dataset only when necessary
+            logger.info(f"[TIMING] Needs decoding check took {(time.time() - t4)*1000:.2f}ms")
+            t5 = time.time()
             ds = event.dataset
             ds.file_meta = event.file_meta
+            logger.info(f"[TIMING] Dataset decode took {(time.time() - t5)*1000:.2f}ms")
             
             # Validate DICOM if required (use fresh config)
             if fresh_config.validate_dicom_on_receive:
@@ -116,9 +130,13 @@ def handle_c_store(service, event):
             series_uid = getattr(ds, 'SeriesInstanceUID', None)
             sop_instance_uid = getattr(ds, 'SOPInstanceUID', None)
             sop_class_uid = getattr(ds, 'SOPClassUID', None)
+        else:
+            logger.info(f"[TIMING] Skipped decoding (took {(time.time() - t4)*1000:.2f}ms to check)")
         
         # Check storage limits
+        t6 = time.time()
         if not _check_storage_limits(service):
+            logger.info(f"[TIMING] Storage limits check took {(time.time() - t6)*1000:.2f}ms")
             logger.error("C-STORE rejected: Storage limit reached")
             service._log_transaction(
                 'C-STORE',
@@ -133,19 +151,27 @@ def handle_c_store(service, event):
             )
             return 0xA700  # Refused: Out of Resources
         
+        logger.info(f"[TIMING] Storage limits check took {(time.time() - t6)*1000:.2f}ms")
+
         # Determine storage path (pass ds which may be None)
+        t7 = time.time()
         storage_path = _get_storage_path(service, ds, fresh_config)
         os.makedirs(storage_path, exist_ok=True)
+        logger.info(f"[TIMING] Get storage path took {(time.time() - t7)*1000:.2f}ms")
         
         # Determine filename (pass ds which may be None)
+        t8 = time.time()
         filename = _get_filename(service, ds, fresh_config)
         file_path = os.path.join(storage_path, filename)
+        logger.info(f"[TIMING] Get filename took {(time.time() - t8)*1000:.2f}ms")
         
         # OPTIMIZATION: Write raw encoded dataset directly to file
         # This is MUCH faster than ds.save_as() as it skips decode/re-encode
+        t9 = time.time()
         with open(file_path, 'wb') as f:
             # Write preamble, prefix, file meta information and raw dataset
             f.write(event.encoded_dataset())
+        logger.info(f"[TIMING] File write took {(time.time() - t9)*1000:.2f}ms")
         
         file_size = os.path.getsize(file_path)
         
