@@ -131,6 +131,96 @@ class AutosegmentationStructure(models.Model):
         verbose_name = "Autosegmentation Mapped Structure"
         verbose_name_plural = "Autosegmentation Mapped Structures"
     
+
+class RTROIInterpretedTypeChoices(models.TextChoices):
+    EXTERNAL = 'EXTERNAL', 'EXTERNAL'
+    PTV = 'PTV', 'PTV'
+    CTV = 'CTV', 'CTV'
+    GTV = 'GTV', 'GTV'
+    TREATED_VOLUME = 'TREATED_VOLUME', 'TREATED_VOLUME'
+    IRRAD_VOLUME = 'IRRAD_VOLUME', 'IRRAD_VOLUME'
+    OAR = 'OAR', 'OAR'
+    BOLUS = 'BOLUS', 'BOLUS'
+    AVOIDANCE = 'AVOIDANCE', 'AVOIDANCE'
+    ORGAN = 'ORGAN', 'ORGAN'
+    MARKER = 'MARKER', 'MARKER'
+    REGISTRATION = 'REGISTRATION', 'REGISTRATION'
+    ISOCENTER = 'ISOCENTER', 'ISOCENTER'
+    CONTRAST_AGENT = 'CONTRAST_AGENT', 'CONTRAST_AGENT'
+    CAVITY = 'CAVITY', 'CAVITY'
+    BRACHY_CHANNEL = 'BRACHY_CHANNEL', 'BRACHY_CHANNEL'
+    BRACHY_ACCESSORY = 'BRACHY_ACCESSORY', 'BRACHY_ACCESSORY'
+    BRACHY_SRC_APP = 'BRACHY_SRC_APP', 'BRACHY_SRC_APP'
+    BRACHY_CHNL_SHLD = 'BRACHY_CHNL_SHLD', 'BRACHY_CHNL_SHLD'
+    SUPPORT = 'SUPPORT', 'SUPPORT'
+    FIXATION = 'FIXATION', 'FIXATION'
+    DOSE_REGION = 'DOSE_REGION', 'DOSE_REGION'
+    CONTROL = 'CONTROL', 'CONTROL'
+    DOSE_MEASUREMENT = 'DOSE_MEASUREMENT', 'DOSE_MEASUREMENT'
+    
+
+
+
+class StructureProperties(models.Model):
+    '''
+    This table will store information about the properties of the RTStructure ROI that will be used when reidentifying the RTStructureSet to allow users to set custom attributes like preferred ROI label, ROI Color and RT ROI Interpreted Type attributes. This will have one to one linkage with the AutosegmentationStructure Model.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    autosegmentation_structure = models.OneToOneField(AutosegmentationStructure,on_delete=models.CASCADE,null=True,blank=True)
+    roi_label = models.CharField(max_length=16, null=True, blank=True, verbose_name = "Preferred Name for the Structure (ROI)")
+    rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
+    roi_display_color = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Display Color of the Structure (ROI)")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Structure Properties"
+        verbose_name_plural = "Structure Properties"
+    
+    def __str__(self):
+        return self.roi_label
+    
+    def save(self, *args, **kwargs):
+        if not self.roi_label and self.autosegmentation_structure:
+            self.roi_label = self.autosegmentation_structure.name
+        super().save(*args, **kwargs)
+    
+    def clean(self):
+        super().clean()
+        
+        # Validate ROI label length
+        if self.roi_label and len(self.roi_label) > 16:
+            raise ValidationError({
+                'roi_label': 'ROI Label cannot exceed 16 characters as per TG263 standard.'
+            })
+        
+        # Validate ROI display color
+        if self.roi_display_color:
+            try:
+                parts = self.roi_display_color.strip().split('\\')
+                if len(parts) != 3:
+                    raise ValidationError({
+                        'roi_display_color': 'ROI Display Color must be a DICOM Integer String with exactly 3 RGB values separated by backslashes (e.g., "255\\0\\0" for red).'
+                    })
+                
+                for part in parts:
+                    part_stripped = part.strip()
+                    value = int(part_stripped)
+                    if value < 0 or value > 255:
+                        raise ValidationError({
+                            'roi_display_color': f'Each RGB value must be an integer between 0 and 255. Invalid value: {value}'
+                        })
+            except ValueError:
+                raise ValidationError({
+                    'roi_display_color': 'ROI Display Color must contain only integer values separated by backslashes (e.g., "255\\0\\0").'
+                })
+    
+    
+
+    
+    
+
+
 class DICOMTagType(models.Model):
     '''
     This is a model to store data about the DICOM tags. Note that only DICOM tags approved by the DICOM standards are allowed.
@@ -496,6 +586,10 @@ class RTStructureFileImport(models.Model):
     server_segmentation_updated_datetime = models.DateTimeField(null=True,blank=True)
     reidentified_rt_structure_file_path = models.CharField(max_length=256,null=True,blank=True)
     reidentified_rt_structure_file_export_datetime = models.DateTimeField(null=True,blank=True)
+    reidentified_rt_structure_file_sop_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    reidentified_rt_structure_file_series_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    reidentified_rt_structure_file_study_instance_uid = models.CharField(max_length=256,null=True,blank=True)
+    reidentified_rt_structure_file_sop_class_uid = models.CharField(max_length=256,null=True,blank=True)
     date_contour_reviewed = models.DateField(null=True,blank=True,help_text="Date when the contour was reviewed")
     contour_modification_time_required = models.IntegerField(null=True,blank=True,help_text="Time required to modify the contours in this structure set in minutes. Please do not include time required to create or edit new structures which were not supposed to be autosegmented.")
     assessor_name = models.CharField(max_length=256,null=True,blank=True,help_text="Name of the assessor who reviewed the contour")

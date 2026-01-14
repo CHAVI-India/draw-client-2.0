@@ -841,6 +841,7 @@ class RemoteDicomNode(models.Model):
     incoming_ae_title = models.CharField(
         max_length=16,
         blank=True,
+        verbose_name="Remote Node's AE Title (when sending to us)",
         validators=[
             RegexValidator(
                 regex=r'^[A-Z0-9_\-]+$',
@@ -848,7 +849,7 @@ class RemoteDicomNode(models.Model):
                 code='invalid_ae_title'
             )
         ],
-        help_text="AE Title used when this node sends files to us (required if allow_incoming is True)"
+        help_text="The AE Title that the remote node uses when sending files to our server (required if allowing incoming connections)"
     )
     expected_ip = models.GenericIPAddressField(
         blank=True,
@@ -877,6 +878,7 @@ class RemoteDicomNode(models.Model):
     outgoing_ae_title = models.CharField(
         max_length=16,
         blank=True,
+        verbose_name="Remote Node's AE Title (for queries)",
         validators=[
             RegexValidator(
                 regex=r'^[A-Z0-9_\-]+$',
@@ -884,7 +886,7 @@ class RemoteDicomNode(models.Model):
                 code='invalid_ae_title'
             )
         ],
-        help_text="AE Title used for Query/Retrieve operations (required if any Q/R capability is enabled)"
+        help_text="The AE Title of the remote node that we use when querying or retrieving files from it (required if enabling Query/Retrieve)"
     )
     
     # Query/Retrieve Models
@@ -917,7 +919,8 @@ class RemoteDicomNode(models.Model):
     move_destination_ae = models.CharField(
         max_length=16,
         blank=True,
-        help_text="AE Title to use as move destination (usually our local AE title)"
+        verbose_name="Our Local AE Title (for receiving files)",
+        help_text="The AE Title of our local DICOM server. Leave empty to use the default from server configuration."
     )
     
     # Status

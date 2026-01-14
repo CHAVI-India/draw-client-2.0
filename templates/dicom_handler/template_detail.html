@@ -60,14 +60,60 @@
                     {% for model in models %}
                         <div class="mb-4 border border-gray-200 rounded-lg">
                             <div class="px-4 py-3">
-                                <h3 class="text-md font-medium text-gray-900 mb-2">{{ model.name }}</h3>
+                                <h3 class="text-md font-medium text-gray-900 mb-3">{{ model.name }}</h3>
                                 
                                 {% if model.autosegmentationstructure_set.all %}
-                                    <div class="flex flex-wrap gap-2">
+                                    <div class="space-y-2">
                                         {% for structure in model.autosegmentationstructure_set.all %}
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                                {{ structure.name }}
-                                            </span>
+                                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                                                <div class="flex items-center space-x-4 flex-1 text-sm">
+                                                    <!-- Template Name -->
+                                                    <div class="flex items-center">
+                                                        <span class="text-gray-600 mr-1">Template Name:</span>
+                                                        <span class="font-semibold text-gray-900">{{ structure.name }}</span>
+                                                    </div>
+                                                    
+                                                    <!-- Preferred Name -->
+                                                    {% if structure.structureproperties and structure.structureproperties.roi_label %}
+                                                        <div class="flex items-center">
+                                                            <span class="text-gray-600 mr-1">Preferred Name:</span>
+                                                            <span class="font-semibold text-gray-900">{{ structure.structureproperties.roi_label }}</span>
+                                                        </div>
+                                                    {% endif %}
+                                                    
+                                                    <!-- Structure Type -->
+                                                    {% if structure.structureproperties and structure.structureproperties.rt_roi_interpreted_type %}
+                                                        <div class="flex items-center">
+                                                            <span class="text-gray-600 mr-1">Structure Type:</span>
+                                                            <span class="font-semibold text-gray-900">{{ structure.structureproperties.get_rt_roi_interpreted_type_display }}</span>
+                                                        </div>
+                                                    {% endif %}
+                                                    
+                                                    <!-- Preferred Color -->
+                                                    <div class="flex items-center">
+                                                        <span class="text-gray-600 mr-1">Preferred Color:</span>
+                                                        {% if structure.color_rgb %}
+                                                            <div class="w-4 h-4 rounded-full border border-gray-400" 
+                                                                 style="background-color: rgb({{ structure.color_rgb }});"
+                                                                 title="RGB: {{ structure.structureproperties.roi_display_color }}">
+                                                            </div>
+                                                        {% else %}
+                                                            <div class="w-4 h-4 rounded-full border border-gray-400 bg-white"></div>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- Edit button -->
+                                                {% if perms.dicom_handler.change_autosegmentationstructure %}
+                                                    <a href="{% url 'dicom_handler:edit_structure_properties' structure.id %}" 
+                                                       class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-primary-700 bg-primary-50 rounded-md hover:bg-primary-100 transition-colors">
+                                                        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                        </svg>
+                                                        Edit Properties
+                                                    </a>
+                                                {% endif %}
+                                            </div>
                                         {% endfor %}
                                     </div>
                                 {% else %}

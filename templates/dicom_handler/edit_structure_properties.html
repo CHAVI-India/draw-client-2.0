@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+
+{% block title %}Edit Properties - {{ structure.name }}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Breadcrumb -->
+        <nav class="mb-4 text-sm">
+            <ol class="flex items-center space-x-2 text-gray-500">
+                <li><a href="{% url 'dicom_handler:template_list' %}" class="hover:text-gray-700">Templates</a></li>
+                <li><span class="mx-2">/</span></li>
+                <li><a href="{% url 'dicom_handler:template_detail' template.id %}" class="hover:text-gray-700">{{ template.template_name }}</a></li>
+                <li><span class="mx-2">/</span></li>
+                <li class="text-gray-900 font-medium">Edit Properties</li>
+            </ol>
+        </nav>
+
+        <div class="bg-white shadow rounded-lg">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h1 class="text-2xl font-bold text-gray-900">Edit Structure Properties</h1>
+                <p class="mt-1 text-sm text-gray-600">
+                    Configure display properties for: <span class="font-medium">{{ structure.name }}</span>
+                </p>
+            </div>
+
+            <!-- Form -->
+            <form method="post" id="properties-form" class="px-6 py-6">
+                {% csrf_token %}
+                
+                <div class="space-y-6">
+                    <!-- ROI Label -->
+                    <div>
+                        <label for="{{ form.roi_label.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.roi_label.label }}
+                        </label>
+                        {{ form.roi_label }}
+                        {% if form.roi_label.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.roi_label.errors.0 }}</p>
+                        {% endif %}
+                        <p class="mt-1 text-xs text-gray-500">
+                            If left empty, will default to: {{ structure.name }}. Maximum 16 characters.
+                        </p>
+                    </div>
+
+                    <!-- RT ROI Interpreted Type -->
+                    <div>
+                        <label for="{{ form.rt_roi_interpreted_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-2">
+                            {{ form.rt_roi_interpreted_type.label }}
+                        </label>
+                        {{ form.rt_roi_interpreted_type }}
+                        {% if form.rt_roi_interpreted_type.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.rt_roi_interpreted_type.errors.0 }}</p>
+                        {% endif %}
+                        <p class="mt-1 text-xs text-gray-500">
+                            Select the DICOM RT ROI Interpreted Type for this structure.
+                        </p>
+                    </div>
+
+                    <!-- Color Picker Section -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Display Color
+                        </label>
+                        
+                        <div class="flex items-center space-x-4">
+                            <!-- Color Picker -->
+                            <div class="flex items-center space-x-3">
+                                {{ form.hex_color }}
+                                <span class="text-sm text-gray-600">Pick a color</span>
+                            </div>
+                            
+                            <!-- Color Preview -->
+                            <div class="flex items-center space-x-2">
+                                <div id="color-preview" class="w-12 h-12 rounded-lg border-2 border-gray-300 shadow-sm"></div>
+                                <div class="text-xs text-gray-500">
+                                    <div>RGB: <span id="rgb-display" class="font-mono">-</span></div>
+                                    <div>Hex: <span id="hex-display" class="font-mono">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {% if form.hex_color.errors %}
+                            <p class="mt-1 text-sm text-red-600">{{ form.hex_color.errors.0 }}</p>
+                        {% endif %}
+
+                        <!-- DICOM Color Field (readonly) -->
+                        <div class="mt-3">
+                            <label for="{{ form.roi_display_color.id_for_label }}" class="block text-xs font-medium text-gray-600 mb-1">
+                                {{ form.roi_display_color.label }}
+                            </label>
+                            {{ form.roi_display_color }}
+                            {% if form.roi_display_color.errors %}
+                                <p class="mt-1 text-sm text-red-600">{{ form.roi_display_color.errors.0 }}</p>
+                            {% endif %}
+                            <p class="mt-1 text-xs text-gray-500">
+                                DICOM format: Three integers (0-255) separated by backslashes (e.g., 255\0\0 for red)
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Common Color Presets -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Quick Color Presets
+                        </label>
+                        <div class="grid grid-cols-8 gap-2">
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#FF0000" style="background-color: #FF0000;" title="Red"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#00FF00" style="background-color: #00FF00;" title="Green"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#0000FF" style="background-color: #0000FF;" title="Blue"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#FFFF00" style="background-color: #FFFF00;" title="Yellow"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#FF00FF" style="background-color: #FF00FF;" title="Magenta"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#00FFFF" style="background-color: #00FFFF;" title="Cyan"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#FFA500" style="background-color: #FFA500;" title="Orange"></button>
+                            <button type="button" class="color-preset w-10 h-10 rounded border-2 border-gray-300 hover:border-gray-500 transition-colors" 
+                                    data-color="#800080" style="background-color: #800080;" title="Purple"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Form Actions -->
+                <div class="mt-8 flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+                    <a href="{% url 'dicom_handler:template_detail' template.id %}" 
+                       class="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Cancel
+                    </a>
+                    <button type="submit" 
+                            class="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        Save Properties
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const colorPicker = document.getElementById('{{ form.hex_color.id_for_label }}');
+    const colorPreview = document.getElementById('color-preview');
+    const rgbDisplay = document.getElementById('rgb-display');
+    const hexDisplay = document.getElementById('hex-display');
+    const dicomColorField = document.getElementById('{{ form.roi_display_color.id_for_label }}');
+    const colorPresets = document.querySelectorAll('.color-preset');
+
+    // Function to convert hex to RGB
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+
+    // Function to update displays
+    function updateColorDisplays(hexColor) {
+        const rgb = hexToRgb(hexColor);
+        if (rgb) {
+            colorPreview.style.backgroundColor = hexColor;
+            rgbDisplay.textContent = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+            hexDisplay.textContent = hexColor.toUpperCase();
+            dicomColorField.value = `${rgb.r}\\${rgb.g}\\${rgb.b}`;
+        }
+    }
+
+    // Initialize with current color
+    if (colorPicker.value) {
+        updateColorDisplays(colorPicker.value);
+    }
+
+    // Handle color picker change
+    colorPicker.addEventListener('input', function() {
+        updateColorDisplays(this.value);
+    });
+
+    // Handle preset buttons
+    colorPresets.forEach(function(preset) {
+        preset.addEventListener('click', function() {
+            const color = this.getAttribute('data-color');
+            colorPicker.value = color;
+            updateColorDisplays(color);
+        });
+    });
+});
+</script>
+{% endblock %}

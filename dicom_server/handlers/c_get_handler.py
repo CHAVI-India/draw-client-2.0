@@ -170,12 +170,13 @@ def _search_dicom_storage(service, query_ds, query_level):
     """
     Search DICOM storage using database models and return file paths.
     Uses DICOMInstance model for accurate file tracking with SOP Instance UIDs.
+    Also includes RT Structure Set files from RTStructureFileImport model.
     Supports PATIENT, STUDY, SERIES, and IMAGE query levels.
     
     Returns:
         list: List of file paths matching the query
     """
-    from dicom_handler.models import DICOMInstance, DICOMSeries
+    from dicom_handler.models import DICOMInstance, DICOMSeries, RTStructureFileImport
     
     matches = []
     
@@ -229,7 +230,43 @@ def _search_dicom_storage(service, query_ds, query_level):
             else:
                 logger.warning(f"File not found for SOP Instance UID: {instance.sop_instance_uid}")
         
-        logger.info(f"C-GET found {len(matches)} matching files from database at {query_level} level")
+        # Also query RT Structure files
+        rt_queryset = RTStructureFileImport.objects.select_related(
+            'deidentified_series_instance_uid__study__patient'
+        ).filter(reidentified_rt_structure_file_path__isnull=False)
+        
+        # Apply same filters to RT Structure files
+        if patient_id:
+            rt_queryset = rt_queryset.filter(
+                deidentified_series_instance_uid__study__patient__patient_id__iexact=patient_id
+            )
+        
+        if study_uid:
+            rt_queryset = rt_queryset.filter(
+                deidentified_series_instance_uid__study__study_instance_uid__iexact=study_uid
+            )
+        
+        if series_uid:
+            rt_queryset = rt_queryset.filter(
+                reidentified_rt_structure_file_series_instance_uid__iexact=series_uid
+            )
+        
+        if sop_instance_uid:
+            rt_queryset = rt_queryset.filter(
+                reidentified_rt_structure_file_sop_instance_uid__iexact=sop_instance_uid
+            )
+        
+        # Limit RT Structure results
+        rt_queryset = rt_queryset[:max_results]
+        
+        # Collect file paths from RT Structure files
+        for rt_struct in rt_queryset:
+            if rt_struct.reidentified_rt_structure_file_path and os.path.exists(rt_struct.reidentified_rt_structure_file_path):
+                matches.append(rt_struct.reidentified_rt_structure_file_path)
+            else:
+                logger.warning(f"RT Structure file not found for SOP Instance UID: {rt_struct.reidentified_rt_structure_file_sop_instance_uid}")
+        
+        logger.info(f"C-GET found {len(matches)} matching files from database at {query_level} level ({len(queryset)} instances + {len(rt_queryset)} RT Structures)")
         return matches
         
     except Exception as e:

@@ -36,6 +36,7 @@ urlpatterns = [
     path('templates/<uuid:template_id>/update/', views.update_template, name='update_template'),
     path('templates/<uuid:template_id>/update-info/', views.update_template_info, name='update_template_info'),
     path('search-structures/', search_structures, name='search_structures'),
+    path('structures/<uuid:structure_id>/edit-properties/', views.edit_structure_properties, name='edit_structure_properties'),
     
     # RuleSet URLs (legacy - individual rulesets are now managed within RuleGroups)
     path('rulesets/', views.ruleset_list, name='ruleset_list'),

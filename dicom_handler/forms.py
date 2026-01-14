@@ -4,7 +4,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Submit, Row, Column, Fieldset, Div, HTML
 from .models import (RuleSet, Rule, RuleGroup, DICOMTagType, AutosegmentationTemplate, RuleCombinationType, 
                      OperatorType, SystemConfiguration, RTStructureFileImport, RTStructureFileVOIData,
-                     ContourModificationChoices, ContourModificationTypeChoices)
+                     ContourModificationChoices, ContourModificationTypeChoices, StructureProperties, 
+                     AutosegmentationStructure, RTROIInterpretedTypeChoices)
 import uuid
 
 class TemplateCreationForm(forms.Form):
@@ -461,3 +462,70 @@ VOIRatingFormSet = modelformset_factory(
     extra=0,  # Don't show empty forms
     can_delete=False
 )
+
+
+class StructurePropertiesForm(forms.ModelForm):
+    """Form for editing structure properties (ROI label, type, and display color)"""
+    
+    # Add a hidden field for hex color (for color picker)
+    hex_color = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'type': 'color',
+            'class': 'h-10 w-20 border border-gray-300 rounded cursor-pointer'
+        }),
+        label='Pick Color'
+    )
+    
+    class Meta:
+        model = StructureProperties
+        fields = ['roi_label', 'rt_roi_interpreted_type', 'roi_display_color']
+        widgets = {
+            'roi_label': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+                'placeholder': 'Enter preferred ROI label',
+                'maxlength': '16'
+            }),
+            'rt_roi_interpreted_type': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500'
+            }),
+            'roi_display_color': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono',
+                'placeholder': 'e.g., 255\\0\\0 for red',
+                'readonly': 'readonly'
+            })
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Convert DICOM color to hex for color picker if it exists
+        if self.instance and self.instance.roi_display_color:
+            try:
+                parts = self.instance.roi_display_color.split('\\')
+                if len(parts) == 3:
+                    r, g, b = [int(p.strip()) for p in parts]
+                    hex_color = f'#{r:02x}{g:02x}{b:02x}'
+                    self.fields['hex_color'].initial = hex_color
+            except (ValueError, IndexError):
+                pass
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        hex_color = cleaned_data.get('hex_color')
+        
+        # Convert hex color to DICOM format if provided
+        if hex_color and hex_color.startswith('#'):
+            try:
+                # Remove # and convert to RGB
+                hex_color = hex_color.lstrip('#')
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
+                
+                # Set DICOM format
+                cleaned_data['roi_display_color'] = f'{r}\\{g}\\{b}'
+            except (ValueError, IndexError):
+                pass
+        
+        return cleaned_data

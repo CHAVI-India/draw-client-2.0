@@ -441,13 +441,17 @@ def match_autosegmentation_template(task1_output):
                             
                             # Add all rulesets from the matched rulegroup
                             rulegroup = matched_rulegroups[0]
+                            rulegroup_data = rulegroups_data[rulegroup['rulegroup_id']]
+                            
                             for matched_ruleset in rulegroup['matched_rulesets']:
                                 ruleset_obj = RuleSet.objects.get(id=matched_ruleset['id'])
                                 series.matched_rule_sets.add(ruleset_obj)
-                                
-                                # Add associated template if exists
-                                if ruleset_obj.associated_autosegmentation_template:
-                                    series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
+                            
+                            # Add associated template from RuleGroup (not RuleSet)
+                            if rulegroup_data['associated_template']['id']:
+                                template_obj = AutosegmentationTemplate.objects.get(id=rulegroup_data['associated_template']['id'])
+                                series.matched_templates.add(template_obj)
+                                logger.info(f"Added template: {rulegroup_data['associated_template']['name']}")
                             
                             logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Single rulegroup matched: {rulegroup['rulegroup_name']}")
                             
@@ -461,12 +465,17 @@ def match_autosegmentation_template(task1_output):
                             
                             # Add all rulesets from all matched rulegroups
                             for rulegroup in matched_rulegroups:
+                                rulegroup_data = rulegroups_data[rulegroup['rulegroup_id']]
+                                
                                 for matched_ruleset in rulegroup['matched_rulesets']:
                                     ruleset_obj = RuleSet.objects.get(id=matched_ruleset['id'])
                                     series.matched_rule_sets.add(ruleset_obj)
-                                    
-                                    if ruleset_obj.associated_autosegmentation_template:
-                                        series.matched_templates.add(ruleset_obj.associated_autosegmentation_template)
+                                
+                                # Add associated template from RuleGroup (not RuleSet)
+                                if rulegroup_data['associated_template']['id']:
+                                    template_obj = AutosegmentationTemplate.objects.get(id=rulegroup_data['associated_template']['id'])
+                                    series.matched_templates.add(template_obj)
+                                    logger.info(f"Added template: {rulegroup_data['associated_template']['name']}")
                             
                             logger.info(f"Series {mask_sensitive_data(series_uid, 'series_uid')}: Multiple rulegroups matched ({len(matched_rulegroups)})")
                         

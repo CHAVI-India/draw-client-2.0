@@ -7,10 +7,10 @@ from django.core.paginator import Paginator
 from django.db import models
 import csv
 from .forms import (TemplateCreationForm, RuleGroupForm, RuleSetForm, RuleSetFormSet, RuleFormSet, RuleFormSetHelper, SystemConfigurationForm,
-                    RTStructureReviewForm, VOIRatingFormSet)
+                    RTStructureReviewForm, VOIRatingFormSet, StructurePropertiesForm)
 from .models import (SystemConfiguration, AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure, 
                      RuleGroup, RuleSet, Rule, DICOMTagType, Patient, DICOMStudy, DICOMSeries, ProcessingStatus, Statistics,
-                     RTStructureFileImport, RTStructureFileVOIData, DICOMFileExport, DICOMFileTransferStatus)
+                     RTStructureFileImport, RTStructureFileVOIData, DICOMFileExport, DICOMFileTransferStatus, StructureProperties)
 from .vr_validators import VRValidator
 import requests
 import json
@@ -1002,7 +1002,25 @@ def template_detail(request, template_id):
         template = AutosegmentationTemplate.objects.get(id=template_id)
         models = AutosegmentationModel.objects.filter(
             autosegmentation_template_name=template
-        ).prefetch_related('autosegmentationstructure_set')
+        ).prefetch_related(
+            'autosegmentationstructure_set',
+            'autosegmentationstructure_set__structureproperties'
+        )
+        
+        # Parse color values for each structure
+        for model in models:
+            for structure in model.autosegmentationstructure_set.all():
+                try:
+                    if hasattr(structure, 'structureproperties') and structure.structureproperties.roi_display_color:
+                        color_parts = structure.structureproperties.roi_display_color.split('\\')
+                        if len(color_parts) == 3:
+                            structure.color_rgb = f"{color_parts[0]}, {color_parts[1]}, {color_parts[2]}"
+                        else:
+                            structure.color_rgb = None
+                    else:
+                        structure.color_rgb = None
+                except (AttributeError, ValueError):
+                    structure.color_rgb = None
         
         # Get related rulegroup
         related_rulegroup = RuleGroup.objects.filter(
@@ -2401,3 +2419,57 @@ def export_rt_structure_ratings_csv(request):
                 ])
     
     return response
+
+
+@login_required
+@permission_required('dicom_handler.change_autosegmentationstructure', raise_exception=True)
+def edit_structure_properties(request, structure_id):
+    """
+    View to edit structure properties (ROI label, type, and display color)
+    """
+    try:
+        structure = get_object_or_404(AutosegmentationStructure, id=structure_id)
+        
+        # Get or create StructureProperties for this structure
+        structure_properties, created = StructureProperties.objects.get_or_create(
+            autosegmentation_structure=structure
+        )
+        
+        if request.method == 'POST':
+            form = StructurePropertiesForm(request.POST, instance=structure_properties)
+            if form.is_valid():
+                form.save()
+                messages.success(request, f'Properties for "{structure.name}" updated successfully.')
+                
+                # Return JSON response for AJAX requests
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({
+                        'success': True,
+                        'message': f'Properties for "{structure.name}" updated successfully.'
+                    })
+                
+                # Redirect to template detail page
+                template = structure.autosegmentation_model.autosegmentation_template_name
+                return redirect('dicom_handler:template_detail', template_id=template.id)
+            else:
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({
+                        'success': False,
+                        'errors': form.errors
+                    }, status=400)
+        else:
+            form = StructurePropertiesForm(instance=structure_properties)
+        
+        # Get template for breadcrumb/navigation
+        template = structure.autosegmentation_model.autosegmentation_template_name
+        
+        return render(request, 'dicom_handler/edit_structure_properties.html', {
+            'form': form,
+            'structure': structure,
+            'structure_properties': structure_properties,
+            'template': template
+        })
+        
+    except AutosegmentationStructure.DoesNotExist:
+        messages.error(request, 'Structure not found.')
+        return redirect('dicom_handler:template_list')

@@ -33,7 +33,7 @@ from pydicom.errors import InvalidDicomError
 from ..models import (
     DICOMSeries, DICOMStudy, Patient, DICOMInstance, RTStructureFileImport,
     RTStructureFileVOIData,
-    ProcessingStatus
+    ProcessingStatus, AutosegmentationStructure, StructureProperties
 )
 
 logger = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ def _process_rtstruct_file(file_info: Dict[str, Any]) -> Dict[str, Any]:
         _extract_and_save_voi_data(rtstruct_path, rt_import)
         
         # Update successful status
-        _update_successful_status(rt_import, output_path, series_data['series'])
+        _update_successful_status(rt_import, output_path, series_data['series'], modified_ds)
         
         # Clean up temporary file
         _cleanup_temp_file(rtstruct_path)
@@ -350,8 +350,161 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
                 else:
                     logger.debug(f"No mapping found for UID at tag {data_element.tag}: "
                                f"***{deidentified_uid[:8]}...{deidentified_uid[-8:]}***")
+        # Build ROI property mapping from database
+        # Get all matched templates for this series
+        roi_property_map = {}
+        roi_name_to_number_map = {}  # Map ROI names to ROI numbers for sequence matching
         
-        # Walk through the entire DICOM structure and apply callbacks
+        logger.info("Starting ROI property mapping process...")
+        
+        try:
+            matched_templates = series.matched_templates.all()
+            logger.info(f"Found {matched_templates.count()} matched templates for series")
+            
+            for template in matched_templates:
+                logger.debug(f"Processing template: {template.autosegmentation_template_name}")
+                # Get all structures for this template
+                structures = AutosegmentationStructure.objects.filter(
+                    autosegmentation_model__autosegmentation_template_name=template
+                ).select_related('structureproperties')
+                
+                logger.debug(f"Found {structures.count()} structures for template")
+                
+                for structure in structures:
+                    structure_name = structure.name
+                    logger.debug(f"Processing structure: {structure_name}")
+                    
+                    # Check if this structure name already exists in our map
+                    if structure_name in roi_property_map:
+                        # Multiple matches - mark as ambiguous
+                        roi_property_map[structure_name] = None
+                        logger.warning(f"Multiple AutosegmentationStructure matches found for ROI name '{structure_name}'. "
+                                     f"Skipping property updates for this ROI.")
+                    else:
+                        # First match - add to map
+                        try:
+                            properties = structure.structureproperties
+                            roi_property_map[structure_name] = {
+                                'roi_label': properties.roi_label if properties.roi_label else None,
+                                'roi_display_color': properties.roi_display_color if properties.roi_display_color else None,
+                                'rt_roi_interpreted_type': properties.rt_roi_interpreted_type if properties.rt_roi_interpreted_type else None
+                            }
+                            logger.debug(f"Added properties for '{structure_name}': label={properties.roi_label}, "
+                                       f"color={properties.roi_display_color}, type={properties.rt_roi_interpreted_type}")
+                        except StructureProperties.DoesNotExist:
+                            # No properties set for this structure
+                            roi_property_map[structure_name] = {
+                                'roi_label': None,
+                                'roi_display_color': None,
+                                'rt_roi_interpreted_type': None
+                            }
+                            logger.debug(f"No StructureProperties found for '{structure_name}'")
+            
+            valid_entries = len([k for k, v in roi_property_map.items() if v is not None])
+            logger.info(f"Built ROI property map with {valid_entries} valid entries out of {len(roi_property_map)} total structures")
+        except Exception as e:
+            logger.error(f"Error building ROI property map: {str(e)}")
+            roi_property_map = {}
+        
+        # Update ROI properties in RT Structure Set sequences
+        roi_updates_count = 0
+        color_updates_count = 0
+        type_updates_count = 0
+        
+        try:
+            # 1. Update StructureSetROISequence - ROI Names and build ROI number mapping
+            if hasattr(ds, 'StructureSetROISequence') and ds.StructureSetROISequence:
+                logger.info(f"Processing {len(ds.StructureSetROISequence)} ROIs from RT Structure file")
+                for roi_item in ds.StructureSetROISequence:
+                    if hasattr(roi_item, 'ROIName'):
+                        original_roi_name = roi_item.ROIName
+                        roi_number = roi_item.ROINumber if hasattr(roi_item, 'ROINumber') else None
+                        
+                        # Build mapping for later use
+                        if roi_number:
+                            roi_name_to_number_map[original_roi_name] = roi_number
+                        
+                        logger.debug(f"ROI from file: '{original_roi_name}' (Number: {roi_number})")
+                        
+                        # Update ROI name if we have a custom label
+                        if original_roi_name in roi_property_map:
+                            if roi_property_map[original_roi_name] is not None:
+                                properties = roi_property_map[original_roi_name]
+                                if properties['roi_label']:
+                                    roi_item.ROIName = properties['roi_label']
+                                    roi_updates_count += 1
+                                    logger.info(f"Updated ROI Name: '{original_roi_name}' -> '{properties['roi_label']}'")
+                                    
+                                    # Update mapping with new name too
+                                    if roi_number:
+                                        roi_name_to_number_map[properties['roi_label']] = roi_number
+                                else:
+                                    logger.debug(f"No custom label set for '{original_roi_name}'")
+                            else:
+                                logger.debug(f"Skipping '{original_roi_name}' - marked as ambiguous (multiple matches)")
+                        else:
+                            logger.debug(f"No match found in property map for '{original_roi_name}'")
+            
+            # 2. Update ROIContourSequence - ROI Display Colors
+            if hasattr(ds, 'ROIContourSequence') and ds.ROIContourSequence:
+                for contour_item in ds.ROIContourSequence:
+                    if hasattr(contour_item, 'ReferencedROINumber'):
+                        roi_number = contour_item.ReferencedROINumber
+                        
+                        # Find the original ROI name for this ROI number
+                        original_roi_name = None
+                        for name, num in roi_name_to_number_map.items():
+                            if num == roi_number:
+                                original_roi_name = name
+                                break
+                        
+                        if original_roi_name and original_roi_name in roi_property_map:
+                            properties = roi_property_map[original_roi_name]
+                            if properties and properties['roi_display_color']:
+                                # Parse DICOM color format (e.g., "255\0\0")
+                                color_parts = properties['roi_display_color'].split('\\')
+                                if len(color_parts) == 3:
+                                    try:
+                                        # Convert to list of integers
+                                        color_values = [int(part.strip()) for part in color_parts]
+                                        contour_item.ROIDisplayColor = color_values
+                                        color_updates_count += 1
+                                        logger.debug(f"Updated ROI Display Color for '{original_roi_name}': {color_values}")
+                                    except ValueError as e:
+                                        logger.warning(f"Invalid color format for '{original_roi_name}': {properties['roi_display_color']}")
+            
+            # 3. Update RTROIObservationsSequence - RT ROI Interpreted Types
+            if hasattr(ds, 'RTROIObservationsSequence') and ds.RTROIObservationsSequence:
+                for obs_item in ds.RTROIObservationsSequence:
+                    if hasattr(obs_item, 'ReferencedROINumber'):
+                        roi_number = obs_item.ReferencedROINumber
+                        
+                        # Find the original ROI name for this ROI number
+                        original_roi_name = None
+                        for name, num in roi_name_to_number_map.items():
+                            if num == roi_number:
+                                original_roi_name = name
+                                break
+                        
+                        if original_roi_name and original_roi_name in roi_property_map:
+                            properties = roi_property_map[original_roi_name]
+                            if properties and properties['rt_roi_interpreted_type']:
+                                obs_item.RTROIInterpretedType = properties['rt_roi_interpreted_type']
+                                type_updates_count += 1
+                                logger.debug(f"Updated RT ROI Interpreted Type for '{original_roi_name}': {properties['rt_roi_interpreted_type']}")
+            
+            logger.info(f"ROI property updates - Names: {roi_updates_count}, Colors: {color_updates_count}, Types: {type_updates_count}")
+            
+            # Log summary for debugging
+            if roi_property_map:
+                logger.info(f"Available structure names in property map: {list(roi_property_map.keys())}")
+            if roi_name_to_number_map:
+                logger.info(f"ROI names found in RT Structure file: {list(roi_name_to_number_map.keys())}")
+            
+        except Exception as e:
+            logger.error(f"Error updating ROI properties: {str(e)}", exc_info=True)
+
+
         ds.walk(frame_of_reference_callback)
         ds.walk(uid_replacement_callback)
         
@@ -407,16 +560,35 @@ def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], 
         logger.error(f"Error exporting reidentified file: {str(e)}")
         return None
 
-def _update_successful_status(rt_import: RTStructureFileImport, output_path: str, series: DICOMSeries) -> None:
-    """Update database statuses after successful reidentification."""
+def _update_successful_status(rt_import: RTStructureFileImport, output_path: str, series: DICOMSeries, ds: pydicom.Dataset) -> None:
+    """Update database statuses after successful reidentification. Also add the SOP Instance UID, Series Instance UID, Study Instance UID, SOP Class UID from the reidentified RTStructureSet file."""
     try:
-        # Update RTStructureFileImport record
+        # Extract UIDs from the reidentified RTStructure file (using the already-loaded dataset)
+        sop_instance_uid = ds.SOPInstanceUID if hasattr(ds, 'SOPInstanceUID') else None
+        series_instance_uid = ds.SeriesInstanceUID if hasattr(ds, 'SeriesInstanceUID') else None
+        study_instance_uid = ds.StudyInstanceUID if hasattr(ds, 'StudyInstanceUID') else None
+        sop_class_uid = ds.SOPClassUID if hasattr(ds, 'SOPClassUID') else None
+        
+        # Update RTStructureFileImport record with file path, datetime, and UIDs
         rt_import.reidentified_rt_structure_file_path = output_path
         rt_import.reidentified_rt_structure_file_export_datetime = timezone.now()
+        rt_import.reidentified_rt_structure_file_sop_instance_uid = sop_instance_uid
+        rt_import.reidentified_rt_structure_file_series_instance_uid = series_instance_uid
+        rt_import.reidentified_rt_structure_file_study_instance_uid = study_instance_uid
+        rt_import.reidentified_rt_structure_file_sop_class_uid = sop_class_uid
+        
         rt_import.save(update_fields=[
             'reidentified_rt_structure_file_path',
-            'reidentified_rt_structure_file_export_datetime'
+            'reidentified_rt_structure_file_export_datetime',
+            'reidentified_rt_structure_file_sop_instance_uid',
+            'reidentified_rt_structure_file_series_instance_uid',
+            'reidentified_rt_structure_file_study_instance_uid',
+            'reidentified_rt_structure_file_sop_class_uid'
         ])
+        
+        logger.info(f"Stored RTStructure UIDs - SOP Instance: ***{sop_instance_uid[:8] if sop_instance_uid else 'None'}...{sop_instance_uid[-8:] if sop_instance_uid else ''}***, "
+                   f"Series Instance: ***{series_instance_uid[:8] if series_instance_uid else 'None'}...{series_instance_uid[-8:] if series_instance_uid else ''}***, "
+                   f"Study Instance: ***{study_instance_uid[:8] if study_instance_uid else 'None'}...{study_instance_uid[-8:] if study_instance_uid else ''}***")
         
         # Update DICOMSeries processing status
         series.series_processsing_status = ProcessingStatus.RTSTRUCTURE_EXPORTED
