@@ -148,11 +148,11 @@ def handle_c_store(service, event):
         else:
             logger.info(f"[TIMING] Skipped decoding (took {(time.time() - t4)*1000:.2f}ms to check)")
         
-        # Check storage limits
+        # Check storage limits - simple flag check (updated by periodic task every 10 min)
         t6 = time.time()
-        if not _check_storage_limits(service):
+        if fresh_config.storage_limit_exceeded:
             logger.info(f"[TIMING] Storage limits check took {(time.time() - t6)*1000:.2f}ms")
-            logger.error("C-STORE rejected: Storage limit reached")
+            logger.error("C-STORE rejected: Storage limit reached (checked by periodic task)")
             service._log_transaction(
                 'C-STORE',
                 'REJECTED',
@@ -226,9 +226,9 @@ def handle_c_store(service, event):
         # Incrementally update storage cache asynchronously (non-blocking)
         update_storage_cache_async.delay(file_size)
         
-        # Invalidate memcached storage check to force refresh on next check
-        # This ensures the cache stays reasonably accurate after file additions
-        cache.delete(STORAGE_CACHE_KEY)
+        # NOTE: We do NOT delete the cache here to avoid expensive filesystem scans
+        # The cache will expire naturally after 30 seconds, which is acceptable
+        # for performance. Storage usage will be slightly stale but accurate enough.
         
         # Note: DICOM Handler integration is handled by the dicom_handler app
         # Files stored here will be automatically picked up by the handler's polling mechanism
@@ -307,18 +307,26 @@ def _check_storage_limits(service):
             return True
         
         # Try to get cached storage usage
+        t_cache = time.time()
         current_usage_gb = cache.get(STORAGE_CACHE_KEY)
+        logger.info(f"[TIMING] Cache lookup took {(time.time() - t_cache)*1000:.2f}ms, result: {current_usage_gb}")
         
         if current_usage_gb is None:
             # Cache miss - perform actual filesystem scan
+            logger.warning(f"[PERFORMANCE] Cache miss for storage usage - performing expensive filesystem scan")
+            t_scan = time.time()
             usage = get_storage_usage(storage_path)
+            logger.warning(f"[PERFORMANCE] Filesystem scan took {(time.time() - t_scan)*1000:.2f}ms for {usage['total_files']} files")
             current_usage_gb = usage['total_gb']
             
             # Cache the result for 30 seconds
+            t_set = time.time()
             cache.set(STORAGE_CACHE_KEY, current_usage_gb, STORAGE_CACHE_TIMEOUT)
+            logger.info(f"[TIMING] Cache set took {(time.time() - t_set)*1000:.2f}ms")
             logger.debug(f"Storage check (cached): {current_usage_gb}GB used / {max_storage_gb}GB max")
         else:
             # Cache hit - use cached value (no filesystem scan)
+            logger.info(f"[PERFORMANCE] Cache HIT - using cached storage value: {current_usage_gb}GB")
             logger.debug(f"Storage check (from cache): {current_usage_gb}GB used / {max_storage_gb}GB max")
         
         # Check if limit reached

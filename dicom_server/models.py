@@ -135,6 +135,10 @@ class DicomServerConfig(models.Model):
         null=True,
         help_text="Timestamp when storage cache was last updated."
     )
+    storage_limit_exceeded = models.BooleanField(
+        default=False,
+        help_text="Flag indicating if storage limit has been exceeded. Updated by periodic task."
+    )
     
     # Security & Access Control
     require_calling_ae_validation = models.BooleanField(

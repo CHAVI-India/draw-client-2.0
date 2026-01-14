@@ -1,6 +1,7 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 
 # Set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
@@ -18,6 +19,15 @@ app.autodiscover_tasks()
 
 # Explicitly import tasks to ensure registration
 app.autodiscover_tasks(['dicom_handler', 'dicom_server'])
+
+# Configure Celery Beat periodic tasks
+app.conf.beat_schedule = {
+    'check-storage-limits-every-10-minutes': {
+        'task': 'dicom_server.tasks.check_storage_limits_periodic',
+        'schedule': 600.0,  # 10 minutes in seconds
+        'options': {'expires': 300}  # Expire if not run within 5 minutes
+    },
+}
 
 
 @app.task(bind=True, ignore_result=True)
