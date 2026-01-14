@@ -104,11 +104,23 @@ def handle_c_store(service, event):
             # Decode dataset only when necessary
             logger.info(f"[TIMING] Needs decoding check took {(time.time() - t4)*1000:.2f}ms")
             t5 = time.time()
-            ds = event.dataset
+            
+            # CRITICAL FIX: Access event.encoded_dataset() first to trigger efficient byte reception
+            # Then decode from bytes, which is much faster than event.dataset property
+            from pydicom import dcmread
+            from io import BytesIO
+            
+            encoded_data = event.encoded_dataset()
+            logger.info(f"[TIMING] Received encoded data ({len(encoded_data)} bytes) in {(time.time() - t5)*1000:.2f}ms")
+            
+            t5b = time.time()
+            ds = dcmread(BytesIO(encoded_data), force=True)
             ds.file_meta = event.file_meta
-            logger.info(f"[TIMING] Dataset decode took {(time.time() - t5)*1000:.2f}ms")
+            logger.info(f"[TIMING] Dataset decode from bytes took {(time.time() - t5b)*1000:.2f}ms")
+            logger.info(f"[TIMING] About to start DICOM validation")
             
             # Validate DICOM if required (use fresh config)
+            t5a = time.time()
             if fresh_config.validate_dicom_on_receive:
                 if not _validate_dicom_dataset(ds):
                     logger.error("C-STORE rejected: Invalid DICOM dataset")
@@ -123,13 +135,16 @@ def handle_c_store(service, event):
                         from ..tasks import update_service_status_async
                         update_service_status_async.delay({'total_errors': 1})
                         return 0xC000  # Error: Cannot understand
+            logger.info(f"[TIMING] DICOM validation took {(time.time() - t5a)*1000:.2f}ms")
             
             # Extract DICOM metadata
+            t5b = time.time()
             patient_id = getattr(ds, 'PatientID', None)
             study_uid = getattr(ds, 'StudyInstanceUID', None)
             series_uid = getattr(ds, 'SeriesInstanceUID', None)
             sop_instance_uid = getattr(ds, 'SOPInstanceUID', None)
             sop_class_uid = getattr(ds, 'SOPClassUID', None)
+            logger.info(f"[TIMING] Metadata extraction took {(time.time() - t5b)*1000:.2f}ms")
         else:
             logger.info(f"[TIMING] Skipped decoding (took {(time.time() - t4)*1000:.2f}ms to check)")
         
