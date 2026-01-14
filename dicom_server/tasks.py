@@ -93,3 +93,25 @@ def update_storage_cache_async(file_size):
     except Exception as e:
         logger.error(f"Failed to update storage cache async: {str(e)}")
         raise
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=1)
+def update_remote_node_connection_async(node_id):
+    """
+    Asynchronously update the last incoming connection timestamp for a RemoteDicomNode.
+    This prevents blocking C-STORE operations with synchronous database writes.
+    
+    Args:
+        node_id (int): ID of the RemoteDicomNode to update
+    """
+    try:
+        from .models import RemoteDicomNode
+        
+        RemoteDicomNode.objects.filter(pk=node_id).update(
+            last_incoming_connection=timezone.now()
+        )
+        logger.debug(f"Updated last incoming connection for node {node_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to update remote node connection async: {str(e)}")
+        raise

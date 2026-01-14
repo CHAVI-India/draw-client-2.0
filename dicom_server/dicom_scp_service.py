@@ -401,6 +401,7 @@ class DicomSCPService:
     def _validate_calling_ae(self, calling_ae_title):
         """
         Validate calling AE title against allowed list using unified RemoteDicomNode model.
+Can
         """
         if not self.config.require_calling_ae_validation:
             return True
@@ -412,6 +413,21 @@ class DicomSCPService:
             logger.debug("Empty calling AE title, checking if validation required")
         
         try:
+            from django.core.cache import cache
+            
+            # Check cache first to avoid database query on every file
+            cache_key = f'ae_validation_{calling_ae_title}'
+            cached_result = cache.get(cache_key)
+            
+            if cached_result is not None:
+                # Cache hit - use cached validation result
+                if cached_result.get('valid'):
+                    # Update last connection time asynchronously (non-blocking)
+                    from .tasks import update_remote_node_connection_async
+                    update_remote_node_connection_async.delay(cached_result['node_id'])
+                return cached_result.get('valid', False)
+            
+            # Cache miss - query database
             remote_node = RemoteDicomNode.objects.filter(
                 incoming_ae_title=calling_ae_title,
                 allow_incoming=True,
@@ -419,11 +435,17 @@ class DicomSCPService:
             ).first()
             
             if remote_node:
-                # Update last incoming connection time
-                remote_node.update_last_incoming_connection()
+                # Cache the validation result for 60 seconds
+                cache.set(cache_key, {'valid': True, 'node_id': remote_node.id}, 60)
+                
+                # Update last incoming connection time asynchronously (non-blocking)
+                from .tasks import update_remote_node_connection_async
+                update_remote_node_connection_async.delay(remote_node.id)
                 return True
-            
-            return False
+            else:
+                # Cache negative result for 30 seconds (shorter to allow quick fixes)
+                cache.set(cache_key, {'valid': False}, 30)
+                return False
             
         except Exception as e:
             logger.error(f"Error validating calling AE: {str(e)}")

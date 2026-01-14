@@ -47,9 +47,9 @@ def handle_c_store(service, event):
     remote_ip = event.assoc.requestor.address
     
     try:
-        # Get fresh config for validation and processing settings
-        from ..models import DicomServerConfig
-        fresh_config = DicomServerConfig.objects.get(pk=1)
+        # Use cached config from service to avoid DB query on every file
+        # The service config is refreshed periodically by the service itself
+        fresh_config = service.config
         
         # Validate calling AE if required
         if not service._validate_calling_ae(calling_ae):
@@ -244,17 +244,22 @@ def _check_storage_limits(service):
     OPTIMIZATION: Uses cached config from service to avoid repeated DB queries
     """
     try:
-        from ..models import DicomServerConfig
+        from django.core.cache import cache as django_cache
         
         # Use cached config from service to avoid DB query on every file
-        # Only fetch fresh config if cache is stale
-        if hasattr(service, 'config') and service.config:
-            dicom_config = service.config
-        else:
-            dicom_config = DicomServerConfig.objects.get(pk=1)
+        dicom_config = service.config
         
-        system_config = SystemConfiguration.objects.get(pk=1)
-        storage_path = system_config.folder_configuration
+        # Cache SystemConfiguration to avoid DB query on every file
+        system_config_cache_key = 'system_configuration_storage_path'
+        storage_path = django_cache.get(system_config_cache_key)
+        
+        if storage_path is None:
+            # Cache miss - query database
+            system_config = SystemConfiguration.objects.get(pk=1)
+            storage_path = system_config.folder_configuration
+            # Cache for 60 seconds
+            django_cache.set(system_config_cache_key, storage_path, 60)
+        
         max_storage_gb = dicom_config.max_storage_size_gb
         
         if not storage_path:
