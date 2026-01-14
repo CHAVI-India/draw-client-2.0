@@ -362,7 +362,7 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
             logger.info(f"Found {matched_templates.count()} matched templates for series")
             
             for template in matched_templates:
-                logger.debug(f"Processing template: {template.autosegmentation_template_name}")
+                logger.debug(f"Processing template: {template.template_name}")
                 # Get all structures for this template
                 structures = AutosegmentationStructure.objects.filter(
                     autosegmentation_model__autosegmentation_template_name=template
