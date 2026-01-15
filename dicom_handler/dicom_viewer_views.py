@@ -632,6 +632,216 @@ def get_dicom_slice(request):
 
 @login_required
 @require_http_methods(["POST"])
+def render_all_slices(request):
+    """
+    API endpoint to pre-render all DICOM slices for browser caching.
+    Returns array of base64-encoded images for all slices.
+    """
+    try:
+        data = json.loads(request.body)
+        window_center = float(data.get('window_center', 40))
+        window_width = float(data.get('window_width', 400))
+        selected_rois = data.get('selected_rois', [])
+        
+        # Get temp directory from session
+        temp_dir = request.session.get('dicom_temp_dir')
+        rt_struct_path = request.session.get('rt_struct_path')
+        
+        if not temp_dir or not os.path.exists(temp_dir):
+            return JsonResponse({
+                'success': False,
+                'error': 'Session expired. Please reload the page.'
+            }, status=400)
+        
+        # Get list of DICOM files
+        dicom_files = sorted([
+            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+            if f.startswith('instance_') and f.endswith('.dcm')
+        ])
+        
+        logger.info(f"Pre-rendering {len(dicom_files)} slices with window C/W: {window_center}/{window_width}")
+        
+        # Prepare RT Structure data if needed
+        rtstruct = None
+        roi_color_map = {}
+        series_data = None
+        
+        if selected_rois and rt_struct_path and os.path.exists(rt_struct_path):
+            try:
+                # Load RT Structure once
+                rtstruct = RTStructBuilder.create_from(
+                    dicom_series_path=temp_dir,
+                    rt_struct_path=rt_struct_path
+                )
+                series_data = rtstruct.series_data
+                
+                # Extract colors once
+                rt_ds = pydicom.dcmread(rt_struct_path, force=True)
+                if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
+                    roi_number_to_name = {}
+                    for roi_item in rt_ds.StructureSetROISequence:
+                        roi_number = int(roi_item.ROINumber)
+                        roi_name = str(roi_item.ROIName)
+                        roi_number_to_name[roi_number] = roi_name
+                    
+                    for contour_item in rt_ds.ROIContourSequence:
+                        roi_number = int(contour_item.ReferencedROINumber)
+                        roi_name = roi_number_to_name.get(roi_number)
+                        
+                        if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
+                            color_values = contour_item.ROIDisplayColor
+                            color = (color_values[0] / 255.0, 
+                                   color_values[1] / 255.0, 
+                                   color_values[2] / 255.0)
+                            roi_color_map[roi_name] = color
+                
+                # For ROIs without colors, assign rainbow colors
+                available_rois = rtstruct.get_roi_names()
+                rainbow_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
+                for i, roi_name in enumerate(available_rois):
+                    if roi_name not in roi_color_map:
+                        roi_color_map[roi_name] = rainbow_colors[i]
+                
+                # Pre-load masks
+                cache_dir = os.path.join(temp_dir, 'mask_cache')
+                os.makedirs(cache_dir, exist_ok=True)
+                
+                for roi_name in selected_rois:
+                    cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
+                    if not os.path.exists(cache_file):
+                        try:
+                            mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
+                            with open(cache_file, 'wb') as f:
+                                pickle.dump(mask_3d, f)
+                        except Exception as e:
+                            logger.error(f"Failed to cache mask for {roi_name}: {e}")
+                
+            except Exception as e:
+                logger.error(f"Failed to prepare RT Structure: {e}")
+                rtstruct = None
+        
+        # Render all slices in parallel
+        def render_single_slice(slice_idx):
+            try:
+                dicom_file = dicom_files[slice_idx]
+                ds = pydicom.dcmread(dicom_file, force=True)
+                
+                # Get pixel array
+                pixel_array = ds.pixel_array.astype(float)
+                
+                # Apply rescale
+                if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
+                    pixel_array = pixel_array * ds.RescaleSlope + ds.RescaleIntercept
+                
+                # Apply windowing
+                windowed_array = apply_windowing(pixel_array, window_center, window_width)
+                
+                # Create figure
+                height, width = windowed_array.shape
+                aspect_ratio = width / height
+                fig_height = 10
+                fig_width = fig_height * aspect_ratio
+                
+                fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+                ax.imshow(windowed_array, cmap='gray', interpolation='nearest')
+                ax.axis('off')
+                
+                # Overlay contours if RT Structure loaded
+                if rtstruct and selected_rois:
+                    current_sop_uid = ds.SOPInstanceUID
+                    rt_slice_index = None
+                    for rt_idx, rt_slice in enumerate(series_data):
+                        if rt_slice.SOPInstanceUID == current_sop_uid:
+                            rt_slice_index = rt_idx
+                            break
+                    
+                    if rt_slice_index is None:
+                        rt_slice_index = slice_idx
+                    
+                    cache_dir = os.path.join(temp_dir, 'mask_cache')
+                    contours_drawn = 0
+                    
+                    for roi_name in selected_rois:
+                        cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
+                        if os.path.exists(cache_file):
+                            try:
+                                with open(cache_file, 'rb') as f:
+                                    mask_3d = pickle.load(f)
+                                
+                                if rt_slice_index < mask_3d.shape[2]:
+                                    mask_slice = mask_3d[:, :, rt_slice_index]
+                                    
+                                    if np.any(mask_slice):
+                                        contours = find_contours(mask_slice)
+                                        for contour_idx, contour in enumerate(contours):
+                                            if len(contour) > 2:
+                                                ax.plot(contour[:, 1], contour[:, 0], 
+                                                       color=roi_color_map[roi_name], linewidth=2,
+                                                       label=roi_name if contour_idx == 0 else "")
+                                                contours_drawn += 1
+                            except Exception as e:
+                                logger.error(f"Failed to overlay {roi_name} on slice {slice_idx}: {e}")
+                    
+                    if contours_drawn > 0:
+                        ax.legend(loc='upper right', fontsize=8, framealpha=0.7)
+                
+                # Convert to base64
+                buf = BytesIO()
+                plt.tight_layout()
+                plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                plt.close(fig)
+                buf.seek(0)
+                
+                image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                
+                # Get metadata
+                metadata = {
+                    'slice_location': float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else None,
+                    'instance_number': int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else slice_idx + 1,
+                }
+                
+                return {
+                    'index': slice_idx,
+                    'image': image_base64,
+                    'metadata': metadata,
+                }
+            except Exception as e:
+                logger.error(f"Failed to render slice {slice_idx}: {e}")
+                return None
+        
+        # Render all slices in parallel
+        max_workers = min(8, (os.cpu_count() or 1) * 2)
+        rendered_slices = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(render_single_slice, idx): idx for idx in range(len(dicom_files))}
+            
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    rendered_slices.append(result)
+        
+        # Sort by index
+        rendered_slices.sort(key=lambda x: x['index'])
+        
+        logger.info(f"Successfully rendered {len(rendered_slices)} out of {len(dicom_files)} slices")
+        
+        return JsonResponse({
+            'success': True,
+            'slices': rendered_slices,
+            'total_slices': len(dicom_files),
+        })
+        
+    except Exception as e:
+        logger.error(f"Error rendering all slices: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
 def cleanup_temp_files(request):
     """
     API endpoint to cleanup temporary files when viewer is closed

@@ -517,6 +517,9 @@ const selectAllBtn = document.getElementById('select-all-roi');
 const deselectAllBtn = document.getElementById('deselect-all-roi');
 const applyOverlayBtn = document.getElementById('apply-overlay');
 
+// Cache for pre-rendered slices
+const sliceCache = new Map();
+
 // Initialize Viewer
 async function initializeViewer() {
     try {
@@ -555,13 +558,95 @@ async function initializeViewer() {
         // Populate ROI list
         populateROIList();
         
-        // Load first slice
-        await loadSlice(0)
+        // For now, skip pre-rendering for large series (>100 slices) due to timeout/memory issues
+        // TODO: Implement batch rendering with progress updates
+        if (viewerState.totalSlices <= 100) {
+            loadingText.textContent = 'Pre-rendering all slices for instant navigation...';
+            await preRenderAllSlices();
+            
+            // Display first slice from cache if available
+            if (!displayCachedSlice(0)) {
+                await loadSlice(0);
+            }
+        } else {
+            // For large series, use on-demand loading with caching
+            loadingText.textContent = '';
+            await loadSlice(0);
+        }
         
     } catch (error) {
         console.error('Error initializing viewer:', error);
         loadingText.textContent = 'Error: ' + error.message;
     }
+}
+
+// Pre-render all slices and cache them
+async function preRenderAllSlices() {
+    try {
+        // Get selected ROIs (will be empty on initial load)
+        const selectedROIs = [];
+        const checkboxes = document.querySelectorAll('#roi-list input[type="checkbox"]:checked');
+        if (checkboxes.length > 0) {
+            checkboxes.forEach(cb => selectedROIs.push(cb.value));
+        }
+        
+        const response = await fetch('{% url "dicom_handler:render_all_slices" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify({
+                window_center: viewerState.windowCenter,
+                window_width: viewerState.windowWidth,
+                selected_rois: selectedROIs,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to render slices');
+        }
+
+        // Cache all rendered slices
+        data.slices.forEach(slice => {
+            sliceCache.set(slice.index, {
+                image: slice.image,
+                metadata: slice.metadata,
+            });
+        });
+        
+        console.log(`Cached ${sliceCache.size} slices in browser memory`);
+        loadingText.textContent = '';
+        
+    } catch (error) {
+        console.error('Error pre-rendering slices:', error);
+        console.error('Error details:', error.message);
+        loadingText.textContent = 'Warning: Pre-rendering failed, falling back to on-demand loading';
+        // Fall back to on-demand loading if pre-rendering fails
+    }
+}
+
+// Display a cached slice (instant)
+function displayCachedSlice(sliceIndex) {
+    const cached = sliceCache.get(sliceIndex);
+    if (cached) {
+        // Display from cache (instant)
+        dicomImage.src = 'data:image/png;base64,' + cached.image;
+        currentSliceSpan.textContent = sliceIndex + 1;
+        sliceSlider.value = sliceIndex;
+        sliceInput.value = sliceIndex + 1;
+        
+        viewerState.currentSlice = sliceIndex;
+        return true;
+    }
+    return false;
 }
 
 // Populate ROI List
@@ -646,6 +731,14 @@ function populateROIList() {
 async function loadSlice(sliceIndex) {
     if (viewerState.isLoading) return;
     
+    // Try to display from cache first (instant)
+    if (displayCachedSlice(sliceIndex)) {
+        dicomImage.style.display = 'block';
+        updateSliderBackground();
+        return;
+    }
+    
+    // If not cached, load from server (fallback)
     viewerState.isLoading = true;
     loadingOverlay.style.display = 'flex';
     
@@ -673,6 +766,12 @@ async function loadSlice(sliceIndex) {
         if (!data.success) {
             throw new Error(data.error || 'Failed to load slice');
         }
+
+        // Cache this slice for future instant access
+        sliceCache.set(sliceIndex, {
+            image: data.image,
+            metadata: data.metadata,
+        });
 
         // Update image
         dicomImage.src = 'data:image/png;base64,' + data.image;
@@ -857,6 +956,9 @@ deselectAllBtn.addEventListener('click', () => {
 });
 
 applyOverlayBtn.addEventListener('click', () => {
+    // Clear cache to force re-render with new ROI selections
+    sliceCache.clear();
+    
     loadSlice(viewerState.currentSlice);
     
     // Show rating section when overlay is applied

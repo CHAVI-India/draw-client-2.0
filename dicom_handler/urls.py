@@ -17,6 +17,7 @@ from .dicom_viewer_views import (
     dicom_viewer,
     load_dicom_data,
     get_dicom_slice,
+    render_all_slices,
     cleanup_temp_files,
     save_contour_ratings
 )
@@ -95,6 +96,7 @@ urlpatterns = [
     path('dicom-viewer/<str:series_uid>/<uuid:rt_structure_id>/', dicom_viewer, name='dicom_viewer'),
     path('api/dicom-viewer/load-data/', load_dicom_data, name='load_dicom_data'),
     path('api/dicom-viewer/get-slice/', get_dicom_slice, name='get_dicom_slice'),
+    path('api/dicom-viewer/render-all/', render_all_slices, name='render_all_slices'),
     path('api/dicom-viewer/cleanup/', cleanup_temp_files, name='cleanup_temp_files'),
     path('api/dicom-viewer/save-ratings/', save_contour_ratings, name='save_contour_ratings'),
 ]
