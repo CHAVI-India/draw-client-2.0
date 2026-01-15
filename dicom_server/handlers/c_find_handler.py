@@ -579,9 +579,10 @@ def _query_images(query_params, max_results=10000):
 
 def _query_series(query_params, max_results=10000):
     """
-    Query DICOMSeries model and return matching DICOM datasets.
+    Query DICOMSeries model and RTStructureFileImport model and return matching DICOM datasets.
+    Includes both regular DICOM series and RT Structure Set series.
     """
-    from dicom_handler.models import DICOMSeries
+    from dicom_handler.models import DICOMSeries, RTStructureFileImport
     
     queryset = DICOMSeries.objects.select_related('study__patient').all()
     
@@ -611,6 +612,36 @@ def _query_series(query_params, max_results=10000):
     
     # Limit results
     queryset = queryset[:max_results]
+    
+    # Also query RT Structure files
+    rt_queryset = RTStructureFileImport.objects.select_related(
+        'deidentified_series_instance_uid__study__patient'
+    ).filter(reidentified_rt_structure_file_path__isnull=False)
+    
+    # Apply filters to RT Structure files
+    if query_params.get('PatientID'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'deidentified_series_instance_uid__study__patient__patient_id', query_params['PatientID'])
+    
+    if query_params.get('PatientName'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'deidentified_series_instance_uid__study__patient__patient_name', str(query_params['PatientName']))
+    
+    if query_params.get('StudyInstanceUID'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'reidentified_rt_structure_file_study_instance_uid', query_params['StudyInstanceUID'])
+    
+    if query_params.get('StudyDate'):
+        rt_queryset = _apply_date_filter(rt_queryset, 'deidentified_series_instance_uid__study__study_date', query_params['StudyDate'])
+    
+    if query_params.get('StudyDescription'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'deidentified_series_instance_uid__study__study_description', query_params['StudyDescription'])
+    
+    if query_params.get('SeriesInstanceUID'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'reidentified_rt_structure_file_series_instance_uid', query_params['SeriesInstanceUID'])
+    
+    if query_params.get('SeriesDescription'):
+        rt_queryset = _apply_wildcard_filter(rt_queryset, 'deidentified_series_instance_uid__series_description', query_params['SeriesDescription'])
+    
+    # Limit RT Structure results
+    rt_queryset = rt_queryset[:max_results]
     
     # Convert to DICOM datasets
     matches = []
@@ -699,6 +730,103 @@ def _query_series(query_params, max_results=10000):
             ds.NumberOfSeriesRelatedInstances = '0'
             
         matches.append(ds)
+    
+    # Add RT Structure Set series to matches
+    for rt_struct in rt_queryset:
+        ds = Dataset()
+        
+        # Set QueryRetrieveLevel - CRITICAL for retrieve operations
+        ds.QueryRetrieveLevel = 'SERIES'
+        
+        # Get series and study info
+        series = rt_struct.deidentified_series_instance_uid
+        if not series:
+            continue
+            
+        study = series.study
+        patient = study.patient
+        
+        # Patient info
+        if patient.patient_id:
+            ds.PatientID = patient.patient_id
+        else:
+            ds.PatientID = ''
+            
+        if patient.patient_name:
+            ds.PatientName = patient.patient_name
+        else:
+            ds.PatientName = ''
+            
+        if patient.patient_date_of_birth:
+            ds.PatientBirthDate = patient.patient_date_of_birth.strftime('%Y%m%d')
+        else:
+            ds.PatientBirthDate = ''
+            
+        if patient.patient_gender:
+            ds.PatientSex = patient.patient_gender
+        else:
+            ds.PatientSex = ''
+            
+        # Study info - REQUIRED for retrieve operations
+        if study.study_instance_uid:
+            ds.StudyInstanceUID = study.study_instance_uid
+        else:
+            ds.StudyInstanceUID = ''
+            
+        if study.study_date:
+            ds.StudyDate = study.study_date.strftime('%Y%m%d')
+        else:
+            ds.StudyDate = ''
+            
+        if study.study_time:
+            ds.StudyTime = study.study_time.strftime('%H%M%S')
+        else:
+            ds.StudyTime = ''
+        
+        if study.study_description:
+            ds.StudyDescription = study.study_description
+        else:
+            ds.StudyDescription = ''
+            
+        if study.accession_number:
+            ds.AccessionNumber = study.accession_number
+        else:
+            ds.AccessionNumber = ''
+            
+        if study.study_id:
+            ds.StudyID = study.study_id
+        else:
+            ds.StudyID = ''
+        
+        # Series info - REQUIRED for retrieve operations
+        # Use the RT Structure's own series instance UID
+        if rt_struct.reidentified_rt_structure_file_series_instance_uid:
+            ds.SeriesInstanceUID = rt_struct.reidentified_rt_structure_file_series_instance_uid
+        else:
+            ds.SeriesInstanceUID = ''
+            
+        if series.series_date:
+            ds.SeriesDate = series.series_date.strftime('%Y%m%d')
+        else:
+            ds.SeriesDate = ''
+            
+        ds.SeriesTime = ''
+        
+        # Use RT Structure specific description or fall back to series description
+        if series.series_description:
+            ds.SeriesDescription = series.series_description
+        else:
+            ds.SeriesDescription = 'RT Structure Set'
+            
+        ds.SeriesNumber = ''
+        ds.Modality = 'RTSTRUCT'
+        
+        # RT Structure is typically a single instance
+        ds.NumberOfSeriesRelatedInstances = '1'
+            
+        matches.append(ds)
+    
+    logger.info(f"C-FIND SERIES level: Found {len(matches)} total matches ({len(queryset)} series + {len(rt_queryset)} RT Structures)")
     
     return matches
 

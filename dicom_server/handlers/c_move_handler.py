@@ -217,28 +217,35 @@ def _search_dicom_storage(service, query_ds, query_level):
             else:
                 logger.warning(f"File not found for SOP Instance UID: {instance.sop_instance_uid}")
         
-        # Also query RT Structure files
+        # Also query RT Structure files using database relationships
         rt_queryset = RTStructureFileImport.objects.select_related(
             'deidentified_series_instance_uid__study__patient'
         ).filter(reidentified_rt_structure_file_path__isnull=False)
         
-        # Apply same filters to RT Structure files
+        # Apply filters to RT Structure files
+        # Use the deidentified_series_instance_uid relationship to access patient/study data
+        # but match against reidentified UIDs for series/SOP instance
+        
         if patient_id:
+            # Filter by patient_id through the series relationship
             rt_queryset = rt_queryset.filter(
                 deidentified_series_instance_uid__study__patient__patient_id__iexact=patient_id
             )
         
         if study_uid:
+            # Use reidentified study UID for filtering
             rt_queryset = rt_queryset.filter(
-                deidentified_series_instance_uid__study__study_instance_uid__iexact=study_uid
+                reidentified_rt_structure_file_study_instance_uid__iexact=study_uid
             )
         
         if series_uid:
+            # Use reidentified series UID for filtering
             rt_queryset = rt_queryset.filter(
                 reidentified_rt_structure_file_series_instance_uid__iexact=series_uid
             )
         
         if sop_instance_uid:
+            # Use reidentified SOP instance UID for filtering
             rt_queryset = rt_queryset.filter(
                 reidentified_rt_structure_file_sop_instance_uid__iexact=sop_instance_uid
             )
