@@ -429,15 +429,17 @@ def get_dicom_slice(request):
         
         # Create figure with aspect ratio matching the DICOM image
         height, width = windowed_array.shape
-        aspect_ratio = width / height
         
-        # Set figure size based on aspect ratio (base height of 10 inches)
-        fig_height = 10
-        fig_width = fig_height * aspect_ratio
+        # Use higher DPI for better quality when displayed large
+        # 200 DPI gives 2x native resolution for smooth display
+        dpi = 200
+        fig_width = width / dpi
+        fig_height = height / dpi
         
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-        ax.imshow(windowed_array, cmap='gray', interpolation='nearest')
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+        ax.imshow(windowed_array, cmap='gray', interpolation='bilinear')
         ax.axis('off')
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
         
         # Track failed ROIs
         failed_rois = []
@@ -576,7 +578,7 @@ def get_dicom_slice(request):
                                 for contour_idx, contour in enumerate(contours):
                                     if len(contour) > 2:  # Need at least 3 points to draw
                                         ax.plot(contour[:, 1], contour[:, 0], 
-                                               color=roi_color_map[roi_name], linewidth=2, 
+                                               color=roi_color_map[roi_name], linewidth=0.5, 
                                                label=roi_name if contour_idx == 0 else "")
                                         contours_drawn += 1
                             else:
@@ -590,17 +592,14 @@ def get_dicom_slice(request):
                 
                 logger.info(f"Total contours drawn: {contours_drawn}")
                 
-                # Add legend if ROIs were overlaid
-                if contours_drawn > 0:
-                    ax.legend(loc='upper right', fontsize=8, framealpha=0.7)
+                # Legend removed - ROI names are displayed in the sidebar with color indicators
                     
             except Exception as e:
                 logger.error(f"Failed to overlay RT Structure: {e}", exc_info=True)
         
         # Convert plot to base64 image
         buf = BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+        plt.savefig(buf, format='png', bbox_inches=0, pad_inches=0)
         plt.close(fig)
         buf.seek(0)
         
@@ -736,15 +735,16 @@ def render_all_slices(request):
                 # Apply windowing
                 windowed_array = apply_windowing(pixel_array, window_center, window_width)
                 
-                # Create figure
+                # Create figure with higher DPI for smooth display
                 height, width = windowed_array.shape
-                aspect_ratio = width / height
-                fig_height = 10
-                fig_width = fig_height * aspect_ratio
+                dpi = 200
+                fig_width = width / dpi
+                fig_height = height / dpi
                 
-                fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-                ax.imshow(windowed_array, cmap='gray', interpolation='nearest')
+                fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+                ax.imshow(windowed_array, cmap='gray', interpolation='bilinear')
                 ax.axis('off')
+                plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
                 
                 # Overlay contours if RT Structure loaded
                 if rtstruct and selected_rois:
@@ -776,19 +776,17 @@ def render_all_slices(request):
                                         for contour_idx, contour in enumerate(contours):
                                             if len(contour) > 2:
                                                 ax.plot(contour[:, 1], contour[:, 0], 
-                                                       color=roi_color_map[roi_name], linewidth=2,
+                                                       color=roi_color_map[roi_name], linewidth=0.5,
                                                        label=roi_name if contour_idx == 0 else "")
                                                 contours_drawn += 1
                             except Exception as e:
                                 logger.error(f"Failed to overlay {roi_name} on slice {slice_idx}: {e}")
                     
-                    if contours_drawn > 0:
-                        ax.legend(loc='upper right', fontsize=8, framealpha=0.7)
+                    # Legend removed - ROI names are displayed in the sidebar
                 
                 # Convert to base64
                 buf = BytesIO()
-                plt.tight_layout()
-                plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                plt.savefig(buf, format='png', bbox_inches=0, pad_inches=0)
                 plt.close(fig)
                 buf.seek(0)
                 
