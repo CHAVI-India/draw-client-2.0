@@ -145,32 +145,64 @@ def dicom_viewer(request, series_uid, rt_structure_id):
     return render(request, 'dicom_handler/dicom_viewer.html', context)
 
 
-def _copy_dicom_file(idx, meta, temp_dir):
+def _read_dicom_full(instance):
     """
-    Helper function to copy a single DICOM file to temp directory.
+    Helper function to read full DICOM file (including pixels) for sorting and copying.
     Designed to be called in parallel.
     
     Args:
-        idx: Index for the file in the sorted series
-        meta: Dictionary containing instance metadata
+        instance: DICOMInstance object
+        
+    Returns:
+        Dictionary with DICOM dataset and metadata on success, None on failure
+    """
+    if not instance.instance_path or not os.path.exists(instance.instance_path):
+        return None
+    
+    try:
+        # Read full DICOM file (including pixel data)
+        ds = pydicom.dcmread(instance.instance_path, force=True)
+        instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
+        slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
+        image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
+        
+        return {
+            'instance': instance,
+            'dataset': ds,  # Full DICOM dataset in memory
+            'instance_number': instance_number,
+            'slice_location': slice_location,
+            'image_position': image_position,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to read DICOM file for {instance.sop_instance_uid}: {e}")
+        return None
+
+
+def _save_dicom_file(idx, dataset, sop_instance_uid, temp_dir):
+    """
+    Helper function to save a DICOM dataset to temp directory.
+    Designed to be called in parallel.
+    
+    Args:
+        idx: Index for the file in the sorted series (determines filename)
+        dataset: pydicom Dataset object (already loaded in memory)
+        sop_instance_uid: SOP Instance UID for logging
         temp_dir: Temporary directory path
         
     Returns:
         Dictionary with file info on success, None on failure
     """
-    instance = meta['instance']
     temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
     try:
-        # Read the DICOM file and save with proper format enforcement
-        ds = pydicom.dcmread(instance.instance_path, force=True)
-        ds.save_as(temp_file, enforce_file_format=True)
+        # Save the already-loaded DICOM dataset with proper format enforcement
+        dataset.save_as(temp_file, enforce_file_format=True)
         return {
             'index': idx,
             'temp_path': temp_file,
-            'sop_instance_uid': instance.sop_instance_uid,
+            'sop_instance_uid': sop_instance_uid,
         }
     except Exception as e:
-        logger.error(f"Failed to save DICOM file {instance.sop_instance_uid}: {e}")
+        logger.error(f"Failed to save DICOM file {sop_instance_uid}: {e}")
         return None
 
 
@@ -198,45 +230,50 @@ def load_dicom_data(request):
         # Create temporary directory for this session
         temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
         
-        # Copy DICOM instances to temp directory
+        # Get DICOM instances from database
         instances = DICOMInstance.objects.filter(
             series_instance_uid=series
         )
         
-        # Read DICOM metadata to get proper ordering
-        instance_metadata = []
-        for instance in instances:
-            if instance.instance_path and os.path.exists(instance.instance_path):
-                try:
-                    ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True,force = True)
-                    instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
-                    slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
-                    image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
-                    
-                    instance_metadata.append({
-                        'instance': instance,
-                        'instance_number': instance_number,
-                        'slice_location': slice_location,
-                        'image_position': image_position,
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to read DICOM metadata for {instance.sop_instance_uid}: {e}")
-                    continue
-        
-        # Sort by instance number first, then by slice location/image position
-        instance_metadata.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
-        
-        # Save sorted files to temp directory in parallel using ThreadPoolExecutor
-        # Use max_workers based on CPU count (typically 4-8 threads is optimal for I/O bound tasks)
+        # STEP 1: Read all DICOM files in parallel (including pixel data)
         max_workers = min(8, (os.cpu_count() or 1) * 2)
-        logger.info(f"Copying {len(instance_metadata)} DICOM files using {max_workers} parallel workers")
+        logger.info(f"Reading {instances.count()} DICOM files in parallel using {max_workers} workers")
+        
+        dicom_data = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all read tasks
+            future_to_instance = {
+                executor.submit(_read_dicom_full, instance): instance 
+                for instance in instances
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_instance):
+                result = future.result()
+                if result is not None:
+                    dicom_data.append(result)
+        
+        logger.info(f"Successfully read {len(dicom_data)} out of {instances.count()} DICOM files")
+        
+        # STEP 2: Aggregate and sort by instance number, slice location, image position
+        dicom_data.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
+        logger.info(f"Sorted {len(dicom_data)} DICOM files by instance number and slice location")
+        
+        # STEP 3: Save sorted DICOM files in parallel to temp directory
+        logger.info(f"Saving {len(dicom_data)} sorted DICOM files in parallel using {max_workers} workers")
         
         instance_files = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all copy tasks
+            # Submit all save tasks with sorted index
             future_to_idx = {
-                executor.submit(_copy_dicom_file, idx, meta, temp_dir): idx 
-                for idx, meta in enumerate(instance_metadata)
+                executor.submit(
+                    _save_dicom_file, 
+                    idx, 
+                    data['dataset'], 
+                    data['instance'].sop_instance_uid, 
+                    temp_dir
+                ): idx 
+                for idx, data in enumerate(dicom_data)
             }
             
             # Collect results as they complete
@@ -247,7 +284,7 @@ def load_dicom_data(request):
         
         # Sort instance_files by index to maintain proper order
         instance_files.sort(key=lambda x: x['index'])
-        logger.info(f"Successfully copied {len(instance_files)} out of {len(instance_metadata)} DICOM files")
+        logger.info(f"Successfully saved {len(instance_files)} out of {len(dicom_data)} DICOM files")
         
         # Copy RT Structure file to temp directory
         rt_struct_path = rt_structure.reidentified_rt_structure_file_path
