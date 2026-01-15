@@ -542,6 +542,7 @@ async function initializeViewer() {
 
         viewerState.totalSlices = data.instance_count;
         viewerState.roiNames = data.roi_names || [];
+        viewerState.roiColors = data.roi_colors || {};
         
         // Update UI
         totalSlicesSpan.textContent = viewerState.totalSlices;
@@ -570,11 +571,9 @@ function populateROIList() {
         return;
     }
 
-    // Generate consistent colors for all ROIs (matching backend matplotlib rainbow colormap)
-    const totalROIs = viewerState.roiNames.length;
-    const roiColors = viewerState.roiNames.map((_, index) => {
-        // Matplotlib rainbow colormap approximation
-        const t = index / Math.max(totalROIs - 1, 1);
+    // Helper function to generate rainbow color for fallback
+    function getRainbowColor(index, total) {
+        const t = index / Math.max(total - 1, 1);
         let r, g, b;
         
         if (t < 0.25) {
@@ -601,9 +600,11 @@ function populateROIList() {
         b = Math.round(b * 255);
         
         return `rgb(${r}, ${g}, ${b})`;
-    });
+    }
 
     roiList.innerHTML = '';
+    const totalROIs = viewerState.roiNames.length;
+    
     viewerState.roiNames.forEach((roiName, index) => {
         const div = document.createElement('div');
         div.className = 'roi-checkbox flex items-center p-2 rounded border border-gray-200';
@@ -614,10 +615,19 @@ function populateROIList() {
         checkbox.value = roiName;
         checkbox.className = 'rounded border-gray-300 text-purple-600 focus:ring-purple-500 mr-2';
         
+        // Get color from RT Structure or use rainbow fallback
+        let color;
+        if (viewerState.roiColors && viewerState.roiColors[roiName]) {
+            const c = viewerState.roiColors[roiName];
+            color = `rgb(${c.r}, ${c.g}, ${c.b})`;
+        } else {
+            color = getRainbowColor(index, totalROIs);
+        }
+        
         // Color indicator box
         const colorBox = document.createElement('div');
         colorBox.className = 'w-4 h-4 rounded mr-2 border border-gray-300';
-        colorBox.style.backgroundColor = roiColors[index];
+        colorBox.style.backgroundColor = color;
         colorBox.title = `Color for ${roiName}`;
         
         const label = document.createElement('label');

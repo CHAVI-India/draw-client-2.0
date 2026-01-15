@@ -18,6 +18,7 @@ import logging
 import pickle
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,35 @@ def dicom_viewer(request, series_uid, rt_structure_id):
     return render(request, 'dicom_handler/dicom_viewer.html', context)
 
 
+def _copy_dicom_file(idx, meta, temp_dir):
+    """
+    Helper function to copy a single DICOM file to temp directory.
+    Designed to be called in parallel.
+    
+    Args:
+        idx: Index for the file in the sorted series
+        meta: Dictionary containing instance metadata
+        temp_dir: Temporary directory path
+        
+    Returns:
+        Dictionary with file info on success, None on failure
+    """
+    instance = meta['instance']
+    temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
+    try:
+        # Read the DICOM file and save with proper format enforcement
+        ds = pydicom.dcmread(instance.instance_path, force=True)
+        ds.save_as(temp_file, enforce_file_format=True)
+        return {
+            'index': idx,
+            'temp_path': temp_file,
+            'sop_instance_uid': instance.sop_instance_uid,
+        }
+    except Exception as e:
+        logger.error(f"Failed to save DICOM file {instance.sop_instance_uid}: {e}")
+        return None
+
+
 @login_required
 @require_http_methods(["POST"])
 def load_dicom_data(request):
@@ -196,23 +226,28 @@ def load_dicom_data(request):
         # Sort by instance number first, then by slice location/image position
         instance_metadata.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
         
-        # Save sorted files to temp directory using pydicom save_as with enforce_file_format
+        # Save sorted files to temp directory in parallel using ThreadPoolExecutor
+        # Use max_workers based on CPU count (typically 4-8 threads is optimal for I/O bound tasks)
+        max_workers = min(8, (os.cpu_count() or 1) * 2)
+        logger.info(f"Copying {len(instance_metadata)} DICOM files using {max_workers} parallel workers")
+        
         instance_files = []
-        for idx, meta in enumerate(instance_metadata):
-            instance = meta['instance']
-            temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
-            try:
-                # Read the DICOM file and save with proper format enforcement
-                ds = pydicom.dcmread(instance.instance_path, force=True)
-                ds.save_as(temp_file, enforce_file_format=True)
-                instance_files.append({
-                    'index': idx,
-                    'temp_path': temp_file,
-                    'sop_instance_uid': instance.sop_instance_uid,
-                })
-            except Exception as e:
-                logger.error(f"Failed to save DICOM file {instance.sop_instance_uid}: {e}")
-                continue
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all copy tasks
+            future_to_idx = {
+                executor.submit(_copy_dicom_file, idx, meta, temp_dir): idx 
+                for idx, meta in enumerate(instance_metadata)
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_idx):
+                result = future.result()
+                if result is not None:
+                    instance_files.append(result)
+        
+        # Sort instance_files by index to maintain proper order
+        instance_files.sort(key=lambda x: x['index'])
+        logger.info(f"Successfully copied {len(instance_files)} out of {len(instance_metadata)} DICOM files")
         
         # Copy RT Structure file to temp directory
         rt_struct_path = rt_structure.reidentified_rt_structure_file_path
@@ -240,16 +275,43 @@ def load_dicom_data(request):
                 'error': f'Failed to process RT Structure file: {str(e)}'
             }, status=500)
         
-        # Load RT Structure to get ROI names
+        # Load RT Structure to get ROI names and colors
         try:
             rtstruct = RTStructBuilder.create_from(
                 dicom_series_path=temp_dir,
                 rt_struct_path=temp_rt_struct
             )
             roi_names = rtstruct.get_roi_names()
+            
+            # Extract ROI colors from RT Structure file
+            roi_colors = {}
+            if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
+                # Create mapping from ROI Number to ROI Name
+                roi_number_to_name = {}
+                for roi_item in rt_ds.StructureSetROISequence:
+                    roi_number = int(roi_item.ROINumber)
+                    roi_name = str(roi_item.ROIName)
+                    roi_number_to_name[roi_number] = roi_name
+                
+                # Extract colors from ROI Contour Sequence
+                for contour_item in rt_ds.ROIContourSequence:
+                    roi_number = int(contour_item.ReferencedROINumber)
+                    roi_name = roi_number_to_name.get(roi_number)
+                    
+                    if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
+                        # ROIDisplayColor is stored as [R, G, B] with values 0-255
+                        color_values = contour_item.ROIDisplayColor
+                        roi_colors[roi_name] = {
+                            'r': int(color_values[0]),
+                            'g': int(color_values[1]),
+                            'b': int(color_values[2])
+                        }
+                        logger.info(f"Extracted color for '{roi_name}': RGB({color_values[0]}, {color_values[1]}, {color_values[2]})")
+            
         except Exception as e:
             logger.error(f"Failed to load RT Structure: {e}")
             roi_names = []
+            roi_colors = {}
         
         # Store temp directory path in session
         request.session['dicom_temp_dir'] = temp_dir
@@ -261,6 +323,7 @@ def load_dicom_data(request):
             'temp_dir': temp_dir,
             'instance_count': len(instance_files),
             'roi_names': roi_names,
+            'roi_colors': roi_colors,
         })
         
     except Exception as e:
@@ -379,11 +442,43 @@ def get_dicom_slice(request):
                     # Fallback: use the slice index as-is
                     rt_slice_index = slice_index
                 
-                # Create consistent color mapping for ALL available ROIs (not just selected ones)
-                # This ensures each ROI always has the same color
-                all_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
-                roi_color_map = {roi_name: all_colors[i] for i, roi_name in enumerate(available_rois)}
-                logger.info(f"Created color map for {len(available_rois)} ROIs")
+                # Extract colors from RT Structure file
+                # Read the RT Structure DICOM file to get ROI colors
+                rt_ds = pydicom.dcmread(rt_struct_path, force=True)
+                roi_color_map = {}
+                
+                # Build mapping from ROI name to color from DICOM tags
+                if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
+                    # Create mapping from ROI Number to ROI Name
+                    roi_number_to_name = {}
+                    for roi_item in rt_ds.StructureSetROISequence:
+                        roi_number = int(roi_item.ROINumber)
+                        roi_name = str(roi_item.ROIName)
+                        roi_number_to_name[roi_number] = roi_name
+                    
+                    # Extract colors from ROI Contour Sequence
+                    for contour_item in rt_ds.ROIContourSequence:
+                        roi_number = int(contour_item.ReferencedROINumber)
+                        roi_name = roi_number_to_name.get(roi_number)
+                        
+                        if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
+                            # ROIDisplayColor is stored as [R, G, B] with values 0-255
+                            color_values = contour_item.ROIDisplayColor
+                            # Convert to matplotlib format (0-1 range)
+                            color = (color_values[0] / 255.0, 
+                                   color_values[1] / 255.0, 
+                                   color_values[2] / 255.0)
+                            roi_color_map[roi_name] = color
+                            logger.info(f"Extracted color for '{roi_name}': RGB({color_values[0]}, {color_values[1]}, {color_values[2]})")
+                
+                # For ROIs without colors in the file, assign rainbow colors
+                rainbow_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
+                for i, roi_name in enumerate(available_rois):
+                    if roi_name not in roi_color_map:
+                        roi_color_map[roi_name] = rainbow_colors[i]
+                        logger.info(f"Assigned rainbow color to '{roi_name}' (no color in RT Structure)")
+                
+                logger.info(f"Created color map for {len(available_rois)} ROIs ({len([k for k in roi_color_map if k in available_rois])} from file, {len([k for k in available_rois if k not in roi_color_map])} generated)")
                 
                 contours_drawn = 0
                 for idx, roi_name in enumerate(selected_rois):

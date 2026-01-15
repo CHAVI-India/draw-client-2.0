@@ -27,7 +27,9 @@ elif [ "$1" = "celery-beat" ]; then
 else
     exec python -m gunicorn draw_client.wsgi:application \
         --bind 0.0.0.0:8000 \
-        --workers 3 \
+        --workers 4 \
+        --threads 2 \
+        --worker_class gthread \
         --timeout 1800 \
         --keep-alive 2 \
         --max-requests 1000 \
