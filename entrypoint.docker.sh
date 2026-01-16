@@ -29,7 +29,7 @@ else
         --bind 0.0.0.0:8000 \
         --workers 4 \
         --threads 2 \
-        --worker_class gthread \
+        --worker-class gthread \
         --timeout 1800 \
         --keep-alive 2 \
         --max-requests 1000 \
