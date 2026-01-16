@@ -915,8 +915,43 @@ def save_contour_ratings(request):
         data = json.loads(request.body)
         series_uid = data.get('series_uid')
         overall_rating = data.get('overall_rating')
+        assessor_name = data.get('assessor_name')
         modification_time = data.get('modification_time')
+        date_reviewed = data.get('date_reviewed')
         structure_ratings = data.get('structure_ratings', {})
+        
+        # Validate required fields
+        if not assessor_name or not assessor_name.strip():
+            return JsonResponse({
+                'success': False,
+                'error': 'Assessor name is required'
+            }, status=400)
+        
+        if modification_time is None:
+            return JsonResponse({
+                'success': False,
+                'error': 'Time required (in minutes) is required'
+            }, status=400)
+        
+        if not date_reviewed:
+            return JsonResponse({
+                'success': False,
+                'error': 'Date contour reviewed is required'
+            }, status=400)
+        
+        # Validate modification_time is a positive number
+        try:
+            modification_time = int(modification_time)
+            if modification_time < 0:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Time required must be a positive number'
+                }, status=400)
+        except (ValueError, TypeError):
+            return JsonResponse({
+                'success': False,
+                'error': 'Time required must be a valid number'
+            }, status=400)
         
         logger.info(f"Saving ratings for series {series_uid}")
         
@@ -995,6 +1030,35 @@ def save_contour_ratings(request):
         }, status=400)
     except Exception as e:
         logger.error(f"Error saving ratings: {e}", exc_info=True)
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["GET"])
+def get_modification_types(request):
+    """
+    API endpoint to fetch all available contour modification types
+    """
+    try:
+        modification_types = ContourModificationTypeChoices.objects.all().order_by('modification_type')
+        
+        types_list = [
+            {
+                'id': str(mod_type.id),
+                'name': mod_type.modification_type
+            }
+            for mod_type in modification_types
+        ]
+        
+        return JsonResponse({
+            'success': True,
+            'modification_types': types_list
+        })
+    except Exception as e:
+        logger.error(f"Error fetching modification types: {e}", exc_info=True)
         return JsonResponse({
             'success': False,
             'error': str(e)
