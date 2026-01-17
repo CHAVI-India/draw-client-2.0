@@ -33,4 +33,9 @@ urlpatterns = [
     path('qr/retrieve/series/<int:result_id>/', views_qr.retrieve_series, name='retrieve_series'),
     path('qr/retrieve/jobs/', views_qr.retrieve_jobs, name='retrieve_jobs'),
     path('qr/retrieve/jobs/<uuid:job_id>/status/', views_qr.retrieve_job_status, name='retrieve_job_status'),
+    
+    # C-STORE Push Operations
+    path('qr/nodes/<int:node_id>/send/', views_qr.cstore_push_interface, name='cstore_push_interface'),
+    path('qr/nodes/<int:node_id>/send/execute/', views_qr.cstore_push_send, name='cstore_push_send'),
+    path('qr/nodes/<int:node_id>/test-cstore/', views_qr.cstore_test_connection, name='cstore_test_connection'),
 ]

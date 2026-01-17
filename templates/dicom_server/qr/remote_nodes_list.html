@@ -83,6 +83,9 @@
                     </div>
                     
                     <div class="flex flex-col space-y-2 ml-4">
+                        <a href="{% url 'dicom_server:cstore_push_interface' node.id %}" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition text-center text-sm">
+                            📤 Send Files
+                        </a>
                         <button onclick="testConnection({{ node.id }})" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition text-sm">
                             Test Connection
                         </button>

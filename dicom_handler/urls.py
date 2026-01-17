@@ -22,6 +22,10 @@ from .dicom_viewer_views import (
     save_contour_ratings,
     get_modification_types
 )
+from .api_views import (
+    series_export_details,
+    export_dicom_series
+)
 
 app_name = 'dicom_handler'
 
@@ -101,4 +105,8 @@ urlpatterns = [
     path('api/dicom-viewer/cleanup/', cleanup_temp_files, name='cleanup_temp_files'),
     path('api/dicom-viewer/save-ratings/', save_contour_ratings, name='save_contour_ratings'),
     path('api/dicom-viewer/modification-types/', get_modification_types, name='get_modification_types'),
+    
+    # DICOM Export API URLs
+    path('api/series-export-details/', series_export_details, name='series_export_details'),
+    path('api/export-dicom-series/', export_dicom_series, name='export_dicom_series'),
 ]

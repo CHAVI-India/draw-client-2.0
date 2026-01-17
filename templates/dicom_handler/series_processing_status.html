@@ -106,22 +106,30 @@
 
     <!-- Selected Actions Bar -->
     <div id="selected-actions" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 hidden">
-        <div class="flex items-center justify-between">
-            <div class="flex items-center">
-                <span class="text-blue-800 font-medium">
-                    <span id="selected-count">0</span> series selected
-                </span>
-            </div>
-            <div class="flex space-x-2">
-                <button type="button" id="bulk-action-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
-                    <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                    Manual Autosegmentation
-                </button>
-                <button type="button" id="clear-selection-btn" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
-                    Clear Selection
-                </button>
+        <div class="flex flex-col space-y-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <span class="text-blue-800 font-medium">
+                        <span id="selected-count">0</span> series selected
+                    </span>
+                </div>
+                <div class="flex space-x-2">
+                    <button type="button" id="export-dicom-btn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
+                        <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        Export DICOM Series
+                    </button>
+                    <button type="button" id="bulk-action-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+                        <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Manual Autosegmentation
+                    </button>
+                    <button type="button" id="clear-selection-btn" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+                        Clear Selection
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -392,6 +400,79 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- Export DICOM Series Modal -->
+    <div id="export-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b">
+                <h3 class="text-xl font-semibold text-gray-900">Export DICOM Series</h3>
+                <button type="button" id="close-export-modal" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">
+                    <span id="export-series-count" class="font-semibold">0</span> series selected for export
+                </p>
+            </div>
+
+            <!-- Destination Selection -->
+            <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <label for="export-destination-select" class="block text-sm font-semibold text-gray-900 mb-2">
+                    Send to Remote DICOM Node (C-STORE):
+                </label>
+                {% if remote_nodes %}
+                <select id="export-destination-select" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
+                    <option value="">Select destination node...</option>
+                    {% for node in remote_nodes %}
+                        <option value="{{ node.id }}">{{ node.name }} ({{ node.incoming_ae_title }}@{{ node.host }}:{{ node.port }})</option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-gray-600 mt-2">Selected files will be sent via C-STORE to the chosen DICOM node</p>
+                {% else %}
+                <p class="text-sm text-orange-700">
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    No active remote nodes configured. <a href="{% url 'dicom_server:remote_nodes_list' %}" class="underline hover:text-orange-900">Add a remote node</a>
+                </p>
+                {% endif %}
+            </div>
+
+            <!-- Export Options -->
+            <div id="export-series-list" class="space-y-3 max-h-96 overflow-y-auto mb-4">
+                <!-- Series items will be populated by JavaScript -->
+            </div>
+
+            <!-- Export Actions -->
+            <div class="flex items-center justify-between pt-4 border-t">
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="select-all-images" class="rounded border-gray-300 text-green-600 focus:ring-green-500" checked>
+                        <span class="text-sm font-medium text-gray-700">Select All Images</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="select-all-rtstructs" class="rounded border-gray-300 text-green-600 focus:ring-green-500" checked>
+                        <span class="text-sm font-medium text-gray-700">Select All RT Structures</span>
+                    </label>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="button" id="cancel-export-btn" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition">
+                        Cancel
+                    </button>
+                    <button type="button" id="confirm-export-btn" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                        <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        Send via C-STORE
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -465,6 +546,207 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize state
     updateSelectAllState();
     updateSelectedCount();
+
+    // Export DICOM Series Modal functionality
+    const exportDicomBtn = document.getElementById('export-dicom-btn');
+    const exportModal = document.getElementById('export-modal');
+    const closeExportModal = document.getElementById('close-export-modal');
+    const cancelExportBtn = document.getElementById('cancel-export-btn');
+    const confirmExportBtn = document.getElementById('confirm-export-btn');
+    const exportSeriesList = document.getElementById('export-series-list');
+    const exportSeriesCount = document.getElementById('export-series-count');
+    const selectAllImages = document.getElementById('select-all-images');
+    const selectAllRtstructs = document.getElementById('select-all-rtstructs');
+    const exportDestinationSelect = document.getElementById('export-destination-select');
+
+    let exportData = [];
+
+    // Enable/disable export button based on destination selection
+    if (exportDestinationSelect) {
+        exportDestinationSelect.addEventListener('change', function() {
+            confirmExportBtn.disabled = !this.value;
+        });
+    }
+
+    exportDicomBtn.addEventListener('click', function() {
+        const checkedBoxes = Array.from(seriesCheckboxes).filter(cb => cb.checked);
+        
+        if (checkedBoxes.length === 0) {
+            alert('Please select at least one series to export');
+            return;
+        }
+
+        // Fetch series details for export modal
+        const seriesUids = checkedBoxes.map(cb => cb.dataset.seriesUid);
+        fetchSeriesExportDetails(seriesUids);
+    });
+
+    function fetchSeriesExportDetails(seriesUids) {
+        fetch('{% url "dicom_handler:series_export_details" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ series_uids: seriesUids })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                displayExportModal(data.series);
+            } else {
+                alert('Error loading series details: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Fetch error:', error);
+            alert('Error: ' + error.message);
+        });
+    }
+
+    function displayExportModal(seriesData) {
+        exportData = seriesData;
+        exportSeriesCount.textContent = seriesData.length;
+        
+        // Build series list HTML
+        let html = '';
+        seriesData.forEach((series, index) => {
+            html += `
+                <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div class="flex items-start justify-between mb-3">
+                        <div class="flex-1">
+                            <h4 class="font-semibold text-gray-900">${series.patient_name || 'N/A'} (${series.patient_id || 'N/A'})</h4>
+                            <p class="text-sm text-gray-600">Series: ${series.series_description || 'N/A'} | Modality: ${series.modality || 'N/A'}</p>
+                            <p class="text-xs text-gray-500 mt-1">Instances: ${series.instance_count || 0}</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-6 pl-4">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="checkbox" class="export-images-cb rounded border-gray-300 text-green-600 focus:ring-green-500" 
+                                   data-index="${index}" checked>
+                            <span class="text-sm text-gray-700">
+                                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                                Images (${series.instance_count || 0})
+                            </span>
+                        </label>
+                        ${series.rt_structure_count > 0 ? `
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="checkbox" class="export-rtstruct-cb rounded border-gray-300 text-green-600 focus:ring-green-500" 
+                                   data-index="${index}" checked>
+                            <span class="text-sm text-gray-700">
+                                <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                RT Structures (${series.rt_structure_count})
+                            </span>
+                        </label>
+                        ` : '<span class="text-sm text-gray-400">No RT Structures</span>'}
+                    </div>
+                </div>
+            `;
+        });
+        
+        exportSeriesList.innerHTML = html;
+        exportModal.classList.remove('hidden');
+    }
+
+    // Select all images/rtstructs handlers
+    selectAllImages.addEventListener('change', function() {
+        document.querySelectorAll('.export-images-cb').forEach(cb => cb.checked = this.checked);
+    });
+
+    selectAllRtstructs.addEventListener('change', function() {
+        document.querySelectorAll('.export-rtstruct-cb').forEach(cb => cb.checked = this.checked);
+    });
+
+    // Close modal handlers
+    closeExportModal.addEventListener('click', () => exportModal.classList.add('hidden'));
+    cancelExportBtn.addEventListener('click', () => exportModal.classList.add('hidden'));
+
+    // Confirm export handler
+    confirmExportBtn.addEventListener('click', function() {
+        const nodeId = exportDestinationSelect ? exportDestinationSelect.value : null;
+        
+        if (!nodeId) {
+            alert('Please select a destination DICOM node');
+            return;
+        }
+
+        const exportSelections = [];
+        
+        exportData.forEach((series, index) => {
+            const includeImages = document.querySelector(`.export-images-cb[data-index="${index}"]`)?.checked || false;
+            const includeRtstruct = document.querySelector(`.export-rtstruct-cb[data-index="${index}"]`)?.checked || false;
+            
+            if (includeImages || includeRtstruct) {
+                exportSelections.push({
+                    series_uid: series.series_instance_uid,
+                    include_images: includeImages,
+                    include_rtstruct: includeRtstruct
+                });
+            }
+        });
+
+        if (exportSelections.length === 0) {
+            alert('Please select at least one item to export');
+            return;
+        }
+
+        const nodeName = exportDestinationSelect.options[exportDestinationSelect.selectedIndex].text.split(' (')[0];
+        if (!confirm(`Send selected files to ${nodeName} via C-STORE?\n\nThis will send the selected images and RT structures.`)) {
+            return;
+        }
+
+        // Send C-STORE request
+        confirmExportBtn.disabled = true;
+        confirmExportBtn.innerHTML = '<svg class="w-4 h-4 inline mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Sending...';
+
+        fetch(`/dicom-server/qr/nodes/${nodeId}/send/execute/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ 
+                selections: exportSelections
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            confirmExportBtn.disabled = false;
+            confirmExportBtn.innerHTML = '<svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>Send via C-STORE';
+            
+            if (data.success) {
+                alert(`✓ Success!\n\nSent ${data.sent_count}/${data.total_files} files to ${nodeName}`);
+                exportModal.classList.add('hidden');
+                // Clear selections
+                selectAllCheckbox.checked = false;
+                seriesCheckboxes.forEach(cb => cb.checked = false);
+                updateSelectedCount();
+            } else {
+                const errorMsg = data.error_message || 'Failed to send files';
+                alert(`✗ Error: ${errorMsg}\n\nSent: ${data.sent_count}/${data.total_files} files`);
+            }
+        })
+        .catch(error => {
+            console.error('C-STORE error:', error);
+            confirmExportBtn.disabled = false;
+            confirmExportBtn.innerHTML = '<svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>Send via C-STORE';
+            alert('✗ Error: ' + error.message);
+        });
+    });
 });
 </script>
 

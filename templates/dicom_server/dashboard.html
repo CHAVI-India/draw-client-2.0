@@ -231,7 +231,7 @@
     <!-- Quick Actions -->
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
         <h2 class="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <a href="{% url 'dicom_handler:patient_list' %}" class="block p-4 bg-green-50 rounded-lg hover:bg-green-100 transition group">
                 <div class="flex items-center">
                     <div class="p-3 bg-green-600 rounded-lg group-hover:bg-green-700 transition">
@@ -264,7 +264,7 @@
                 <div class="flex items-center">
                     <div class="p-3 bg-purple-600 rounded-lg group-hover:bg-purple-700 transition">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
                         </svg>
                     </div>
                     <div class="ml-4">
@@ -284,6 +284,20 @@
                     <div class="ml-4">
                         <p class="font-semibold text-gray-900">Retrieve Jobs</p>
                         <p class="text-sm text-gray-600">Monitor retrievals</p>
+                    </div>
+                </div>
+            </a>
+
+            <a href="{% url 'dicom_handler:series_processing_status' %}" class="block p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition group">
+                <div class="flex items-center">
+                    <div class="p-3 bg-indigo-600 rounded-lg group-hover:bg-indigo-700 transition">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    <div class="ml-4">
+                        <p class="font-semibold text-gray-900">Send Files (C-STORE)</p>
+                        <p class="text-sm text-gray-600">Push to remote nodes</p>
                     </div>
                 </div>
             </a>

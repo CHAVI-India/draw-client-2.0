@@ -393,3 +393,179 @@ def retrieve_job_status(request, job_id):
         'failed_instances': job.failed_instances,
         'error_message': job.error_message,
     })
+
+
+# ============================================================================
+# C-STORE Push Views
+# ============================================================================
+
+@login_required
+def cstore_push_interface(request, node_id):
+    """Interface for selecting series to send to a remote node."""
+    from dicom_handler.models import DICOMSeries
+    
+    node = get_object_or_404(RemoteDicomNode, pk=node_id)
+    
+    # Get all available series
+    series_list = DICOMSeries.objects.select_related(
+        'study__patient'
+    ).filter(
+        series_processsing_status__in=['Completed', 'RT Structure Exported']
+    ).order_by('-created_at')
+    
+    # Apply filters if provided
+    patient_id = request.GET.get('patient_id')
+    study_uid = request.GET.get('study_uid')
+    
+    if patient_id:
+        series_list = series_list.filter(study__patient__patient_id__icontains=patient_id)
+    if study_uid:
+        series_list = series_list.filter(study__study_instance_uid__icontains=study_uid)
+    
+    # Pagination
+    from django.core.paginator import Paginator
+    paginator = Paginator(series_list, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'node': node,
+        'series_list': page_obj,
+        'patient_id': patient_id,
+        'study_uid': study_uid,
+        'page_title': f'Send Files to {node.name}',
+    }
+    return render(request, 'dicom_server/qr/cstore_push_interface.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def cstore_push_send(request, node_id):
+    """Send selected series to a remote node via C-STORE."""
+    from .cstore_push_service import send_series_to_node, send_files_to_node
+    import json
+    import os
+    
+    node = get_object_or_404(RemoteDicomNode, pk=node_id)
+    
+    try:
+        # Get request data
+        data = json.loads(request.body)
+        
+        # Check if this is a selective export (new format) or full series export (old format)
+        if 'selections' in data:
+            # Selective export - handle images and RT structures separately
+            from dicom_handler.models import DICOMSeries, DICOMInstance, RTStructureFileImport
+            
+            selections = data.get('selections', [])
+            if not selections:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No selections provided'
+                }, status=400)
+            
+            file_paths = []
+            
+            for selection in selections:
+                series_uid = selection.get('series_uid')
+                include_images = selection.get('include_images', False)
+                include_rtstruct = selection.get('include_rtstruct', False)
+                
+                try:
+                    series = DICOMSeries.objects.get(series_instance_uid=series_uid)
+                    
+                    # Add images if requested
+                    if include_images:
+                        instances = DICOMInstance.objects.filter(series_instance_uid=series)
+                        for instance in instances:
+                            if instance.instance_path and os.path.exists(instance.instance_path):
+                                file_paths.append(instance.instance_path)
+                    
+                    # Add RT structures if requested
+                    if include_rtstruct:
+                        rt_structs = RTStructureFileImport.objects.filter(
+                            deidentified_series_instance_uid=series,
+                            reidentified_rt_structure_file_path__isnull=False
+                        )
+                        for rt_struct in rt_structs:
+                            if rt_struct.reidentified_rt_structure_file_path and \
+                               os.path.exists(rt_struct.reidentified_rt_structure_file_path):
+                                file_paths.append(rt_struct.reidentified_rt_structure_file_path)
+                
+                except DICOMSeries.DoesNotExist:
+                    logger.warning(f"Series not found: {series_uid}")
+                    continue
+            
+            if not file_paths:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No files found for selected items'
+                }, status=400)
+            
+            # Send files using the file-based function
+            result = send_files_to_node(node, file_paths)
+            
+        else:
+            # Full series export (old format)
+            series_uids = data.get('series_uids', [])
+            
+            if not series_uids:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No series selected'
+                }, status=400)
+            
+            # Send series to remote node
+            result = send_series_to_node(node, series_uids)
+        
+        if result['success']:
+            messages.success(
+                request,
+                f"Successfully sent {result['sent_count']}/{result['total_files']} files to {node.name}"
+            )
+        else:
+            if result['error_message']:
+                messages.error(request, f"C-STORE push failed: {result['error_message']}")
+            else:
+                messages.warning(
+                    request,
+                    f"Partial success: {result['sent_count']}/{result['total_files']} files sent"
+                )
+        
+        return JsonResponse(result)
+        
+    except json.JSONDecodeError:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request data'
+        }, status=400)
+    except Exception as e:
+        logger.error(f"C-STORE push failed: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def cstore_test_connection(request, node_id):
+    """Test C-STORE connection to a remote node."""
+    from .cstore_push_service import test_cstore_connection
+    
+    node = get_object_or_404(RemoteDicomNode, pk=node_id)
+    
+    try:
+        result = test_cstore_connection(node)
+        
+        return JsonResponse({
+            'success': result['success'],
+            'message': result['message'],
+            'last_connection': node.last_successful_connection.isoformat() if node.last_successful_connection else None
+        })
+    except Exception as e:
+        logger.error(f"Error testing C-STORE connection to {node.name}: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }, status=500)

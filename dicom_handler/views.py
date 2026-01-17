@@ -1596,6 +1596,21 @@ def series_processing_status(request):
         }
         series_data.append(series_info)
     
+    # Get active remote nodes for C-STORE push
+    from dicom_server.models import RemoteDicomNode
+    remote_nodes = RemoteDicomNode.objects.filter(
+        is_active=True,
+        allow_incoming=True
+    ).exclude(
+        incoming_ae_title__isnull=True
+    ).exclude(
+        incoming_ae_title=''
+    ).exclude(
+        host__isnull=True
+    ).exclude(
+        host=''
+    )
+    
     context = {
         'page_obj': page_obj,
         'series_data': series_data,
@@ -1612,6 +1627,7 @@ def series_processing_status(request):
         'all_modalities': sorted(list(set(all_modalities))),
         'all_protocols': sorted(list(set(all_protocols))),
         'processing_statuses': ProcessingStatus.choices,
+        'remote_nodes': remote_nodes,
     }
     
     return render(request, 'dicom_handler/series_processing_status.html', context)
