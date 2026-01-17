@@ -331,13 +331,33 @@ def _query_images(query_params, max_results=10000):
     if query_params.get('SOPInstanceUID'):
         queryset = _apply_wildcard_filter(queryset, 'sop_instance_uid', query_params['SOPInstanceUID'])
     
-    # Limit results for regular instances
-    queryset = queryset[:max_results]
+    # Check if modality filter is specified
+    modality_filter = query_params.get('Modality')
+    include_regular_instances = True
+    include_rt_structures = True
     
-    # Also query RT Structure files
-    rt_queryset = RTStructureFileImport.objects.select_related('deidentified_series_instance_uid__study__patient').filter(
-        reidentified_rt_structure_file_path__isnull=False
-    )
+    if modality_filter:
+        modality_str = str(modality_filter).upper()
+        # If filtering for RTSTRUCT, exclude regular instances
+        if modality_str == 'RTSTRUCT':
+            include_regular_instances = False
+        # If filtering for any other modality, exclude RT structures
+        elif modality_str != '*':
+            include_rt_structures = False
+    
+    # Limit results for regular instances
+    if include_regular_instances:
+        queryset = queryset[:max_results]
+    else:
+        queryset = queryset.none()  # Empty queryset if not including regular instances
+    
+    # Query RT Structure files only if needed
+    if include_rt_structures:
+        rt_queryset = RTStructureFileImport.objects.select_related('deidentified_series_instance_uid__study__patient').filter(
+            reidentified_rt_structure_file_path__isnull=False
+        )
+    else:
+        rt_queryset = RTStructureFileImport.objects.none()  # Empty queryset
     
     # Apply same filters to RT Structure files
     if query_params.get('PatientID'):
@@ -610,13 +630,33 @@ def _query_series(query_params, max_results=10000):
     if query_params.get('SeriesDescription'):
         queryset = _apply_wildcard_filter(queryset, 'series_description', query_params['SeriesDescription'])
     
-    # Limit results
-    queryset = queryset[:max_results]
+    # Check if modality filter is specified
+    modality_filter = query_params.get('Modality')
+    include_regular_series = True
+    include_rt_structures = True
     
-    # Also query RT Structure files
-    rt_queryset = RTStructureFileImport.objects.select_related(
-        'deidentified_series_instance_uid__study__patient'
-    ).filter(reidentified_rt_structure_file_path__isnull=False)
+    if modality_filter:
+        modality_str = str(modality_filter).upper()
+        # If filtering for RTSTRUCT, exclude regular series
+        if modality_str == 'RTSTRUCT':
+            include_regular_series = False
+        # If filtering for any other modality, exclude RT structures
+        elif modality_str != '*':
+            include_rt_structures = False
+    
+    # Limit results for regular series
+    if include_regular_series:
+        queryset = queryset[:max_results]
+    else:
+        queryset = queryset.none()  # Empty queryset if not including regular series
+    
+    # Query RT Structure files only if needed
+    if include_rt_structures:
+        rt_queryset = RTStructureFileImport.objects.select_related(
+            'deidentified_series_instance_uid__study__patient'
+        ).filter(reidentified_rt_structure_file_path__isnull=False)
+    else:
+        rt_queryset = RTStructureFileImport.objects.none()  # Empty queryset
     
     # Apply filters to RT Structure files
     if query_params.get('PatientID'):
