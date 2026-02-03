@@ -4,11 +4,14 @@
 # If you need to update CA certificates, uncomment the volume mount in docker-compose
 # and rebuild the image with root user
 
+# Note: Tailwind CSS is pre-built during Docker image build (see Dockerfile)
+# The output.css file is already available in /app/static/css/output.css
+
 # Create staticfiles directory if it doesn't exist
 # No need to chown since we're already running as appuser
 mkdir -p /app/staticfiles
 
-# Collect static files
+# Collect static files (includes pre-built Tailwind CSS)
 python manage.py collectstatic --noinput
 
 # Apply database migrations

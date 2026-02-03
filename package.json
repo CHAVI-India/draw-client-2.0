@@ -1,0 +1,12 @@
+{
+  "name": "draw-client",
+  "version": "2.0.0",
+  "description": "DRAW Client - DICOM Processing Application",
+  "scripts": {
+    "build:css": "tailwindcss -i ./static/css/input.css -o ./static/css/output.css --minify",
+    "watch:css": "tailwindcss -i ./static/css/input.css -o ./static/css/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  }
+}
