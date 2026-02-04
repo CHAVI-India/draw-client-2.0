@@ -879,6 +879,67 @@ def log_processing_summary(newly_processed_series_uids=None):
     
     logger.info("="*80)
 
+def save_checkpoint(last_directory, directories_processed):
+    """
+    Save checkpoint for resumable processing on network storage
+    
+    Args:
+        last_directory: Last fully processed directory path
+        directories_processed: Number of directories processed so far
+    """
+    try:
+        system_config = SystemConfiguration.get_singleton()
+        if system_config:
+            system_config.task1_checkpoint_last_directory = last_directory
+            system_config.task1_checkpoint_directories_processed = directories_processed
+            system_config.task1_checkpoint_last_updated = timezone.now()
+            system_config.save()
+            logger.info(f"💾 Checkpoint saved: {directories_processed} directories processed, last: {mask_sensitive_data(last_directory, 'directory')}")
+    except Exception as e:
+        logger.error(f"Error saving checkpoint: {str(e)}")
+
+def load_checkpoint():
+    """
+    Load checkpoint for resuming processing
+    
+    Returns:
+        tuple: (last_directory, directories_processed) or (None, 0) if no checkpoint
+    """
+    try:
+        system_config = SystemConfiguration.get_singleton()
+        if system_config and system_config.task1_checkpoint_last_directory:
+            # Check if checkpoint is recent (within 4 hours)
+            if system_config.task1_checkpoint_last_updated:
+                age = timezone.now() - system_config.task1_checkpoint_last_updated
+                if age.total_seconds() < 4 * 60 * 60:  # 4 hours
+                    logger.info(f"📂 Resuming from checkpoint: {system_config.task1_checkpoint_directories_processed} directories already processed")
+                    return (
+                        system_config.task1_checkpoint_last_directory,
+                        system_config.task1_checkpoint_directories_processed
+                    )
+                else:
+                    logger.info(f"⏰ Checkpoint too old ({age}), starting fresh")
+                    clear_checkpoint()
+        return (None, 0)
+    except Exception as e:
+        logger.error(f"Error loading checkpoint: {str(e)}")
+        return (None, 0)
+
+def clear_checkpoint():
+    """
+    Clear checkpoint after successful completion
+    """
+    try:
+        system_config = SystemConfiguration.get_singleton()
+        if system_config:
+            system_config.task1_checkpoint_last_directory = None
+            system_config.task1_checkpoint_directories_processed = 0
+            system_config.task1_checkpoint_last_updated = None
+            system_config.save()
+            logger.info("✅ Checkpoint cleared after successful completion")
+    except Exception as e:
+        logger.error(f"Error clearing checkpoint: {str(e)}")
+
 def update_data_pull_start_datetime_after_success(current_date_filter):
     """
     Update data_pull_start_datetime to 7 days (7*24*60*60 seconds) BEFORE current time
@@ -1038,13 +1099,32 @@ def read_dicom_from_storage_series_aware():
         
         logger.info(f"Files organized into {len(files_by_directory)} directories")
         
+        # Load checkpoint to resume from last position
+        checkpoint_last_dir, checkpoint_dirs_processed = load_checkpoint()
+        resume_from_checkpoint = checkpoint_last_dir is not None
+        
         processed_files = 0
         skipped_files = 0
         error_files = 0
         skip_reasons = {}  # Track skip reasons for debugging
+        directories_processed_count = checkpoint_dirs_processed
+        
+        # Convert to list for indexed access
+        directory_items = list(files_by_directory.items())
+        
+        # Find starting position if resuming
+        start_idx = 0
+        if resume_from_checkpoint:
+            for idx, (root_dir, _) in enumerate(directory_items):
+                if root_dir == checkpoint_last_dir:
+                    start_idx = idx + 1  # Start from next directory
+                    logger.info(f"🔄 Resuming from directory {start_idx}/{len(directory_items)}")
+                    break
+            if start_idx == 0:
+                logger.warning("Checkpoint directory not found, starting from beginning")
         
         # Process files directory by directory
-        for directory_idx, (root_dir, file_paths) in enumerate(files_by_directory.items(), 1):
+        for directory_idx, (root_dir, file_paths) in enumerate(directory_items[start_idx:], start_idx + 1):
             dir_start = timezone.now()
             logger.info(f"Processing directory {directory_idx}/{len(files_by_directory)}: {len(file_paths)} files")
             
@@ -1111,6 +1191,11 @@ def read_dicom_from_storage_series_aware():
             dir_duration = (dir_end - dir_start).total_seconds()
             logger.info(f"Directory {directory_idx} completed in {dir_duration:.2f}s")
             
+            # Update checkpoint after each directory (for network storage resilience)
+            directories_processed_count += 1
+            if directories_processed_count % 10 == 0:  # Save checkpoint every 10 directories
+                save_checkpoint(root_dir, directories_processed_count)
+            
             # Flush completed series to database periodically
             if len(series_completed) >= max_series_in_memory:
                 flush_start = timezone.now()
@@ -1165,6 +1250,9 @@ def read_dicom_from_storage_series_aware():
         
         # ⭐ Log comprehensive processing summary with ONLY newly processed series
         log_processing_summary(newly_processed_series_uids)
+        
+        # ⭐ Clear checkpoint after successful completion
+        clear_checkpoint()
         
         # ⭐ Update data_pull_start_datetime after successful run
         # Advance by 7 days (7*24*60*60 seconds) for next run

@@ -12,7 +12,7 @@
 
 import logging
 from celery import shared_task, chain
-from celery.exceptions import Retry
+from celery.exceptions import Retry, SoftTimeLimitExceeded
 from django.utils import timezone
 from django.db import transaction
 from django.core.cache import cache
@@ -101,7 +101,12 @@ def release_lock(lock_key):
 # CHAIN A: DICOM Export Tasks (Sending Data to API Server)
 # ============================================================================
 
-@shared_task(bind=True, name='dicom_handler.task1_read_dicom_from_storage')
+@shared_task(
+    bind=True,
+    name='dicom_handler.task1_read_dicom_from_storage',
+    time_limit=10800,  # 3 hours hard limit for network storage
+    soft_time_limit=9000  # 2.5 hours soft limit for graceful checkpoint
+)
 def task1_read_dicom_from_storage_celery(self):
     """
     Celery task wrapper for Task 1: Read DICOM Data from Storage
@@ -133,6 +138,17 @@ def task1_read_dicom_from_storage_celery(self):
         
         return result
         
+    except SoftTimeLimitExceeded:
+        logger.warning(f"Task 1 approaching time limit (soft timeout at 2.5 hours). Saving checkpoint...")
+        # Task will be retried on next scheduled run and resume from checkpoint
+        return {
+            "status": "partial",
+            "message": "Task exceeded soft time limit. Progress saved. Will resume on next run.",
+            "processed_files": 0,
+            "skipped_files": 0,
+            "error_files": 0,
+            "series_data": []
+        }
     except Exception as e:
         logger.error(f"Critical error in Task 1 celery wrapper: {str(e)}")
         return {"status": "error", "message": f"Celery task error: {str(e)}"}

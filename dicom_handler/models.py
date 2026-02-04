@@ -26,6 +26,9 @@ class SystemConfiguration(models.Model):
     folder_configuration = models.CharField(max_length=256,null=True,blank=True,help_text="Full path of the DICOM folder from which DICOM data will be read and RT Structure file will be exported to. Use the default value if your application has been installed using docker.", default="/app/datastore")
     data_pull_start_datetime = models.DateTimeField(null=True,blank=True,help_text="Data pull start datetime for the DRAW API server. The system will only copy DICOM data which has been created or modified after this date and time.")
     study_date_based_filtering = models.BooleanField(default=False,help_text="If checked then during the DICOM export task, the system will filter out DICOM studies whose study dates are before the date set for the Pull Start Date Time Field above. Note that this will read the DICOM metadata and retrive the study dates from the files.")
+    task1_checkpoint_last_directory = models.TextField(null=True,blank=True,help_text="Internal: Last processed directory path for task1 checkpoint recovery on network storage")
+    task1_checkpoint_directories_processed = models.IntegerField(default=0,help_text="Internal: Number of directories processed in current task1 run")
+    task1_checkpoint_last_updated = models.DateTimeField(null=True,blank=True,help_text="Internal: Last time task1 checkpoint was updated")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
