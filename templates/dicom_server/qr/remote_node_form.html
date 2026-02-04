@@ -47,6 +47,18 @@
                         <span class="text-sm font-medium text-gray-700">Enable this remote node</span>
                     </label>
                     <p class="text-xs text-gray-500 -mt-2 ml-8">Uncheck to temporarily disable without deleting the configuration</p>
+                    
+                    <div class="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                        <label class="flex items-center space-x-3">
+                            {{ form.is_export_destination }}
+                            <span class="text-sm font-medium text-gray-700">Set as Export Destination for RT Structure Files</span>
+                        </label>
+                        {% if form.is_export_destination.errors %}
+                            <p class="text-red-600 text-sm mt-2">{{ form.is_export_destination.errors.0 }}</p>
+                        {% endif %}
+                        <p class="text-xs text-gray-500 mt-2 ml-8">{{ form.is_export_destination.help_text }}</p>
+                        <p class="text-xs text-amber-700 mt-2 ml-8 font-medium">⚠️ Note: Only ONE remote node can be marked as the export destination at a time.</p>
+                    </div>
                 </div>
             </div>
 

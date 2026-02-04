@@ -35,6 +35,8 @@ from ..models import (
     RTStructureFileVOIData,
     ProcessingStatus, AutosegmentationStructure, StructureProperties
 )
+from dicom_server.models import RemoteDicomNode
+from dicom_server.cstore_push_service import send_dicom_files_to_node
 
 logger = logging.getLogger(__name__)
 
@@ -590,6 +592,17 @@ def _update_successful_status(rt_import: RTStructureFileImport, output_path: str
                    f"Series Instance: ***{series_instance_uid[:8] if series_instance_uid else 'None'}...{series_instance_uid[-8:] if series_instance_uid else ''}***, "
                    f"Study Instance: ***{study_instance_uid[:8] if study_instance_uid else 'None'}...{study_instance_uid[-8:] if study_instance_uid else ''}***")
         
+        # Send RT Structure to export destination via C-STORE (if configured)
+        logger.info("Checking for export destination configuration...")
+        export_result = _send_rtstruct_to_export_destination(output_path, rt_import)
+        
+        if export_result['sent']:
+            logger.info(f"RT Structure successfully exported to {export_result['node_name']} via C-STORE")
+        elif export_result['error'] and export_result['error'] != 'No export destination configured':
+            logger.warning(f"RT Structure export to remote node failed: {export_result['error']}")
+            # Note: We don't fail the entire process if C-STORE export fails
+            # The file is still saved locally and marked as exported
+        
         # Update DICOMSeries processing status
         series.series_processsing_status = ProcessingStatus.RTSTRUCTURE_EXPORTED
         series.save(update_fields=['series_processsing_status'])
@@ -652,6 +665,97 @@ def _extract_and_save_voi_data(rtstruct_path: str, rt_import: RTStructureFileImp
         
     except Exception as e:
         logger.error(f"Error extracting and saving VOI data: {str(e)}")
+
+def _get_export_destination_node():
+    """
+    Get the remote DICOM node configured as export destination.
+    
+    Returns:
+        RemoteDicomNode instance or None if not configured
+    """
+    try:
+        export_node = RemoteDicomNode.objects.filter(
+            is_export_destination=True,
+            is_active=True
+        ).first()
+        
+        if export_node:
+            logger.info(f"Found export destination node: {export_node.name} ({export_node.host}:{export_node.port})")
+        else:
+            logger.info("No export destination node configured")
+        
+        return export_node
+    except Exception as e:
+        logger.error(f"Error retrieving export destination node: {str(e)}")
+        return None
+
+
+def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureFileImport) -> Dict[str, Any]:
+    """
+    Send reidentified RT Structure file to configured export destination via C-STORE.
+    
+    Args:
+        file_path: Path to the reidentified RT Structure file
+        rt_import: RTStructureFileImport record
+        
+    Returns:
+        Dict with success status and details
+    """
+    result = {
+        'success': False,
+        'sent': False,
+        'error': None,
+        'node_name': None
+    }
+    
+    try:
+        # Get export destination node
+        export_node = _get_export_destination_node()
+        
+        if not export_node:
+            logger.info("No export destination configured - skipping C-STORE export")
+            result['error'] = 'No export destination configured'
+            return result
+        
+        result['node_name'] = export_node.name
+        
+        # Validate file exists
+        if not os.path.exists(file_path):
+            logger.error(f"RT Structure file not found for C-STORE export: {file_path}")
+            result['error'] = 'File not found'
+            return result
+        
+        # Send file via C-STORE
+        logger.info(f"Sending RT Structure file to export destination: {export_node.name}")
+        logger.info(f"File: {os.path.basename(file_path)}")
+        
+        cstore_result = send_dicom_files_to_node(
+            remote_node=export_node,
+            file_paths=[file_path],
+            calling_ae_title=None  # Will use default from DicomServerConfig
+        )
+        
+        if cstore_result['success'] and cstore_result['sent_count'] > 0:
+            result['success'] = True
+            result['sent'] = True
+            logger.info(f"Successfully sent RT Structure to {export_node.name} via C-STORE")
+            
+            # Update RTStructureFileImport with export info
+            rt_import.exported_to_remote_node = True
+            rt_import.export_node_name = export_node.name
+            rt_import.export_datetime = timezone.now()
+            rt_import.save(update_fields=['exported_to_remote_node', 'export_node_name', 'export_datetime'])
+        else:
+            result['error'] = cstore_result.get('error_message', 'C-STORE failed')
+            logger.error(f"Failed to send RT Structure to {export_node.name}: {result['error']}")
+            logger.error(f"C-STORE details - Sent: {cstore_result['sent_count']}, Failed: {cstore_result['failed_count']}")
+        
+    except Exception as e:
+        result['error'] = str(e)
+        logger.error(f"Error sending RT Structure to export destination: {str(e)}", exc_info=True)
+    
+    return result
+
 
 def _cleanup_temp_file(file_path: str) -> None:
     """Clean up temporary RTStructure file."""

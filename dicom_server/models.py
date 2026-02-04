@@ -933,6 +933,12 @@ class RemoteDicomNode(models.Model):
         help_text="Whether this node is active"
     )
     
+    # Export destination
+    is_export_destination = models.BooleanField(
+        default=False,
+        help_text="Whether this node is an export destination for exporting RTStructureSet Files after the segmentation has been completed."
+    )
+
     # Metadata
     description = models.TextField(
         blank=True,
@@ -959,6 +965,27 @@ class RemoteDicomNode(models.Model):
             ae_display.append(f"OUT:{self.outgoing_ae_title}")
         ae_str = "/".join(ae_display) if ae_display else "No AE"
         return f"{self.name} ({ae_str}@{self.host}:{self.port})"
+    
+    def clean(self):
+        """
+        Custom validation to ensure only one remote node can be marked as export destination.
+        """
+        super().clean()
+        
+        # If this node is being marked as export destination
+        if self.is_export_destination:
+            # Check if another node is already marked as export destination
+            existing_export_destination = RemoteDicomNode.objects.filter(
+                is_export_destination=True
+            ).exclude(pk=self.pk)
+            
+            if existing_export_destination.exists():
+                existing_node = existing_export_destination.first()
+                raise ValidationError({
+                    'is_export_destination': f'Only one remote node can be marked as export destination. '
+                                           f'"{existing_node.name}" is already set as the export destination. '
+                                           f'Please uncheck that node first before setting this one.'
+                })
     
     def save(self, *args, **kwargs):
         """

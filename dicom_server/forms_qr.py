@@ -27,6 +27,7 @@ class RemoteDicomNodeForm(forms.ModelForm):
             'max_pdu_size',
             'move_destination_ae',
             'is_active',
+            'is_export_destination',
             'description',
         ]
         widgets = {
@@ -46,6 +47,7 @@ class RemoteDicomNodeForm(forms.ModelForm):
             'supports_c_move': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'supports_c_get': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
+            'is_export_destination': forms.CheckboxInput(attrs={'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'}),
         }
     
     def clean_incoming_ae_title(self):

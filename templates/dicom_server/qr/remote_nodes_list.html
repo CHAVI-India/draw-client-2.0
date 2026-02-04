@@ -37,6 +37,9 @@
                             {% else %}
                                 <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">Inactive</span>
                             {% endif %}
+                            {% if node.is_export_destination %}
+                                <span class="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 rounded">📤 Export Destination</span>
+                            {% endif %}
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
