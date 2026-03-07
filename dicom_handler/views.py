@@ -1518,6 +1518,11 @@ def series_processing_status(request):
     if status_filter:
         series_queryset = series_queryset.filter(series_processsing_status=status_filter)
     
+    # Rule Group filter
+    rule_group_filter = request.GET.get('rule_group', '').strip()
+    if rule_group_filter:
+        series_queryset = series_queryset.filter(matched_rule_sets__rulegroup__id=rule_group_filter)
+    
     # Date filters
     study_date_from = request.GET.get('study_date_from', '').strip()
     study_date_to = request.GET.get('study_date_to', '').strip()
@@ -1545,6 +1550,9 @@ def series_processing_status(request):
     all_protocols = DICOMSeries.objects.select_related('study').values_list(
         'study__study_protocol', flat=True
     ).distinct().exclude(study__study_protocol__isnull=True).exclude(study__study_protocol='')
+    
+    # Get all rule groups for filter dropdown
+    all_rule_groups = RuleGroup.objects.all().order_by('rulegroup_name')
     
     # Pagination
     paginator = Paginator(series_queryset, 10)  # 10 series per page as requested
@@ -1626,6 +1634,8 @@ def series_processing_status(request):
         'all_genders': sorted(list(set(all_genders))),
         'all_modalities': sorted(list(set(all_modalities))),
         'all_protocols': sorted(list(set(all_protocols))),
+        'all_rule_groups': all_rule_groups,
+        'rule_group_filter': rule_group_filter,
         'processing_statuses': ProcessingStatus.choices,
         'remote_nodes': remote_nodes,
     }

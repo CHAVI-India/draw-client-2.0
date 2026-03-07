@@ -17,7 +17,9 @@ class DicomServerConfig(AppConfig):
         """
         # Only run in the main process, not in management commands or migrations
         import sys
-        if 'runserver' not in sys.argv and 'gunicorn' not in sys.argv[0]:
+        # Check for gunicorn in any argv element (handles 'gunicorn' and 'python -m gunicorn')
+        is_gunicorn = any('gunicorn' in arg for arg in sys.argv)
+        if 'runserver' not in sys.argv and not is_gunicorn:
             return
         
         # Skip if running migrations or if database is not ready
