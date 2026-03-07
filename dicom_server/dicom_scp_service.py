@@ -586,7 +586,16 @@ Can
     
     def _handle_association_released(self, event):
         """Handle association released event."""
-        logger.debug(f"Association released from {event.assoc.requestor.ae_title}")
+        calling_ae = event.assoc.requestor.ae_title
+        logger.debug(f"Association released from {calling_ae}")
+        
+        # Finalize any pending series for this AE Title
+        # This ensures Task2 is triggered for the last series in the transfer
+        from .handlers.c_store_handler import finalize_series_for_ae_title
+        result = finalize_series_for_ae_title(calling_ae)
+        
+        if result.get('triggered_series'):
+            logger.info(f"Finalized series on association release: {result['triggered_series']['series_uid'][:8]}...")
     
     def _handle_association_aborted(self, event):
         """Handle association aborted event."""

@@ -7,6 +7,7 @@ import logging
 import time
 from pathlib import Path
 from datetime import datetime
+from threading import Lock
 
 from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 # Cache configuration for storage checks
 STORAGE_CACHE_KEY = 'dicom_storage_usage_gb'
 STORAGE_CACHE_TIMEOUT = 30  # Cache storage usage for 30 seconds
+
+# Series reception tracking for detecting series completion
+# Structure: {ae_title: {'current_series_uid': str, 'instance_count': int, 'sop_uids': set, 'last_received': datetime}}
+_series_reception_state = {}
+_series_state_lock = Lock()
 
 
 def handle_c_store(service, event):
@@ -230,8 +236,12 @@ def handle_c_store(service, event):
         # The cache will expire naturally after 30 seconds, which is acceptable
         # for performance. Storage usage will be slightly stale but accurate enough.
         
-        # Note: DICOM Handler integration is handled by the dicom_handler app
-        # Files stored here will be automatically picked up by the handler's polling mechanism
+        # Trigger DICOM Handler integration for immediate processing (when ds is available)
+        # This enables immediate processing for C-Store requests, bypassing the 10-minute delay
+        if ds is not None:
+            _trigger_dicom_handler_integration(service, file_path, ds, calling_ae)
+        else:
+            logger.debug("[C-STORE] Skipping immediate processing trigger - DICOM dataset not decoded")
         
         return 0x0000  # Success
         
@@ -474,9 +484,365 @@ def _sanitize_for_filesystem(value):
     return sanitized if sanitized else 'UNKNOWN'
 
 
-def _trigger_dicom_handler_integration(service, file_path, ds):
+def _track_series_reception_and_trigger(ae_title, series_uid, sop_uid, file_path):
+    """
+    Track series reception and trigger Task2 when a series is complete.
+    
+    Machines send series sequentially - when we receive a new Series UID for an AE Title,
+    the previous series is complete and we can trigger Task2 immediately.
+    
+    Args:
+        ae_title: The calling AE Title
+        series_uid: Current series instance UID
+        sop_uid: SOP Instance UID of the received file
+        file_path: Path to the saved DICOM file
+    
+    Returns:
+        dict: Result with information about any triggered series
+    """
+    global _series_reception_state, _series_state_lock
+    
+    triggered_series = None
+    
+    with _series_state_lock:
+        ae_state = _series_reception_state.get(ae_title, {})
+        current_series = ae_state.get('current_series_uid')
+        
+        # If this is a NEW series for this AE Title, the previous one is complete
+        if current_series and current_series != series_uid:
+            # Previous series is complete - trigger Task2
+            logger.info(f"[C-STORE] Series change detected for AE '{ae_title}': "
+                       f"'{current_series[:8]}...' -> '{series_uid[:8]}...'")
+            triggered_series = _trigger_task2_for_series(ae_title, current_series)
+        
+        # Update tracking state for current series
+        if current_series != series_uid:
+            # New series started
+            ae_state = {
+                'current_series_uid': series_uid,
+                'instance_count': 1,
+                'sop_uids': {sop_uid},
+                'last_received': timezone.now(),
+                'file_paths': [file_path]
+            }
+        else:
+            # Continuing same series
+            ae_state['instance_count'] += 1
+            ae_state['sop_uids'].add(sop_uid)
+            ae_state['last_received'] = timezone.now()
+            ae_state['file_paths'].append(file_path)
+        
+        _series_reception_state[ae_title] = ae_state
+        
+        logger.info(f"[C-STORE] AE '{ae_title}' tracking series '{series_uid[:8]}...': "
+                   f"{ae_state['instance_count']} instances received")
+    
+    return {
+        'current_series': series_uid,
+        'instance_count': ae_state['instance_count'],
+        'triggered_series': triggered_series
+    }
+
+
+def _trigger_task2_for_series(ae_title, series_uid):
+    """
+    Trigger the processing chain for a completed series.
+    
+    Marks the series as fully read and triggers Task2->Task3->Task4 chain
+    for autosegmentation, deidentification, and export.
+    
+    Args:
+        ae_title: The calling AE Title
+        series_uid: The completed series instance UID
+    
+    Returns:
+        dict: Trigger result with chain ID
+    """
+    try:
+        from celery import chain
+        from dicom_handler.models import DICOMSeries, ProcessingStatus
+        from dicom_handler.tasks import (
+            task2_match_autosegmentation_template_celery,
+            task3_deidentify_series_celery,
+            task4_export_series_to_api_celery
+        )
+        
+        # Find the series in database
+        try:
+            series = DICOMSeries.objects.get(series_instance_uid=series_uid)
+        except DICOMSeries.DoesNotExist:
+            logger.warning(f"[C-STORE] Cannot trigger chain: Series '{series_uid[:8]}...' not found in database")
+            return {'status': 'error', 'reason': 'series_not_found'}
+        
+        # Mark series as fully read and update status to prevent Task1 reprocessing
+        series.series_files_fully_read = True
+        series.series_processsing_status = ProcessingStatus.RULE_MATCHED  # Chain triggered, not UNPROCESSED
+        series.save()
+        
+        logger.info(f"[C-STORE] Series '{series_uid[:8]}...' marked as complete ({series.instance_count} instances). "
+                   f"Triggering processing chain (Task2→Task3→Task4).")
+        
+        # Prepare series data for Task2 in the format it expects
+        # Task2 expects: {"status": "success", "series_data": [...]}
+        task_input = {
+            "status": "success",
+            'series_data': [{
+                'series_instance_uid': series_uid,
+                'series_root_path': series.series_root_path,
+                'study_instance_uid': series.study.study_instance_uid,
+                'patient_id': series.study.patient.patient_id,
+                'modality': series.study.study_modality,
+                'instance_count': series.instance_count,
+                'first_instance_path': series.dicominstance_set.first().instance_path if series.dicominstance_set.exists() else None
+            }]
+        }
+        
+        # Create the Celery chain: Task2 -> Task3 -> Task4
+        task_chain = chain(
+            task2_match_autosegmentation_template_celery.s(task_input),
+            task3_deidentify_series_celery.s(),
+            task4_export_series_to_api_celery.s()
+        )
+        
+        # Execute the chain
+        async_result = task_chain.apply_async()
+        
+        logger.info(f"[C-STORE] Processing chain triggered for series '{series_uid[:8]}...' with chain_id: {async_result.id}")
+        
+        return {
+            'status': 'triggered',
+            'series_uid': series_uid,
+            'chain_id': async_result.id,
+            'instance_count': series.instance_count
+        }
+        
+    except Exception as e:
+        logger.error(f"[C-STORE] Error triggering chain for series '{series_uid[:8]}...': {str(e)}")
+        return {'status': 'error', 'message': str(e)}
+
+
+def finalize_series_for_ae_title(ae_title):
+    """
+    Finalize any pending series for an AE Title when association closes.
+    
+    Called when a C-STORE association is released to ensure the last series
+    is marked as complete and Task2 is triggered.
+    
+    Args:
+        ae_title: The calling AE Title whose association is closing
+    
+    Returns:
+        dict: Finalization result with triggered series info
+    """
+    global _series_reception_state, _series_state_lock
+    
+    triggered_series = None
+    
+    with _series_state_lock:
+        ae_state = _series_reception_state.get(ae_title)
+        if ae_state:
+            current_series = ae_state.get('current_series_uid')
+            if current_series:
+                logger.info(f"[C-STORE] Association closed for AE '{ae_title}', "
+                           f"finalizing series '{current_series[:8]}...'")
+                triggered_series = _trigger_task2_for_series(ae_title, current_series)
+            
+            # Clear the AE state
+            del _series_reception_state[ae_title]
+    
+    return {
+        'status': 'finalized',
+        'ae_title': ae_title,
+        'triggered_series': triggered_series
+    }
+
+
+def _process_cstore_file_to_database(file_path, ds, ae_title=None):
+    """
+    Process a C-Store DICOM file and create database records.
+    
+    This function creates database records (Patient, Study, Series, Instance) for
+    the incoming DICOM file. When a series change is detected (new Series UID from
+    the same AE Title), it triggers Task2 for the completed series.
+    
+    Args:
+        file_path: Path to the saved DICOM file
+        ds: DICOM dataset (already decoded by handle_c_store)
+        ae_title: The calling AE Title (for series tracking)
+    
+    Returns:
+        dict: Processing result with series information
+    """
+    try:
+        from datetime import datetime
+        from django.db import transaction
+        from dicom_handler.models import (
+            SystemConfiguration, Patient, DICOMStudy, DICOMSeries,
+            DICOMInstance, ProcessingStatus
+        )
+        
+        logger.info(f"[C-STORE] Starting database registration for file: {file_path}")
+        
+        # Validate required tags
+        required_tags = ['PatientID', 'StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'Modality']
+        for tag in required_tags:
+            if not hasattr(ds, tag):
+                logger.warning(f"[C-STORE] Missing required tag {tag}, skipping processing chain trigger")
+                return {"status": "skipped", "reason": f"missing_tag_{tag}"}
+        
+        # Only process CT/MR/PT modalities (same as task1)
+        modality = ds.Modality
+        if modality not in ['CT', 'MR', 'PT']:
+            logger.info(f"[C-STORE] Skipping modality {modality} - not CT/MR/PT")
+            return {"status": "skipped", "reason": "unsupported_modality"}
+        
+        # Extract metadata
+        patient_id = getattr(ds, 'PatientID', '')
+        patient_name = str(getattr(ds, 'PatientName', ''))
+        patient_gender = getattr(ds, 'PatientSex', '')
+        patient_birth_date = getattr(ds, 'PatientBirthDate', None)
+        
+        study_instance_uid = getattr(ds, 'StudyInstanceUID', '')
+        study_date = getattr(ds, 'StudyDate', None)
+        study_time = getattr(ds, 'StudyTime', None)
+        study_description = getattr(ds, 'StudyDescription', '')
+        study_protocol = getattr(ds, 'ProtocolName', '')
+        accession_number = getattr(ds, 'AccessionNumber', '')
+        study_id = getattr(ds, 'StudyID', '')
+        
+        series_instance_uid = getattr(ds, 'SeriesInstanceUID', '')
+        series_date = getattr(ds, 'SeriesDate', None)
+        series_description = getattr(ds, 'SeriesDescription', '')
+        frame_of_reference_uid = getattr(ds, 'FrameOfReferenceUID', '')
+        sop_instance_uid = getattr(ds, 'SOPInstanceUID', '')
+        
+        # Track series reception and trigger Task2 if previous series is complete
+        tracking_result = None
+        if ae_title:
+            tracking_result = _track_series_reception_and_trigger(
+                ae_title, series_instance_uid, sop_instance_uid, file_path
+            )
+        
+        # Get series root path
+        series_root_path = os.path.dirname(file_path)
+        
+        # Convert dates
+        if patient_birth_date:
+            try:
+                patient_birth_date = datetime.strptime(str(patient_birth_date), '%Y%m%d').date()
+            except:
+                patient_birth_date = None
+        
+        if study_date:
+            try:
+                study_date = datetime.strptime(str(study_date), '%Y%m%d').date()
+            except:
+                study_date = None
+        
+        study_time_parsed = None
+        if study_time:
+            try:
+                time_str = str(study_time)
+                if '.' in time_str:
+                    time_str = time_str.split('.')[0]
+                time_str = time_str.ljust(6, '0')
+                study_time_parsed = datetime.strptime(time_str[:6], '%H%M%S').time()
+            except:
+                study_time_parsed = None
+        
+        if series_date:
+            try:
+                series_date = datetime.strptime(str(series_date), '%Y%m%d').date()
+            except:
+                series_date = None
+        
+        # Create database records within transaction
+        with transaction.atomic():
+            # Get or create patient
+            patient, _ = Patient.objects.get_or_create(
+                patient_id=patient_id,
+                defaults={
+                    'patient_name': patient_name,
+                    'patient_gender': patient_gender,
+                    'patient_date_of_birth': patient_birth_date
+                }
+            )
+            
+            # Get or create study
+            study, _ = DICOMStudy.objects.get_or_create(
+                patient=patient,
+                study_instance_uid=study_instance_uid,
+                defaults={
+                    'study_date': study_date,
+                    'study_time': study_time_parsed,
+                    'study_description': study_description,
+                    'study_protocol': study_protocol,
+                    'study_modality': modality,
+                    'accession_number': accession_number,
+                    'study_id': study_id
+                }
+            )
+            
+            # Get or create series
+            series, created = DICOMSeries.objects.get_or_create(
+                study=study,
+                series_instance_uid=series_instance_uid,
+                defaults={
+                    'series_root_path': series_root_path,
+                    'frame_of_reference_uid': frame_of_reference_uid,
+                    'series_description': series_description,
+                    'series_date': series_date,
+                    'series_processsing_status': ProcessingStatus.UNPROCESSED,
+                    'instance_count': 0,
+                    'series_files_fully_read': False
+                }
+            )
+            
+            # Check if instance already exists
+            instance_exists = DICOMInstance.objects.filter(sop_instance_uid=sop_instance_uid).exists()
+            if instance_exists:
+                logger.info(f"[C-STORE] Instance {sop_instance_uid[:8]}... already exists, skipping")
+                return {"status": "skipped", "reason": "duplicate_instance"}
+            
+            # Create instance
+            DICOMInstance.objects.create(
+                series_instance_uid=series,
+                sop_instance_uid=sop_instance_uid,
+                instance_path=file_path
+            )
+            
+            # Update instance count
+            series.instance_count = DICOMInstance.objects.filter(series_instance_uid=series).count()
+            series.save()
+            
+            logger.info(f"[C-STORE] Created/updated series {series_instance_uid[:8]}... with {series.instance_count} instances")
+        
+        # Track series reception state (triggers Task2 when series changes)
+        if tracking_result and tracking_result.get('triggered_series'):
+            triggered = tracking_result['triggered_series']
+            logger.info(f"[C-STORE] Previous series '{triggered['series_uid'][:8]}...' was completed and Task2 triggered")
+        
+        return {
+            "status": "success",
+            "series_uid": series_instance_uid,
+            "instance_count": series.instance_count,
+            "note": "DB records created. Task2 triggered when series changes."
+        }
+        
+    except Exception as e:
+        logger.error(f"[C-STORE] Error in immediate processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+
+def _trigger_dicom_handler_integration(service, file_path, ds, ae_title=None):
     """
     Trigger integration with DICOM Handler processing chain.
+    
+    For C-Store requests, tracks series reception by AE Title and triggers Task2
+    when a series change is detected (indicating the previous series is complete).
+    This avoids the 10-minute delay for sequential series transfers.
     """
     try:
         # Get fresh config for handler integration settings
@@ -505,14 +871,17 @@ def _trigger_dicom_handler_integration(service, file_path, ds):
                 filename = os.path.basename(file_path)
                 dest_path = os.path.join(dest_dir, filename)
                 
-                shutil.copy2(file_path, dest_path)
-                logger.info(f"Copied DICOM file to handler folder: {dest_path}")
+                # Skip copy if source and destination are the same file
+                if os.path.abspath(file_path) == os.path.abspath(dest_path):
+                    logger.debug(f"File already in handler folder, skipping copy: {dest_path}")
+                else:
+                    shutil.copy2(file_path, dest_path)
+                    logger.info(f"Copied DICOM file to handler folder: {dest_path}")
         
         if fresh_config.trigger_processing_chain:
-            # Trigger the DICOM processing chain
-            # This would typically be done via Celery task
-            logger.info("Processing chain trigger configured but not yet implemented")
-            # TODO: Implement Celery task trigger for processing chain
+            # For C-Store requests, immediately process and track series
+            # Task2 is triggered when series change is detected (avoids 10-min delay)
+            _process_cstore_file_to_database(file_path, ds, ae_title)
             
     except Exception as e:
         logger.error(f"Failed to trigger DICOM Handler integration: {str(e)}")

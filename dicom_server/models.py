@@ -283,6 +283,17 @@ class DicomServerConfig(models.Model):
         help_text="Reject and do not store invalid DICOM files."
     )
     
+    # DICOM Handler Integration
+    copy_to_handler_folder = models.BooleanField(
+        default=True,
+        help_text="Copy received DICOM files to the DICOM Handler processing folder for chain processing."
+    )
+    
+    trigger_processing_chain = models.BooleanField(
+        default=True,
+        help_text="Automatically trigger the DICOM processing chain (Task2→Task3→Task4) for C-STORE received series."
+    )
+    
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
