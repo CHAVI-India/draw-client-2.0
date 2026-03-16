@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/1056386905.svg)](https://doi.org/10.5281/zenodo.19044373)
+
 # Welcome
 
 This is a revamped version of the DRAW Client with the following enhancements:
