@@ -6,7 +6,7 @@ authors:
   orcid: https://orcid.org/0000-0003-3580-5979
 - family-names: Maity
   given-names: Sougata
-title: "DRAW Client : A Django Client for client side DICOM processing and deidentification for the Deep learning based Radiotherapy Automatic Segmentation Workflow (DRAW)."
+title: "CHAVI-India/draw-client-2.0: Zenodo Publication (v1.1.2)."
 version: v1.1.2
 date-released: 2026-03-16
                         
