@@ -6,19 +6,7 @@ authors:
   orcid: https://orcid.org/0000-0003-3580-5979
 - family-names: Maity
   given-names: Sougata
-- family-names: Mallick
-  given-names: Indranil
-- family-names: Jayanta
-  given-names: Mukhopadhyay
-- family-names: Bhattacharyya
-  given-names: Tapesh
-- family-names: Moses
-  given-names: Arunsingh
-- family-names: Basu Achari
-  given-names: Rimpa
-- family-names: Chatterjee
-  given-names: Sanjoy
-title: "DRAW Client : A Django Client for DICOM processing  the Deep learning based Radiotherapy Automatic Segmentation Workflow (DRAW)."
+title: "DRAW Client : A Django Client for client side DICOM processing and deidentification for the Deep learning based Radiotherapy Automatic Segmentation Workflow (DRAW)."
 version: v1.1.2
 date-released: 2026-03-16
                         
