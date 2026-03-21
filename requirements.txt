@@ -23,7 +23,7 @@ django-cotton==2.6.2
 django-crispy-forms==2.6
 django-encrypted-model-fields==0.6.5
 django-timezone-field==7.2.1
-django-unfold==0.85.0
+django-unfold==0.86.1
 django_celery_results==2.6.0
 docopt==0.6.2
 dotenv==0.9.9
@@ -51,7 +51,7 @@ prompt_toolkit==3.0.52
 psutil==7.2.2
 psycopg2-binary==2.9.11
 pycparser==3.0
-pydicom==3.0.1
+pydicom==3.0.2
 pykwalify==1.8.0
 pymemcache==4.0.0
 pynetdicom==3.0.4
