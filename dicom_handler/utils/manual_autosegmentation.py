@@ -83,6 +83,13 @@ def get_series_for_manual_selection(series_uids: List[str]) -> Dict[str, Any]:
                 
                 if not series_root_exists:
                     logger.warning(f"Series root path not found on filesystem for series: {mask_sensitive_data(series_uid, 'series_uid')}")
+                else:
+                    logger.info(f"Series root path verified on filesystem for series: {mask_sensitive_data(series_uid, 'series_uid')}")
+                
+                if not first_instance_exists:
+                    logger.warning(f"First instance path not found on filesystem for series: {mask_sensitive_data(series_uid, 'series_uid')}")
+                else:
+                    logger.info(f"First instance path verified on filesystem for series: {mask_sensitive_data(series_uid, 'series_uid')}")
                 
                 series_info = {
                     'series_instance_uid': series_uid,
