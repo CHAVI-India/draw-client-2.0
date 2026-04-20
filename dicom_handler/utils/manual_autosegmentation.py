@@ -18,6 +18,7 @@
 
 import logging
 import json
+import os
 from typing import List, Dict, Any, Optional
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
@@ -75,9 +76,18 @@ def get_series_for_manual_selection(series_uids: List[str]) -> Dict[str, Any]:
                 # Get first DICOM instance to extract metadata
                 first_instance = series.dicominstance_set.first()
                 
+                # Validate filesystem paths
+                series_root_exists = os.path.exists(series.series_root_path) if series.series_root_path else False
+                first_instance_path = first_instance.instance_path if first_instance else None
+                first_instance_exists = os.path.exists(first_instance_path) if first_instance_path else False
+                
+                if not series_root_exists:
+                    logger.warning(f"Series root path not found on filesystem for series: {mask_sensitive_data(series_uid, 'series_uid')}")
+                
                 series_info = {
                     'series_instance_uid': series_uid,
                     'series_root_path': series.series_root_path,
+                    'series_root_path_exists': series_root_exists,
                     'patient_name': series.study.patient.patient_name or 'Unknown',
                     'patient_id': series.study.patient.patient_id or 'Unknown',
                     'study_date': series.study.study_date.strftime('%Y-%m-%d') if series.study.study_date else 'Unknown',
@@ -85,7 +95,8 @@ def get_series_for_manual_selection(series_uids: List[str]) -> Dict[str, Any]:
                     'modality': series.study.study_modality or 'Unknown',
                     'instance_count': series.instance_count or 0,
                     'processing_status': series.series_processsing_status,
-                    'first_instance_path': first_instance.instance_path if first_instance else None
+                    'first_instance_path': first_instance_path,
+                    'first_instance_path_exists': first_instance_exists
                 }
                 
                 series_data.append(series_info)
@@ -172,6 +183,28 @@ def validate_template_associations(template_associations: List[Dict[str, Any]]) 
                 logger.info(f"Template found: {template_id} - {template.template_name}")
             except AutosegmentationTemplate.DoesNotExist:
                 error_msg = f"Template not found: {template_id}"
+                validation_errors.append(error_msg)
+                logger.warning(error_msg)
+                continue
+            
+            # Validate all instance files exist on disk
+            instances = series.dicominstance_set.all()
+            if not instances.exists():
+                error_msg = f"No DICOM instances found for series: {mask_sensitive_data(series_uid, 'series_uid')}"
+                validation_errors.append(error_msg)
+                logger.warning(error_msg)
+                continue
+            
+            missing_files = []
+            for instance in instances:
+                if not instance.instance_path or not os.path.exists(instance.instance_path):
+                    missing_files.append(instance.instance_path or 'None')
+            
+            if missing_files:
+                error_msg = (
+                    f"Series {mask_sensitive_data(series_uid, 'series_uid')} has "
+                    f"{len(missing_files)} missing file(s) on disk out of {instances.count()} total instances"
+                )
                 validation_errors.append(error_msg)
                 logger.warning(error_msg)
                 continue

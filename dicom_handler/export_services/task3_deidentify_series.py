@@ -599,6 +599,8 @@ def deidentify_series(task2_output):
                 
                 if not deidentified_files:
                     logger.error(f"No files were successfully deidentified for series: {mask_sensitive_data(series_uid, 'series_uid')}")
+                    series.series_processsing_status = ProcessingStatus.DEIDENTIFICATION_FAILED
+                    series.save()
                     continue
                 
                 # Create autosegmentation template YAML
