@@ -125,6 +125,15 @@ class ManualAutosegmentationModal {
             clone.querySelector('.series-instance-count').textContent = series.instance_count;
             clone.querySelector('.series-study-description').textContent = series.study_description;
             
+            // Show filesystem warning if files are missing
+            if (series.series_root_path_exists === false || series.first_instance_path_exists === false) {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'mt-2 bg-yellow-50 border border-yellow-200 rounded p-2 text-xs text-yellow-800';
+                warningDiv.innerHTML = '<strong>Warning:</strong> DICOM files for this series may be missing from disk. Processing will fail.';
+                seriesItem.querySelector('.flex-1').appendChild(warningDiv);
+                seriesItem.classList.add('border-yellow-400');
+            }
+            
             // Populate template dropdown
             const templateSelect = clone.querySelector('.template-select');
             this.availableTemplates.forEach(template => {
@@ -159,7 +168,7 @@ class ManualAutosegmentationModal {
         document.getElementById('assigned-count').textContent = assignedCount;
     }
     
-    validateSelections() {
+    async validateSelections() {
         const templateSelects = document.querySelectorAll('.template-select');
         const validationStatus = document.getElementById('validation-status');
         const startButton = document.getElementById('start-processing');
@@ -168,8 +177,13 @@ class ManualAutosegmentationModal {
         let validationErrors = [];
         
         // Clear previous validation states
-        document.querySelectorAll('.template-validation').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.template-validation').forEach(el => {
+            el.classList.add('hidden');
+            // Reset to default message
+            el.querySelector('span').textContent = 'Please select a template';
+        });
         
+        // Client-side: check all templates are selected
         templateSelects.forEach((select, index) => {
             const validationEl = select.parentElement.querySelector('.template-validation');
             
@@ -180,18 +194,51 @@ class ManualAutosegmentationModal {
             }
         });
         
-        // Update validation status
-        if (isValid) {
-            validationStatus.textContent = 'All selections valid ✓';
-            validationStatus.className = 'text-sm text-green-600';
-            startButton.disabled = false;
-        } else {
+        if (!isValid) {
             validationStatus.textContent = `${validationErrors.length} validation error(s)`;
             validationStatus.className = 'text-sm text-red-600';
             startButton.disabled = true;
+            return false;
         }
         
-        return isValid;
+        // Server-side: validate template associations (checks template models, structures, and files on disk)
+        validationStatus.textContent = 'Validating...';
+        validationStatus.className = 'text-sm text-gray-600';
+        startButton.disabled = true;
+        
+        try {
+            const associations = this.collectTemplateAssociations();
+            const response = await fetch('/dicom/api/manual-autosegmentation/validate/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': this.getCSRFToken()
+                },
+                body: JSON.stringify({ template_associations: associations })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                validationStatus.textContent = 'All selections valid ✓';
+                validationStatus.className = 'text-sm text-green-600';
+                startButton.disabled = false;
+                return true;
+            } else {
+                // Display server-side validation errors
+                const serverErrors = data.errors || [data.message || 'Validation failed'];
+                validationStatus.innerHTML = `<span class="font-medium">${serverErrors.length} validation error(s):</span><ul class="list-disc ml-4 mt-1">${serverErrors.map(e => `<li>${e}</li>`).join('')}</ul>`;
+                validationStatus.className = 'text-sm text-red-600';
+                startButton.disabled = true;
+                return false;
+            }
+        } catch (error) {
+            console.error('Error during server validation:', error);
+            validationStatus.textContent = 'Validation request failed. Please try again.';
+            validationStatus.className = 'text-sm text-red-600';
+            startButton.disabled = true;
+            return false;
+        }
     }
     
     collectTemplateAssociations() {
@@ -214,8 +261,9 @@ class ManualAutosegmentationModal {
         return associations;
     }
     
-    showConfirmationModal() {
-        if (!this.validateSelections()) {
+    async showConfirmationModal() {
+        const isValid = await this.validateSelections();
+        if (!isValid) {
             return;
         }
         
@@ -240,16 +288,18 @@ class ManualAutosegmentationModal {
                 })
             });
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
             const data = await response.json();
             
             if (data.status === 'initiated' || data.status === 'success') {
                 this.showProcessingSuccess(data);
             } else {
-                this.showProcessingError(data.message || 'Processing failed');
+                // Build detailed error message from errors array if available
+                let errorMessage = data.message || 'Processing failed';
+                if (data.errors && data.errors.length > 0) {
+                    errorMessage = data.errors.join('\n• ');
+                    errorMessage = '• ' + errorMessage;
+                }
+                this.showProcessingError(errorMessage);
             }
             
         } catch (error) {
@@ -273,7 +323,14 @@ class ManualAutosegmentationModal {
     }
     
     showProcessingError(message) {
-        document.getElementById('processing-error-message').textContent = message;
+        const errorEl = document.getElementById('processing-error-message');
+        // Use innerHTML for bullet-pointed error lists, textContent for plain messages
+        if (message.includes('\n') || message.includes('<')) {
+            errorEl.style.whiteSpace = 'pre-line';
+        } else {
+            errorEl.style.whiteSpace = 'normal';
+        }
+        errorEl.textContent = message;
         document.getElementById('processing-error').classList.remove('hidden');
         document.getElementById('processing-success').classList.add('hidden');
         this.statusModal.classList.remove('hidden');

@@ -196,7 +196,10 @@ class ManualAutosegmentationStartProcessingView(View):
                 return JsonResponse(result)
             else:
                 logger.error(f"Failed to start processing: {result.get('message', 'Unknown error')}")
-                return JsonResponse(result, status=500)
+                # Return 422 for validation errors (e.g. missing files, invalid templates)
+                # and 500 only for unexpected server errors
+                status_code = 422 if result.get('errors') else 500
+                return JsonResponse(result, status=status_code)
                 
         except json.JSONDecodeError:
             logger.error("Invalid JSON in request body")
@@ -400,10 +403,10 @@ def get_available_templates_view(request):
         
         if result['status'] == 'success':
             logger.info(f"Successfully retrieved {len(result['templates'])} templates")
+            return JsonResponse(result)
         else:
             logger.warning(f"Template retrieval had issues: {result.get('message', 'Unknown error')}")
-        
-        return JsonResponse(result)
+            return JsonResponse(result, status=500)
         
     except Exception as e:
         logger.error(f"Unexpected error getting templates: {str(e)}")

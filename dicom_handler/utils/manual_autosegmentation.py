@@ -184,10 +184,35 @@ def validate_template_associations(template_associations: List[Dict[str, Any]]) 
                 logger.warning(error_msg)
                 continue
             
-            # Validate template exists
+            # Validate template exists and has associated models
             try:
                 template = AutosegmentationTemplate.objects.get(id=template_id)
                 logger.info(f"Template found: {template_id} - {template.template_name}")
+                
+                # Validate template has at least one associated model
+                from ..models import AutosegmentationModel, AutosegmentationStructure
+                associated_models = AutosegmentationModel.objects.filter(autosegmentation_template_name=template)
+                if not associated_models.exists():
+                    error_msg = f"Template '{template.template_name}' (ID: {template_id}) has no associated models and cannot be used for autosegmentation"
+                    validation_errors.append(error_msg)
+                    logger.warning(error_msg)
+                    continue
+                
+                # Validate each model has at least one structure mapping
+                template_valid = True
+                for model in associated_models:
+                    structure_count = AutosegmentationStructure.objects.filter(autosegmentation_model=model).count()
+                    if structure_count == 0:
+                        error_msg = f"Template '{template.template_name}' has model '{model.name}' with no structure mappings defined"
+                        validation_errors.append(error_msg)
+                        logger.warning(error_msg)
+                        template_valid = False
+                
+                if not template_valid:
+                    continue
+                
+                logger.info(f"Template '{template.template_name}' validated with {associated_models.count()} model(s)")
+                
             except AutosegmentationTemplate.DoesNotExist:
                 error_msg = f"Template not found: {template_id}"
                 validation_errors.append(error_msg)
@@ -528,12 +553,12 @@ def get_manual_processing_status(series_uids: List[str]) -> Dict[str, Any]:
 
 # Utility functions for frontend integration
 
-def get_available_templates() -> List[Dict[str, Any]]:
+def get_available_templates() -> Dict[str, Any]:
     """
     Get all available autosegmentation templates for dropdown selection
     
     Returns:
-        List of template dictionaries
+        Dictionary with status and list of template dictionaries
     """
     try:
         templates = AutosegmentationTemplate.objects.all().values(
@@ -550,11 +575,19 @@ def get_available_templates() -> List[Dict[str, Any]]:
             })
         
         logger.info(f"Retrieved {len(template_list)} available templates")
-        return template_list
+        return {
+            'status': 'success',
+            'templates': template_list,
+            'total_templates': len(template_list)
+        }
         
     except Exception as e:
         logger.error(f"Error retrieving available templates: {str(e)}")
-        return []
+        return {
+            'status': 'error',
+            'message': str(e),
+            'templates': []
+        }
 
 def cancel_manual_processing(series_uids: List[str]) -> Dict[str, Any]:
     """
