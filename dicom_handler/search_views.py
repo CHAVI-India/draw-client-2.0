@@ -42,27 +42,62 @@ def search_structures(request):
         response.raise_for_status()
         
         api_data = response.json()
-        
+
+        # Define core fields that are displayed in the main table
+        # All other fields from the API will be shown in the expandable details card
+        CORE_STRUCTURE_FIELDS = {
+            'id', 'mapid', 'map_tg263_primary_name', 'Major_Category',
+            'Anatomic_Group', 'Description', 'delineation_modality',
+            'median_dice_score'
+        }
+        CORE_MODEL_FIELDS = {
+            'model_id', 'model_name', 'model_config',
+            'model_trainer_name', 'model_postprocess'
+        }
+        # Internal fields that should never be displayed in the UI
+        INTERNAL_MODEL_FIELDS = {
+            'model_file_paths', 'model_uploaded_to_gpu_server',
+            'date_model_uploaded_to_gpu_server', 'model_uploaded_to_gpu_server_provider',
+            'model_uploaded_to_gpu_server_template_name', 'created_user',
+            'created_date', 'modified_date', 'modified_user',
+            'activate_date', 'model_activate_date', 'is_active',
+            'model_created_date', 'model_modified_date', 'model_activate_date',
+            'model_date_model_activated', 'date_model_activated', 'model_activated_date',
+            'model_date_created', 'model_date_modified', 'date_created', 'date_modified',
+            'model_activation_date', 'model_activated_at', 'model_activation_at',
+            'model_activated_on', 'model_activation_on', 'model_activated_time',
+            'model_activation_time', 'model_active_status', 'active_status',
+            'model_status', 'model_is_active', 'is_model_active', 'model_state'
+        }
+
         # Flatten all structures from all models
         all_structures = []
         for model in api_data:
             if 'modelmap' in model and model['modelmap']:
                 for structure in model['modelmap']:
-                    structure_data = {
-                        'id': structure.get('id'),
-                        'mapid': structure.get('mapid'),
-                        'map_tg263_primary_name': structure.get('map_tg263_primary_name'),
-                        'Major_Category': structure.get('Major_Category'),
-                        'Anatomic_Group': structure.get('Anatomic_Group'),
-                        'Description': structure.get('Description'),
-                        'delineation_modality': structure.get('delineation_modality'),
-                        'median_dice_score': structure.get('median_dice_score'),
-                        'model_id': model.get('model_id'),
-                        'model_name': model.get('model_name'),
-                        'model_config': model.get('model_config'),
-                        'model_trainer_name': model.get('model_trainer_name'),
-                        'model_postprocess': model.get('model_postprocess')
-                    }
+                    # Capture ALL fields from both structure and model dynamically
+                    # This ensures future API fields are automatically available
+                    structure_data = {}
+
+                    # Add all structure fields
+                    if isinstance(structure, dict):
+                        structure_data.update(structure)
+
+                    # Add all model fields with 'model_' prefix (except modelmap)
+                    if isinstance(model, dict):
+                        for key, value in model.items():
+                            if key != 'modelmap':
+                                model_key = f"model_{key}" if not key.startswith('model_') else key
+                                structure_data[model_key] = value
+
+                    # Store metadata for template rendering
+                    # (Using 'detail_fields' and 'core_fields' without underscore prefix
+                    # because Django templates block access to underscore-prefixed attributes)
+                    structure_data['core_fields'] = list(CORE_STRUCTURE_FIELDS | CORE_MODEL_FIELDS)
+                    structure_data['detail_fields'] = [k for k in structure_data.keys()
+                                                        if k not in ('core_fields', 'detail_fields') and
+                                                        k not in (CORE_STRUCTURE_FIELDS | CORE_MODEL_FIELDS | INTERNAL_MODEL_FIELDS)]
+
                     all_structures.append(structure_data)
         
         # Handle search and filters
@@ -109,11 +144,20 @@ def search_structures(request):
         
         # Get selected structures from session
         selected_structures = request.session.get('selected_structures', [])
-        
+
+        # Extract IDs for template checkbox checking
+        selected_structure_ids = []
+        for item in selected_structures:
+            if isinstance(item, dict) and item.get('id'):
+                selected_structure_ids.append(str(item['id']))
+            elif isinstance(item, (str, int)):
+                selected_structure_ids.append(str(item))
+
         # Render the table HTML
         table_html = render_to_string('dicom_handler/structures_table.html', {
             'page_obj': page_obj,
             'selected_structures': selected_structures,
+            'selected_structure_ids': selected_structure_ids,
             'system_config': system_config,
             'search_query': search_query,
             'category_filter': category_filter,
