@@ -1219,26 +1219,34 @@ def edit_template(request, template_id):
             
             if model_filter:
                 filtered_structures = [s for s in filtered_structures if s.get('model_name') == model_filter]
-            
-            # Handle pagination
-            page_number = request.GET.get('page', 1)
-            paginator = Paginator(filtered_structures, 25)
-            page_obj = paginator.get_page(page_number)
-            
+
             # Build a set of selected structure IDs by matching model_id + mapid combinations
             # from database structures to API structures
             selected_structure_ids = []
             for db_structure in current_structures:
                 db_model_id = db_structure.get('model_id')
                 db_mapid = db_structure.get('mapid')
-                
+
                 # Find matching API structure
-                for api_structure in all_structures:
-                    if (api_structure.get('model_id') == db_model_id and 
+                for api_structure in filtered_structures:
+                    if (api_structure.get('model_id') == db_model_id and
                         api_structure.get('mapid') == db_mapid):
                         selected_structure_ids.append(str(api_structure.get('id')))
                         break
-            
+
+            # Sort structures: selected first, then unselected
+            # This puts already-selected template structures at the top for easy editing
+            selected_set = set(selected_structure_ids)
+            filtered_structures = sorted(
+                filtered_structures,
+                key=lambda s: (str(s.get('id')) not in selected_set, s.get('map_tg263_primary_name', ''))
+            )
+
+            # Handle pagination
+            page_number = request.GET.get('page', 1)
+            paginator = Paginator(filtered_structures, 25)
+            page_obj = paginator.get_page(page_number)
+
             return render(request, 'dicom_handler/edit_template.html', {
                 'template': template,
                 'page_obj': page_obj,

@@ -134,11 +134,13 @@ let currentModelFilter = '';
 
 // Load existing selections from template
 try {
-    const existingSelections = {{ selected_structures|safe }};
-    if (Array.isArray(existingSelections)) {
-        existingSelections.forEach(structure => {
-            selectedStructures.add(structure.id.toString());
+    // Load from selected_structure_ids (API IDs for checkbox syncing)
+    const existingIds = {{ selected_structure_ids|safe }};
+    if (Array.isArray(existingIds)) {
+        existingIds.forEach(id => {
+            selectedStructures.add(String(id));
         });
+        console.log('Loaded selected structure IDs:', existingIds);
     }
 } catch (e) {
     console.warn('Could not parse existing selections:', e);
