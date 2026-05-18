@@ -60,14 +60,52 @@ def mask_sensitive_data(data, field_name=""):
     # For file paths, show only filename
     if 'path' in field_name.lower():
         return f"***PATH***/{os.path.basename(str(data))}"
-    
+
     return str(data)
+
+
+ALLOWED_BASE_DIR = os.path.abspath("deidentified_dicom")
+
+
+def validate_zip_file_path(zip_file_path):
+    """
+    Validate that the zip file path is within the allowed base directory.
+    Prevents directory traversal attacks by ensuring the resolved path
+    does not escape the intended directory.
+
+    Returns: (is_valid: bool, error_message: str or None)
+    """
+    if not zip_file_path:
+        return False, "ZIP file path is empty"
+
+    # Normalize the path to resolve any .. or . components
+    try:
+        normalized_path = os.path.abspath(os.path.normpath(zip_file_path))
+    except Exception as e:
+        return False, f"Invalid path format: {str(e)}"
+
+    # Check for path traversal by ensuring the normalized path starts with allowed base
+    if not normalized_path.startswith(ALLOWED_BASE_DIR + os.sep) and normalized_path != ALLOWED_BASE_DIR:
+        return False, f"Path traversal detected: path is outside allowed directory"
+
+    # Check for null bytes which could be used to bypass checks
+    if '\x00' in zip_file_path:
+        return False, "Path contains null bytes"
+
+    return True, None
+
 
 def calculate_file_checksum(file_path):
     """
     Calculate SHA256 checksum of a file
     Returns: Checksum string or None if error
     """
+    # Validate file path to prevent path traversal
+    is_valid, error_msg = validate_zip_file_path(file_path)
+    if not is_valid:
+        logger.error(f"Invalid file path for checksum calculation: {error_msg}")
+        return None
+
     try:
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
@@ -174,14 +212,20 @@ def upload_file_to_api(file_path, checksum, config, session):
     Upload ZIP file to DRAW API server
     Returns: Dictionary with upload result
     """
+    # Validate file path to prevent path traversal
+    is_valid, error_msg = validate_zip_file_path(file_path)
+    if not is_valid:
+        logger.error(f"Invalid file path for upload: {error_msg}")
+        return {'success': False, 'error': f'Invalid file path: {error_msg}'}
+
     upload_url = f"{config.draw_base_url.rstrip('/')}{config.draw_upload_endpoint}"
-    
+
     try:
         # Prepare headers with authentication
         headers = {
             'Authorization': f'Bearer {config.draw_bearer_token}'
         }
-        
+
         # Prepare multipart form data
         with open(file_path, 'rb') as file_obj:
             files = {
@@ -293,6 +337,12 @@ def cleanup_zip_file(file_path):
     """
     Delete ZIP file after successful transfer
     """
+    # Validate file path to prevent path traversal
+    is_valid, error_msg = validate_zip_file_path(file_path)
+    if not is_valid:
+        logger.error(f"Invalid file path for cleanup: {error_msg}")
+        return False
+
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -359,6 +409,14 @@ def export_series_to_api(task3_output):
                     logger.error(f"Database record not found for series {mask_sensitive_data(original_series_uid, 'series_uid')}: {str(e)}")
                     continue
                 
+                # Validate ZIP file path to prevent path traversal attacks
+                is_valid_path, error_message = validate_zip_file_path(zip_file_path)
+                if not is_valid_path:
+                    logger.error(f"Invalid ZIP file path for series {mask_sensitive_data(original_series_uid, 'series_uid')}: {error_message}")
+                    update_series_status(series, ProcessingStatus.FAILED_TRANSFER_TO_DRAW_SERVER)
+                    update_export_record_status(export_record, DICOMFileTransferStatus.FAILED)
+                    continue
+
                 # Check if ZIP file exists
                 if not os.path.exists(zip_file_path):
                     logger.error(f"ZIP file not found: {mask_sensitive_data(zip_file_path, 'file_path')}")

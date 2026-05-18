@@ -519,7 +519,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('input[name="series_id"]').forEach(radio => {
         radio.addEventListener('change', function() {
             if (this.checked) {
-                window.location.href = '?series_id=' + this.value;
+                window.location.href = '?series_id=' + encodeURIComponent(this.value);
             }
         });
     });
