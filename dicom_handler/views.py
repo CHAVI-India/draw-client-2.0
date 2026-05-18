@@ -332,7 +332,8 @@ def save_selections(request):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in save_structures: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 @login_required
 def update_selections(request):
@@ -359,7 +360,8 @@ def update_selections(request):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in update_selections: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 
 @login_required
@@ -461,8 +463,8 @@ def save_template(request):
                     print(f"Created structure: {structure.name} with map_id: {structure.map_id}")
                     
             except Exception as model_error:
-                print(f"Error creating model {model_data.get('model_name')}: {str(model_error)}")
-                return JsonResponse({'success': False, 'error': f'Error saving model data: {str(model_error)}'})
+                logger.error(f"Error creating model {model_data.get('model_name')}: {str(model_error)}")
+                return JsonResponse({'success': False, 'error': 'An error occurred while saving model data'})
         
         # Clear all template data from session after successful creation
         request.session.pop('selected_structures', None)
@@ -479,7 +481,8 @@ def save_template(request):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in save_template: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 
 # RuleSet Management Views
@@ -1297,7 +1300,8 @@ def update_template_info(request, template_id):
     except AutosegmentationTemplate.DoesNotExist:
         return JsonResponse({'success': False, 'error': 'Template not found'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in update_template_info: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 @login_required
 @permission_required('dicom_handler.delete_autosegmentationtemplate', raise_exception=True)
@@ -1321,7 +1325,8 @@ def delete_template(request, template_id):
     except AutosegmentationTemplate.DoesNotExist:
         return JsonResponse({'success': False, 'error': 'Template not found'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in delete_template: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 
 @login_required
@@ -1417,7 +1422,8 @@ def update_template(request, template_id):
                     )
                     
             except Exception as model_error:
-                return JsonResponse({'success': False, 'error': f'Error updating model data: {str(model_error)}'})
+                logger.error(f"Error updating model data: {str(model_error)}")
+                return JsonResponse({'success': False, 'error': 'An error occurred while updating model data'})
         
         # Clear selections from session
         request.session.pop('selected_structures', None)
@@ -1435,7 +1441,8 @@ def update_template(request, template_id):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in update_template: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 
 @login_required
@@ -1458,7 +1465,8 @@ def template_delete(request, template_id):
         })
         
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Error in template_delete: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})
 
 
 @login_required
@@ -1477,9 +1485,10 @@ def get_vr_guidance(request, tag_id):
         })
             
     except Exception as e:
+        logger.error(f"Error in get_vr_guidance: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': str(e)
+            'message': 'An internal server error occurred'
         })
 
 
@@ -2267,9 +2276,10 @@ def check_api_health(request):
             'message': 'Connection error'
         }, status=503)
     except Exception as e:
+        logger.error(f"Error in trigger_dicom_server_tasks: {str(e)}")
         return JsonResponse({
             'status': 'error',
-            'message': str(e)
+            'message': 'An internal server error occurred'
         }, status=500)
 
 @login_required

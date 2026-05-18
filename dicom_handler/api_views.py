@@ -18,6 +18,44 @@ from .models import DICOMSeries, DICOMInstance, RTStructureFileImport
 logger = logging.getLogger(__name__)
 
 
+def sanitize_filename(filename):
+    """
+    Sanitize a filename to prevent path traversal attacks.
+    Removes any directory separators and other dangerous characters.
+    """
+    if not filename:
+        return "unnamed"
+    # Replace directory separators and other potentially dangerous characters
+    sanitized = filename.replace('/', '_').replace('\\', '_').replace('..', '_')
+    # Remove null bytes
+    sanitized = sanitized.replace('\x00', '')
+    # Strip leading/trailing whitespace and dots
+    sanitized = sanitized.strip(' .')
+    return sanitized[:255]  # Limit length
+
+
+def validate_path_within_base(path, base_dir):
+    """
+    Validate that a path is within the allowed base directory.
+    Returns: (is_valid: bool, normalized_path: str or None)
+    """
+    try:
+        base_dir = os.path.abspath(base_dir)
+        normalized_path = os.path.abspath(os.path.normpath(path))
+
+        # Check for null bytes
+        if '\x00' in path:
+            return False, None
+
+        # Ensure the path starts with the base directory
+        if not normalized_path.startswith(base_dir + os.sep) and normalized_path != base_dir:
+            return False, None
+
+        return True, normalized_path
+    except Exception:
+        return False, None
+
+
 @login_required
 @require_http_methods(["POST"])
 def series_export_details(request):
@@ -78,7 +116,7 @@ def series_export_details(request):
         logger.error(f"Error fetching series export details: {str(e)}")
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'An internal server error occurred'
         }, status=500)
 
 
@@ -116,37 +154,59 @@ def export_dicom_series(request):
             
             try:
                 series = DICOMSeries.objects.get(series_instance_uid=series_uid)
-                
-                # Create series subdirectory
-                series_dir = os.path.join(export_dir, f'series_{series_uid[:16]}')
+
+                # Sanitize series_uid to prevent path traversal
+                safe_series_uid = sanitize_filename(series_uid)[:16]
+                series_dir = os.path.join(export_dir, f'series_{safe_series_uid}')
+
+                # Validate series_dir is within export_dir
+                is_valid, validated_path = validate_path_within_base(series_dir, export_dir)
+                if not is_valid:
+                    logger.error(f"Invalid series directory path detected for series: {series_uid}")
+                    continue
+                series_dir = validated_path
                 os.makedirs(series_dir, exist_ok=True)
-                
+
                 # Export images if requested
                 if include_images:
                     instances = DICOMInstance.objects.filter(
                         series_instance_uid=series
                     )
-                    
+
                     for instance in instances:
                         if instance.instance_path and os.path.exists(instance.instance_path):
                             filename = os.path.basename(instance.instance_path)
-                            dest_path = os.path.join(series_dir, filename)
-                            shutil.copy2(instance.instance_path, dest_path)
+                            # Sanitize filename
+                            safe_filename = sanitize_filename(filename)
+                            dest_path = os.path.join(series_dir, safe_filename)
+                            # Validate dest_path is within series_dir
+                            is_valid_dest, validated_dest_path = validate_path_within_base(dest_path, series_dir)
+                            if not is_valid_dest:
+                                logger.warning(f"Invalid destination path detected for file: {filename}")
+                                continue
+                            shutil.copy2(instance.instance_path, validated_dest_path)
                             total_files += 1
-                
+
                 # Export RT structures if requested
                 if include_rtstruct:
                     rt_structs = RTStructureFileImport.objects.filter(
                         deidentified_series_instance_uid=series,
                         reidentified_rt_structure_file_path__isnull=False
                     )
-                    
+
                     for rt_struct in rt_structs:
                         if rt_struct.reidentified_rt_structure_file_path and \
                            os.path.exists(rt_struct.reidentified_rt_structure_file_path):
                             filename = os.path.basename(rt_struct.reidentified_rt_structure_file_path)
-                            dest_path = os.path.join(series_dir, filename)
-                            shutil.copy2(rt_struct.reidentified_rt_structure_file_path, dest_path)
+                            # Sanitize filename
+                            safe_filename = sanitize_filename(filename)
+                            dest_path = os.path.join(series_dir, safe_filename)
+                            # Validate dest_path is within series_dir
+                            is_valid_dest, validated_dest_path = validate_path_within_base(dest_path, series_dir)
+                            if not is_valid_dest:
+                                logger.warning(f"Invalid destination path detected for RT struct: {filename}")
+                                continue
+                            shutil.copy2(rt_struct.reidentified_rt_structure_file_path, validated_dest_path)
                             total_files += 1
                 
             except DICOMSeries.DoesNotExist:
@@ -171,5 +231,5 @@ def export_dicom_series(request):
         logger.error(f"Error exporting DICOM series: {str(e)}")
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'An internal server error occurred during export'
         }, status=500)

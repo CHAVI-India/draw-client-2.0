@@ -21,6 +21,24 @@ from dicom_handler.models import SystemConfiguration
 
 logger = logging.getLogger(__name__)
 
+def _mask_sensitive_data(data, field_name=""):
+    """
+    Mask sensitive data for logging purposes.
+    """
+    if not data:
+        return "***EMPTY***"
+
+    # For UIDs, show only first and last 4 characters
+    if 'uid' in field_name.lower() and len(str(data)) > 8:
+        return f"{str(data)[:4]}...{str(data)[-4:]}"
+
+    # For file paths, show only filename
+    if 'path' in field_name.lower():
+        return f"***PATH***/{os.path.basename(str(data))}"
+
+    return str(data)
+
+
 # Cache configuration for storage checks
 STORAGE_CACHE_KEY = 'dicom_storage_usage_gb'
 STORAGE_CACHE_TIMEOUT = 30  # Cache storage usage for 30 seconds
@@ -681,7 +699,7 @@ def _process_cstore_file_to_database(file_path, ds, ae_title=None):
             DICOMInstance, ProcessingStatus
         )
         
-        logger.info(f"[C-STORE] Starting database registration for file: {file_path}")
+        logger.info(f"[C-STORE] Starting database registration for file: {_mask_sensitive_data(file_path, 'file_path')}")
         
         # Validate required tags
         required_tags = ['PatientID', 'StudyInstanceUID', 'SeriesInstanceUID', 'SOPInstanceUID', 'Modality']
@@ -873,10 +891,10 @@ def _trigger_dicom_handler_integration(service, file_path, ds, ae_title=None):
                 
                 # Skip copy if source and destination are the same file
                 if os.path.abspath(file_path) == os.path.abspath(dest_path):
-                    logger.debug(f"File already in handler folder, skipping copy: {dest_path}")
+                    logger.debug(f"File already in handler folder, skipping copy: {_mask_sensitive_data(dest_path, 'file_path')}")
                 else:
                     shutil.copy2(file_path, dest_path)
-                    logger.info(f"Copied DICOM file to handler folder: {dest_path}")
+                    logger.info(f"Copied DICOM file to handler folder: {_mask_sensitive_data(dest_path, 'file_path')}")
         
         if fresh_config.trigger_processing_chain:
             # For C-Store requests, immediately process and track series

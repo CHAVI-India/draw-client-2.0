@@ -85,13 +85,13 @@ class ManualAutosegmentationSeriesInfoView(View):
             # Get series information
             result = get_series_for_manual_selection(series_uids)
             
-            logger.info(f"get_series_for_manual_selection returned: {result}")
+            logger.info(f"get_series_for_manual_selection returned status: {result.get('status', 'unknown')}")
             
             if result['status'] == 'success':
                 logger.info(f"Successfully retrieved information for {len(result['series_data'])} series")
                 return JsonResponse(result)
             else:
-                logger.error(f"Failed to retrieve series information: {result.get('message', 'Unknown error')}")
+                logger.error(f"Failed to retrieve series information")
                 return JsonResponse(result, status=500)
                 
         except json.JSONDecodeError:
@@ -104,7 +104,7 @@ class ManualAutosegmentationSeriesInfoView(View):
             logger.error(f"Unexpected error in series info retrieval: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -140,7 +140,7 @@ class ManualAutosegmentationValidateView(View):
             if result['status'] == 'success':
                 logger.info(f"Successfully validated {len(result['validated_associations'])} associations")
             else:
-                logger.warning(f"Validation failed with {len(result.get('errors', []))} errors")
+                logger.warning(f"Validation failed with errors")
             
             return JsonResponse(result)
                 
@@ -154,7 +154,7 @@ class ManualAutosegmentationValidateView(View):
             logger.error(f"Unexpected error in validation: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -195,7 +195,7 @@ class ManualAutosegmentationStartProcessingView(View):
                 logger.info(f"Successfully started processing for {len(template_associations)} series")
                 return JsonResponse(result)
             else:
-                logger.error(f"Failed to start processing: {result.get('message', 'Unknown error')}")
+                logger.error(f"Failed to start processing")
                 # Return 422 for validation errors (e.g. missing files, invalid templates)
                 # and 500 only for unexpected server errors
                 status_code = 422 if result.get('errors') else 500
@@ -211,7 +211,7 @@ class ManualAutosegmentationStartProcessingView(View):
             logger.error(f"Unexpected error starting processing: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -247,7 +247,7 @@ class ManualAutosegmentationStatusView(View):
             if result['status'] == 'success':
                 logger.info(f"Successfully retrieved status for {len(result.get('series_status', []))} series")
             else:
-                logger.warning(f"Status retrieval had issues: {result.get('message', 'Unknown error')}")
+                logger.warning(f"Status retrieval had issues")
             
             return JsonResponse(result)
                 
@@ -261,7 +261,7 @@ class ManualAutosegmentationStatusView(View):
             logger.error(f"Unexpected error getting status: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -316,7 +316,7 @@ class ManualAutosegmentationRetryView(View):
                         'message': 'Retry initiated successfully'
                     })
                 else:
-                    logger.error(f"Failed to retry processing: {result.get('message', 'Unknown error')}")
+                    logger.error(f"Failed to retry processing")
                     return JsonResponse(result, status=500)
                     
             except DICOMSeries.DoesNotExist:
@@ -335,7 +335,7 @@ class ManualAutosegmentationRetryView(View):
             logger.error(f"Unexpected error in retry: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -371,7 +371,7 @@ class ManualAutosegmentationCancelView(View):
             if result['status'] == 'success':
                 logger.info(f"Successfully cancelled processing for {result['cancelled_count']} series")
             else:
-                logger.error(f"Failed to cancel processing: {result.get('message', 'Unknown error')}")
+                logger.error(f"Failed to cancel processing")
             
             return JsonResponse(result)
                 
@@ -385,7 +385,7 @@ class ManualAutosegmentationCancelView(View):
             logger.error(f"Unexpected error in cancellation: {str(e)}")
             return JsonResponse({
                 'status': 'error',
-                'message': 'Internal server error'
+                'message': 'An internal server error occurred'
             }, status=500)
 
 
@@ -405,14 +405,14 @@ def get_available_templates_view(request):
             logger.info(f"Successfully retrieved {len(result['templates'])} templates")
             return JsonResponse(result)
         else:
-            logger.warning(f"Template retrieval had issues: {result.get('message', 'Unknown error')}")
+            logger.warning(f"Template retrieval had issues")
             return JsonResponse(result, status=500)
         
     except Exception as e:
         logger.error(f"Unexpected error getting templates: {str(e)}")
         return JsonResponse({
             'status': 'error',
-            'message': 'Internal server error'
+            'message': 'An internal server error occurred'
         }, status=500)
 
 
@@ -433,5 +433,5 @@ def test_api_endpoint(request):
         logger.error(f"Test endpoint error: {str(e)}")
         return JsonResponse({
             'status': 'error',
-            'message': str(e)
+            'message': 'An internal server error occurred'
         }, status=500)

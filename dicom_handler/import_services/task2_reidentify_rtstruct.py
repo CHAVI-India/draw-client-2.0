@@ -40,6 +40,28 @@ from dicom_server.cstore_push_service import send_dicom_files_to_node
 
 logger = logging.getLogger(__name__)
 
+def _mask_sensitive_data(data, field_name=""):
+    """
+    Mask sensitive data for logging purposes.
+    """
+    if not data:
+        return "***EMPTY***"
+
+    # Mask patient identifiable information
+    if any(field in field_name.lower() for field in ['name', 'id', 'birth', 'patient']):
+        return f"***{field_name.upper()}_MASKED***"
+
+    # For UIDs, show only first and last 4 characters
+    if 'uid' in field_name.lower() and len(str(data)) > 8:
+        return f"{str(data)[:4]}...{str(data)[-4:]}"
+
+    # For file paths, show only filename
+    if 'path' in field_name.lower():
+        return f"***PATH***/{os.path.basename(str(data))}"
+
+    return str(data)
+
+
 def _sanitize_filename(filename: str) -> str:
     """
     Sanitize filename by replacing special characters with underscores.
@@ -93,22 +115,22 @@ def reidentify_rtstruct(task_input: Dict[str, Any]) -> Dict[str, Any]:
         with transaction.atomic():
             for file_info in downloaded_files:
                 try:
-                    logger.info(f"Processing RTStructure file: {file_info.get('rtstruct_file_path', 'Unknown')}")
-                    
+                    logger.info(f"Processing RTStructure file: {_mask_sensitive_data(file_info.get('rtstruct_file_path', 'Unknown'), 'file_path')}")
+
                     # Process individual RTStructure file
                     result = _process_rtstruct_file(file_info)
-                    
+
                     if result['success']:
                         processed_count += 1
                         reidentified_files.append(result['file_info'])
-                        logger.info(f"Successfully reidentified RTStructure: {result['file_info']['output_path']}")
+                        logger.info(f"Successfully reidentified RTStructure: {_mask_sensitive_data(result['file_info']['output_path'], 'file_path')}")
                     else:
                         failed_count += 1
                         logger.error(f"Failed to reidentify RTStructure: {result['error']}")
                         
                 except Exception as e:
                     failed_count += 1
-                    logger.error(f"Error processing RTStructure file {file_info.get('rtstruct_file_path', 'Unknown')}: {str(e)}")
+                    logger.error(f"Error processing RTStructure file {_mask_sensitive_data(file_info.get('rtstruct_file_path', 'Unknown'), 'file_path')}: {str(e)}")
                     continue
     
     except Exception as e:
@@ -512,8 +534,8 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         
         logger.info(f"Frame of Reference UID replacements: {frame_of_reference_replacement_count}")
         logger.info(f"Total UID replacements (SOP Instance + Series Instance): {uid_replacement_count}")
-        
-        logger.info(f"Successfully reidentified DICOM tags for patient: ***{patient.patient_id}***")
+
+        logger.info(f"Successfully reidentified DICOM tags for patient: {_mask_sensitive_data(patient.patient_id, 'patient_id')}")
         return ds
         
     except Exception as e:
@@ -548,14 +570,14 @@ def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], 
         # Sanitize patient ID to make it filesystem-safe
         safe_patient_id = _sanitize_filename(patient_id)
         if safe_patient_id != patient_id:
-            logger.info(f"Sanitized patient ID for filename: '{patient_id}' -> '{safe_patient_id}'")
+            logger.info(f"Sanitized patient ID for filename: '{_mask_sensitive_data(patient_id, 'patient_id')}' -> '{safe_patient_id}'")
         filename = f"RS_{safe_patient_id}_DRAW_{timestamp}.dcm"
         output_path = os.path.join(output_dir, filename)
         
         # Save the reidentified file
         ds.save_as(output_path,enforce_file_format=True)
-        
-        logger.info(f"Exported reidentified RTStructure to: {output_path}")
+
+        logger.info(f"Exported reidentified RTStructure to: {_mask_sensitive_data(output_path, 'file_path')}")
         return output_path
         
     except Exception as e:
@@ -721,7 +743,7 @@ def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureF
         
         # Validate file exists
         if not os.path.exists(file_path):
-            logger.error(f"RT Structure file not found for C-STORE export: {file_path}")
+            logger.error(f"RT Structure file not found for C-STORE export: {_mask_sensitive_data(file_path, 'file_path')}")
             result['error'] = 'File not found'
             return result
         

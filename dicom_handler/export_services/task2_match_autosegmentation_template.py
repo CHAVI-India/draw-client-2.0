@@ -50,7 +50,11 @@ def mask_sensitive_data(data, field_name=""):
     # For UIDs, show only first and last 4 characters
     if 'uid' in field_name.lower() and len(str(data)) > 8:
         return f"{str(data)[:4]}...{str(data)[-4:]}"
-    
+
+    # For file paths, show only filename
+    if 'path' in field_name.lower():
+        return f"***PATH***/{os.path.basename(str(data))}"
+
     return str(data)
 
 def get_all_rulegroups_rulesets_and_rules():

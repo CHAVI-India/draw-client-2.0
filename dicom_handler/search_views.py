@@ -1,10 +1,13 @@
 import json
+import logging
 import requests
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.template.loader import render_to_string
 from .models import SystemConfiguration
+
+logger = logging.getLogger(__name__)
 
 @login_required
 def search_structures(request):
@@ -184,6 +187,8 @@ def search_structures(request):
         })
         
     except requests.RequestException as e:
-        return JsonResponse({'success': False, 'error': f'Error fetching API data: {str(e)}'})
+        logger.error(f"Error fetching API data: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An error occurred while fetching data from the API'})
     except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+        logger.error(f"Unexpected error in search_structures: {str(e)}")
+        return JsonResponse({'success': False, 'error': 'An internal server error occurred'})

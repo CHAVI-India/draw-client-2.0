@@ -131,7 +131,7 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
             except Exception as e:
                 file_result['error'] = str(e)
                 results['failed_count'] += 1
-                logger.error(f"Error sending {file_path}: {str(e)}")
+                logger.error(f"Error sending {os.path.basename(file_path)}: {str(e)}")
             
             results['details'].append(file_result)
         

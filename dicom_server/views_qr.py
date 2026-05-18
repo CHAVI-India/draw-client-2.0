@@ -121,7 +121,7 @@ def remote_node_test(request, node_id):
         logger.error(f"Error testing connection to {node.name}: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': f'Error: {str(e)}'
+            'message': 'An error occurred while testing the connection'
         }, status=500)
 
 
@@ -291,7 +291,7 @@ def retrieve_study(request, result_id):
         logger.error(f"Retrieve failed: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': f'Retrieve failed: {str(e)}'
+            'message': 'An error occurred during the retrieve operation'
         }, status=500)
 
 
@@ -352,7 +352,7 @@ def retrieve_series(request, result_id):
         logger.error(f"Retrieve failed: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': f'Retrieve failed: {str(e)}'
+            'message': 'An error occurred during the retrieve operation'
         }, status=500)
 
 
@@ -543,7 +543,7 @@ def cstore_push_send(request, node_id):
         logger.error(f"C-STORE push failed: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': f'Error: {str(e)}'
+            'message': 'An error occurred during C-STORE push'
         }, status=500)
 
 
@@ -567,5 +567,5 @@ def cstore_test_connection(request, node_id):
         logger.error(f"Error testing C-STORE connection to {node.name}: {str(e)}")
         return JsonResponse({
             'success': False,
-            'message': f'Error: {str(e)}'
+            'message': 'An error occurred while testing C-STORE connection'
         }, status=500)

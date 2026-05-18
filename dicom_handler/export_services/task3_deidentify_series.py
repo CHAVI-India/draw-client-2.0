@@ -99,6 +99,42 @@ FIELDS_TO_MASK = [
     'StudyID',  # (0020,0010) - Deidentified separately
 ]
 
+# Allowed base directory for file operations
+ALLOWED_BASE_DIR = os.path.abspath("deidentified_dicom")
+
+
+def validate_path_within_allowed_dir(file_path, allow_base_dir=None):
+    """
+    Validate that the file path is within the allowed base directory.
+    Prevents directory traversal attacks by ensuring the resolved path
+    does not escape the intended directory.
+
+    Returns: (is_valid: bool, error_message: str or None)
+    """
+    if not file_path:
+        return False, "File path is empty"
+
+    # Use default allowed base directory if not specified
+    base_dir = allow_base_dir if allow_base_dir else ALLOWED_BASE_DIR
+    base_dir = os.path.abspath(base_dir)
+
+    # Normalize the path to resolve any .. or . components
+    try:
+        normalized_path = os.path.abspath(os.path.normpath(file_path))
+    except Exception as e:
+        return False, f"Invalid path format: {str(e)}"
+
+    # Check for path traversal by ensuring the normalized path starts with allowed base
+    if not normalized_path.startswith(base_dir + os.sep) and normalized_path != base_dir:
+        return False, f"Path traversal detected: path is outside allowed directory"
+
+    # Check for null bytes which could be used to bypass checks
+    if '\x00' in file_path:
+        return False, "Path contains null bytes"
+
+    return True, None
+
+
 def mask_sensitive_data(data, field_name=""):
     """
     Mask sensitive DICOM data for logging purposes
@@ -183,6 +219,12 @@ def deidentify_dicom_file(file_path, uid_mappings, date_mappings, output_path):
     Returns: Dictionary with deidentified metadata
     """
     try:
+        # Validate output path to prevent path traversal
+        is_valid, error_msg = validate_path_within_allowed_dir(output_path)
+        if not is_valid:
+            logger.error(f"Invalid output path for deidentification: {error_msg}")
+            return None
+
         # Read DICOM file
         dicom_data = pydicom.dcmread(file_path, force=True)
         
@@ -267,6 +309,12 @@ def create_autosegmentation_template_yaml(template_info, output_dir):
     Create autosegmentation template YAML file with proper database structure
     """
     try:
+        # Validate output directory to prevent path traversal
+        is_valid, error_msg = validate_path_within_allowed_dir(output_dir)
+        if not is_valid:
+            logger.error(f"Invalid output directory for YAML creation: {error_msg}")
+            return None
+
         from ..models import AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure
         
         template_id = template_info.get('template_id')
@@ -315,7 +363,7 @@ def create_autosegmentation_template_yaml(template_info, output_dir):
         with open(yaml_path, 'w') as yaml_file:
             yaml.dump(template_data, yaml_file, default_flow_style=False, sort_keys=False)
         
-        logger.info(f"Created autosegmentation template YAML: {yaml_path}")
+        logger.info(f"Created autosegmentation template YAML: {mask_sensitive_data(yaml_path, 'file_path')}")
         return yaml_path
         
     except Exception as e:
@@ -327,6 +375,18 @@ def create_zip_file(source_dir, zip_path):
     Create ZIP file from directory and remove source directory
     """
     try:
+        # Validate source directory to prevent path traversal
+        is_valid, error_msg = validate_path_within_allowed_dir(source_dir)
+        if not is_valid:
+            logger.error(f"Invalid source directory for ZIP creation: {error_msg}")
+            return False
+
+        # Validate ZIP path to prevent path traversal
+        is_valid, error_msg = validate_path_within_allowed_dir(zip_path)
+        if not is_valid:
+            logger.error(f"Invalid ZIP path for ZIP creation: {error_msg}")
+            return False
+
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(source_dir):
                 for file in files:
@@ -337,11 +397,11 @@ def create_zip_file(source_dir, zip_path):
         # Remove source directory after successful ZIP creation
         shutil.rmtree(source_dir)
         
-        logger.info(f"Created ZIP file: {zip_path}")
+        logger.info(f"Created ZIP file: {mask_sensitive_data(zip_path, 'file_path')}")
         return True
         
     except Exception as e:
-        logger.error(f"Error creating ZIP file {zip_path}: {str(e)}")
+        logger.error(f"Error creating ZIP file {mask_sensitive_data(zip_path, 'file_path')}: {str(e)}")
         return False
 
 def update_database_with_deidentified_data(series_uid, uid_mappings, date_mappings, instance_mappings, zip_path=None):
@@ -564,6 +624,15 @@ def deidentify_series(task2_output):
                 # Create output directory for this series with random number to avoid conflicts
                 random_suffix = generate_random_integer(6)
                 series_output_dir = os.path.join(base_output_dir, f"series_{current_series_count}_{series_uid}_{random_suffix}")
+
+                # Validate series_output_dir to prevent path traversal via series_uid
+                is_valid, error_msg = validate_path_within_allowed_dir(series_output_dir)
+                if not is_valid:
+                    logger.error(f"Invalid series output directory for series {mask_sensitive_data(series_uid, 'series_uid')}: {error_msg}")
+                    series.series_processsing_status = ProcessingStatus.DEIDENTIFICATION_FAILED
+                    series.save()
+                    continue
+
                 os.makedirs(series_output_dir, exist_ok=True)
                 
                 # Get all DICOM instances for this series
@@ -578,6 +647,12 @@ def deidentify_series(task2_output):
                 deidentified_files = []
                 
                 for instance in instances:
+                    # Validate instance path before checking existence
+                    is_valid, error_msg = validate_path_within_allowed_dir(instance.instance_path, allow_base_dir='/')
+                    if not is_valid:
+                        logger.warning(f"Invalid instance path detected: {error_msg}")
+                        continue
+
                     if not os.path.exists(instance.instance_path):
                         logger.warning(f"Instance file not found: {mask_sensitive_data(instance.instance_path, 'file_path')}")
                         continue
