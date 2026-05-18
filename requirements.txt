@@ -22,6 +22,7 @@ django-celery-beat==2.9.0
 django-cotton==2.6.2
 django-crispy-forms==2.6
 django-encrypted-model-fields==0.6.5
+django-log-viewer==1.1.8
 django-timezone-field==7.2.1
 django-unfold==0.93.0
 django_celery_results==2.6.0

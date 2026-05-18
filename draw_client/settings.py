@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     'dicom_handler',
     'spatial_overlap',
     'dicom_server',
+    'log_viewer',
 ]
 
 # Crispy Forms Configuration for Tailwind CSS
@@ -453,3 +454,13 @@ LOGGING = {
         },
     },
 }
+
+# Django Log Viewer Configuration
+LOG_VIEWER_FILES_DIR = LOGS_DIR
+LOG_VIEWER_FILES_PATTERN = '*.log*'
+LOG_VIEWER_PAGE_LENGTH = 50  # total log lines per-page
+LOG_VIEWER_MAX_READ_LINES = 10000  # total log lines will be read
+LOG_VIEWER_FILE_LIST_MAX_ITEMS_PER_PAGE = 25  # Max log files loaded in Datatable per page
+LOG_VIEWER_PATTERNS = ['[INFO]', '[DEBUG]', '[WARNING]', '[ERROR]', '[CRITICAL]', '[IMPORT]', '[EXPORT]', '[DICOM]', '[CELERY]']
+LOG_VIEWER_EXCLUDE_TEXT_PATTERN = None  # String regex expression to exclude the log from line
+LOG_VIEWER_FILE_LIST_TITLE = "Application Logs"
