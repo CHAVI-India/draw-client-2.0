@@ -120,7 +120,7 @@ def refresh_bearer_token(config, session):
         logger.error("No token refresh endpoint configured")
         return False
     
-    refresh_url = config.draw_base_url + config.draw_token_refresh_endpoint
+    refresh_url = config.draw_base_url.rstrip('/') + config.draw_token_refresh_endpoint
     
     try:
         headers = {

@@ -66,7 +66,7 @@ def refresh_bearer_token(
         logger.error("No token refresh endpoint configured")
         return False
     
-    refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+    refresh_url = system_config.draw_base_url.rstrip('/') + system_config.draw_token_refresh_endpoint
     
     try:
         headers = {
@@ -246,7 +246,7 @@ def _poll_server_status(
                 return False
         
         # Construct status endpoint URL
-        status_url = system_config.draw_base_url + system_config.draw_status_endpoint.format(
+        status_url = system_config.draw_base_url.rstrip('/') + system_config.draw_status_endpoint.format(
             task_id=export.task_id
         )
         
@@ -313,7 +313,7 @@ def _download_and_validate_rtstruct(
                 return None
         
         # Construct download URL
-        download_url = system_config.draw_base_url + system_config.draw_download_endpoint.format(
+        download_url = system_config.draw_base_url.rstrip('/') + system_config.draw_download_endpoint.format(
             task_id=export.task_id
         )
         
@@ -584,7 +584,7 @@ def _notify_server_receipt(
                 return False
         
         # Construct notify URL
-        notify_url = system_config.draw_base_url + system_config.draw_notify_endpoint.format(
+        notify_url = system_config.draw_base_url.rstrip('/') + system_config.draw_notify_endpoint.format(
             task_id=export.task_id
         )
         

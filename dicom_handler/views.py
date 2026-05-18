@@ -2135,7 +2135,7 @@ def check_api_health(request):
             logger.info("Bearer token expired, attempting refresh before health check")
             if system_config.draw_refresh_token and system_config.draw_token_refresh_endpoint:
                 # Attempt to refresh the token
-                refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+                refresh_url = system_config.draw_base_url.rstrip('/') + system_config.draw_token_refresh_endpoint
                 try:
                     refresh_headers = {
                         'Authorization': f'Bearer {system_config.draw_refresh_token}',
@@ -2177,8 +2177,7 @@ def check_api_health(request):
                     logger.error(f"Error refreshing token during health check: {str(refresh_error)}")
         
         # Construct the health check URL
-        # Note: draw_base_url already has trailing slash
-        api_url = f"{system_config.draw_base_url}api/health"
+        api_url = f"{system_config.draw_base_url.rstrip('/')}/api/health"
         
         headers = {}
         if system_config.draw_bearer_token:
@@ -2191,7 +2190,7 @@ def check_api_health(request):
         if response.status_code == 401:
             logger.info("Received 401 Unauthorized, attempting token refresh")
             if system_config.draw_refresh_token and system_config.draw_token_refresh_endpoint:
-                refresh_url = system_config.draw_base_url + system_config.draw_token_refresh_endpoint
+                refresh_url = system_config.draw_base_url.rstrip('/') + system_config.draw_token_refresh_endpoint
                 try:
                     refresh_headers = {
                         'Authorization': f'Bearer {system_config.draw_refresh_token}',
