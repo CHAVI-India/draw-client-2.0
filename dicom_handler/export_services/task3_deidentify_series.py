@@ -125,7 +125,11 @@ def validate_path_within_allowed_dir(file_path, allow_base_dir=None):
         return False, f"Invalid path format: {str(e)}"
 
     # Check for path traversal by ensuring the normalized path starts with allowed base
-    if not normalized_path.startswith(base_dir + os.sep) and normalized_path != base_dir:
+    # Handle root directory specially - all absolute paths are under root
+    if base_dir == os.sep:
+        if not normalized_path.startswith(os.sep):
+            return False, f"Path traversal detected: path is not absolute"
+    elif not normalized_path.startswith(base_dir + os.sep) and normalized_path != base_dir:
         return False, f"Path traversal detected: path is outside allowed directory"
 
     # Check for null bytes which could be used to bypass checks

@@ -29,7 +29,7 @@ from dicom_handler.models import (
     AutosegmentationStructure, DICOMFileExport, DICOMFileTransferStatus
 )
 from dicom_handler.export_services.task3_deidentify_series import (
-    deidentify_series, generate_deidentified_uids, generate_random_date,
+    deidentify_series, generate_deidentified_series_uids, generate_random_date,
     create_autosegmentation_template_yaml, create_zip_file
 )
 import json
@@ -186,7 +186,7 @@ def test_uid_generation():
     
     # Test UID generation
     original_study_uid = "1.2.3.4.5.6.7.8.9"
-    uids = generate_deidentified_uids(original_study_uid, 1)
+    uids = generate_deidentified_series_uids(original_study_uid, 1)
     
     print("Generated UIDs:")
     print(f"  Study UID: {uids['study_instance_uid']}")
