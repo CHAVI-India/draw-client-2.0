@@ -209,14 +209,23 @@ def _get_exports_ready_for_polling() -> List[DICOMFileExport]:
     
     Returns:
         List of DICOMFileExport objects with COMPLETED transfer status
-        and server_segmentation_status not in excluded statuses
+        and server_segmentation_status not in excluded statuses.
+        Excludes stale TASK_NOT_FOUND records (created > 7 days ago).
     """
+    from datetime import timedelta
+    from django.db.models import F
+    
     excluded_statuses = ["Delivered to Client", "Transfer Completed"]
+    stale_threshold = timezone.now() - timedelta(days=7)
     
     exports = DICOMFileExport.objects.filter(
         deidentified_zip_file_transfer_status=DICOMFileTransferStatus.COMPLETED
     ).exclude(
         server_segmentation_status__in=excluded_statuses
+    ).exclude(
+        # Exclude stale TASK_NOT_FOUND records: status is TASK_NOT_FOUND AND created > 7 days ago
+        server_segmentation_status="TASK_NOT_FOUND",
+        created_at__lt=stale_threshold
     ).select_related('deidentified_series_instance_uid')
     
     return list(exports)
