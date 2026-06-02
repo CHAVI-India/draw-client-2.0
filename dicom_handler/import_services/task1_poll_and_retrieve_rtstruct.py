@@ -279,6 +279,20 @@ def _poll_server_status(
         logger.info(f"Updated status for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {server_status}")
         return True
         
+    except requests.exceptions.HTTPError as e:
+        # Update timestamp to track when last poll attempt was made
+        export.server_segmentation_updated_datetime = timezone.now()
+        if e.response is not None and e.response.status_code == 404:
+            export.server_segmentation_status = "TASK_NOT_FOUND"
+            export.save(update_fields=[
+                'server_segmentation_status',
+                'server_segmentation_updated_datetime'
+            ])
+            logger.warning(f"Task not found (404) for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: Will retry on next poll")
+        else:
+            export.save(update_fields=['server_segmentation_updated_datetime'])
+            logger.warning(f"HTTP error polling status for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {str(e)}")
+        return False
     except requests.exceptions.RequestException as e:
         logger.warning(f"Failed to poll status for task_id ***{export.task_id[:4]}...{export.task_id[-4:]}***: {str(e)}")
         return False

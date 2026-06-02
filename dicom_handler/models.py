@@ -551,6 +551,7 @@ class DICOMFileTransferStatus(models.TextChoices):
     CHECKSUM_MATCH_FAILED = 'CHEKSUM_MATCH_FAILED',"Checksum match failed"
     INVALID_RTSTRUCT_FILE = 'INVALID_RT_STRUCT_FILE',"Invalid RTStructureSet FIle Received"
     RTSTRUCT_RECEIVED = "RTSTRUCT_RECEIVED", "RTStructureSet File Received"
+    TASK_NOT_FOUND = "TASK_NOT_FOUND", "Task Not found at Remote Server"
 
 class DICOMFileExport(models.Model):
     '''
