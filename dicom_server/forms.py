@@ -1,5 +1,5 @@
 from django import forms
-from .models import DicomServerConfig
+from .models import DicomServerConfig, RemoteDicomNode
 
 
 class DicomServerConfigForm(forms.ModelForm):
@@ -100,6 +100,131 @@ class DicomServerConfigForm(forms.ModelForm):
     def clean_ae_title(self):
         """Clean and normalize AE Title: strip whitespace and convert to uppercase."""
         ae_title = self.cleaned_data.get('ae_title', '')
+        if ae_title:
+            ae_title = ae_title.strip().upper()
+        return ae_title
+
+
+class RemoteDicomNodeForm(forms.ModelForm):
+    """
+    Form for Remote DICOM Node configuration with export destination support.
+    """
+    class Meta:
+        model = RemoteDicomNode
+        fields = [
+            'name',
+            'host',
+            'port',
+            'description',
+            'allow_incoming',
+            'incoming_ae_title',
+            'expected_ip',
+            'supports_c_find',
+            'supports_c_move',
+            'supports_c_get',
+            'outgoing_ae_title',
+            'query_retrieve_model',
+            'timeout',
+            'max_pdu_size',
+            'move_destination_ae',
+            'is_export_destination',
+            'is_primary_export_destination',
+            'is_fallback_export_destination',
+            'fallback_export_destination_priority',
+            'is_active',
+        ]
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'e.g., Main PACS Server'
+            }),
+            'host': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'e.g., 192.168.1.100 or pacs.example.com'
+            }),
+            'port': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': '11112'
+            }),
+            'description': forms.Textarea(attrs={
+                'rows': 3,
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'Optional description or notes about this DICOM node'
+            }),
+            'incoming_ae_title': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'REMOTE_AE'
+            }),
+            'outgoing_ae_title': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'REMOTE_AE'
+            }),
+            'expected_ip': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': '192.168.1.100'
+            }),
+            'query_retrieve_model': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+            }),
+            'timeout': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': '30'
+            }),
+            'max_pdu_size': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': '16384'
+            }),
+            'move_destination_ae': forms.TextInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': 'Leave empty to use default'
+            }),
+            'fallback_export_destination_priority': forms.NumberInput(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                'placeholder': '1 (lower = higher priority)',
+                'min': '1'
+            }),
+            'allow_incoming': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'supports_c_find': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'supports_c_move': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'supports_c_get': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'is_export_destination': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'is_primary_export_destination': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'is_fallback_export_destination': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+            'is_active': forms.CheckboxInput(attrs={
+                'class': 'w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500'
+            }),
+        }
+        help_texts = {
+            'is_primary_export_destination': 'Mark this node as the primary export destination for RT Structure files.',
+            'is_fallback_export_destination': 'Mark this node as a fallback export destination. A primary destination must be configured first.',
+            'fallback_export_destination_priority': 'Priority for fallback destinations (1 = highest priority, 2 = second, etc.). Required for fallback destinations.',
+            'timeout': 'Connection timeout in seconds. Lower values enable faster failover for fallback destinations.',
+        }
+    
+    def clean_incoming_ae_title(self):
+        """Clean and normalize incoming AE Title."""
+        ae_title = self.cleaned_data.get('incoming_ae_title', '')
+        if ae_title:
+            ae_title = ae_title.strip().upper()
+        return ae_title
+    
+    def clean_outgoing_ae_title(self):
+        """Clean and normalize outgoing AE Title."""
+        ae_title = self.cleaned_data.get('outgoing_ae_title', '')
         if ae_title:
             ae_title = ae_title.strip().upper()
         return ae_title

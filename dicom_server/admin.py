@@ -189,8 +189,10 @@ class DicomServiceStatusAdmin(admin.ModelAdmin):
 @admin.register(RemoteDicomNode)
 class RemoteDicomNodeAdmin(admin.ModelAdmin):
     list_display = ('name', 'incoming_ae_title', 'outgoing_ae_title', 'host', 'port', 
-                   'allow_incoming', 'is_active', 'last_successful_connection')
-    list_filter = ('is_active', 'allow_incoming', 'supports_c_find', 'supports_c_move', 
+                   'allow_incoming', 'is_primary_export_destination', 'is_fallback_export_destination',
+                   'fallback_export_destination_priority', 'is_active', 'last_successful_connection')
+    list_filter = ('is_active', 'allow_incoming', 'is_primary_export_destination', 
+                   'is_fallback_export_destination', 'supports_c_find', 'supports_c_move', 
                    'supports_c_get', 'query_retrieve_model')
     search_fields = ('name', 'incoming_ae_title', 'outgoing_ae_title', 'host', 'description')
     readonly_fields = ('created_at', 'updated_at', 'last_successful_connection', 
@@ -206,6 +208,14 @@ class RemoteDicomNodeAdmin(admin.ModelAdmin):
         ('Outgoing Query/Retrieve', {
             'fields': ('supports_c_find', 'supports_c_move', 'supports_c_get', 
                       'outgoing_ae_title', 'query_retrieve_model')
+        }),
+        ('Export Destination Configuration', {
+            'fields': ('is_export_destination', 'is_primary_export_destination', 
+                      'is_fallback_export_destination', 'fallback_export_destination_priority'),
+            'description': 'Configure this node as an export destination for RT Structure files. '
+                          'Check "is_export_destination" first, then select either primary or fallback. '
+                          'A primary destination must exist before configuring fallback destinations. '
+                          'Lower priority numbers indicate higher priority (1 = highest priority).'
         }),
         ('Connection Settings', {
             'fields': ('timeout', 'max_pdu_size', 'move_destination_ae')

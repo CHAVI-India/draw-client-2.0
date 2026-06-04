@@ -37,8 +37,14 @@
                             {% else %}
                                 <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">Inactive</span>
                             {% endif %}
-                            {% if node.is_export_destination %}
-                                <span class="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 rounded">📤 Export Destination</span>
+                            {% if node.is_primary_export_destination %}
+                                <span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">Primary Export</span>
+                            {% endif %}
+                            {% if node.is_fallback_export_destination %}
+                                <span class="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">Fallback Priority {{ node.fallback_export_destination_priority }}</span>
+                            {% endif %}
+                            {% if node.is_export_destination and not node.is_primary_export_destination and not node.is_fallback_export_destination %}
+                                <span class="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded">Export Destination</span>
                             {% endif %}
                         </div>
                         

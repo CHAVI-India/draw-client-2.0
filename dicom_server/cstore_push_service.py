@@ -64,6 +64,13 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
         ae = AE(ae_title=calling_ae_title)
         ae.requested_contexts = StoragePresentationContexts
         
+        # Set network timeout from remote node configuration (default 30 seconds)
+        ae.network_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
+        ae.acse_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
+        ae.dimse_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
+        
+        logger.debug(f"Using timeout: {ae.network_timeout} seconds for {remote_node.name}")
+        
         # Associate with destination
         assoc = ae.associate(
             remote_node.host,
@@ -139,11 +146,14 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
         assoc.release()
         logger.info(f"Association released. Sent {results['sent_count']}/{results['total_files']} files")
         
-        # Update remote node last successful connection timestamp
-        remote_node.last_successful_connection = timezone.now()
-        remote_node.save(update_fields=['last_successful_connection'])
+        # Consider success only if ALL files were sent successfully
+        # This ensures proper failover if any file fails during transfer
+        results['success'] = results['sent_count'] == results['total_files'] and results['failed_count'] == 0
         
-        results['success'] = results['sent_count'] > 0
+        # Update remote node last successful connection timestamp only on complete success
+        if results['success']:
+            remote_node.last_successful_connection = timezone.now()
+            remote_node.save(update_fields=['last_successful_connection'])
         
     except Exception as e:
         results['error_message'] = str(e)
@@ -298,6 +308,11 @@ def test_cstore_connection(remote_node, calling_ae_title=None):
         # Create AE and add verification context
         ae = AE(ae_title=calling_ae_title)
         ae.add_requested_context(VerificationSOPClass)
+        
+        # Set network timeout from remote node configuration (default 30 seconds)
+        ae.network_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
+        ae.acse_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
+        ae.dimse_timeout = remote_node.timeout if hasattr(remote_node, 'timeout') and remote_node.timeout else 30
         
         # Attempt association
         assoc = ae.associate(

@@ -688,33 +688,54 @@ def _extract_and_save_voi_data(rtstruct_path: str, rt_import: RTStructureFileImp
     except Exception as e:
         logger.error(f"Error extracting and saving VOI data: {str(e)}")
 
-def _get_export_destination_node():
+def _get_export_destination_nodes():
     """
-    Get the remote DICOM node configured as export destination.
+    Get the list of remote DICOM nodes configured as export destinations.
+    Returns primary destination first, then fallback destinations in priority order.
     
     Returns:
-        RemoteDicomNode instance or None if not configured
+        List of RemoteDicomNode instances in order of priority (primary first, then fallbacks)
     """
     try:
-        export_node = RemoteDicomNode.objects.filter(
-            is_export_destination=True,
+        nodes = []
+        
+        # First, get primary export destination
+        primary_node = RemoteDicomNode.objects.filter(
+            is_primary_export_destination=True,
             is_active=True
         ).first()
         
-        if export_node:
-            logger.info(f"Found export destination node: {export_node.name} ({export_node.host}:{export_node.port})")
+        if primary_node:
+            nodes.append(primary_node)
+            logger.info(f"Found primary export destination: {primary_node.name} ({primary_node.host}:{primary_node.port})")
         else:
-            logger.info("No export destination node configured")
+            logger.warning("No primary export destination configured")
         
-        return export_node
+        # Then, get fallback export destinations ordered by priority (ascending)
+        fallback_nodes = RemoteDicomNode.objects.filter(
+            is_fallback_export_destination=True,
+            is_active=True,
+            fallback_export_destination_priority__isnull=False
+        ).order_by('fallback_export_destination_priority')
+        
+        if fallback_nodes.exists():
+            for node in fallback_nodes:
+                nodes.append(node)
+                logger.info(f"Found fallback export destination (priority {node.fallback_export_destination_priority}): {node.name} ({node.host}:{node.port})")
+        
+        if not nodes:
+            logger.info("No export destination nodes configured")
+        
+        return nodes
     except Exception as e:
-        logger.error(f"Error retrieving export destination node: {str(e)}")
-        return None
+        logger.error(f"Error retrieving export destination nodes: {str(e)}")
+        return []
 
 
 def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureFileImport) -> Dict[str, Any]:
     """
-    Send reidentified RT Structure file to configured export destination via C-STORE.
+    Send reidentified RT Structure file to configured export destinations via C-STORE.
+    Tries primary destination first, then fallback destinations in priority order.
     
     Args:
         file_path: Path to the reidentified RT Structure file
@@ -727,19 +748,19 @@ def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureF
         'success': False,
         'sent': False,
         'error': None,
-        'node_name': None
+        'node_name': None,
+        'attempted_nodes': [],
+        'failed_nodes': []
     }
     
     try:
-        # Get export destination node
-        export_node = _get_export_destination_node()
+        # Get export destination nodes (primary + fallbacks in priority order)
+        export_nodes = _get_export_destination_nodes()
         
-        if not export_node:
+        if not export_nodes:
             logger.info("No export destination configured - skipping C-STORE export")
             result['error'] = 'No export destination configured'
             return result
-        
-        result['node_name'] = export_node.name
         
         # Validate file exists
         if not os.path.exists(file_path):
@@ -747,34 +768,76 @@ def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureF
             result['error'] = 'File not found'
             return result
         
-        # Send file via C-STORE
-        logger.info(f"Sending RT Structure file to export destination: {export_node.name}")
-        logger.info(f"File: {os.path.basename(file_path)}")
-        
-        cstore_result = send_dicom_files_to_node(
-            remote_node=export_node,
-            file_paths=[file_path],
-            calling_ae_title=None  # Will use default from DicomServerConfig
-        )
-        
-        if cstore_result['success'] and cstore_result['sent_count'] > 0:
-            result['success'] = True
-            result['sent'] = True
-            logger.info(f"Successfully sent RT Structure to {export_node.name} via C-STORE")
+        # Try each export destination in order (primary first, then fallbacks by priority)
+        for idx, export_node in enumerate(export_nodes):
+            node_type = "primary" if export_node.is_primary_export_destination else f"fallback (priority {export_node.fallback_export_destination_priority})"
+            result['attempted_nodes'].append({
+                'name': export_node.name,
+                'type': node_type
+            })
             
-            # Update RTStructureFileImport with export info
-            rt_import.exported_to_remote_node = True
-            rt_import.export_node_name = export_node.name
-            rt_import.export_datetime = timezone.now()
-            rt_import.save(update_fields=['exported_to_remote_node', 'export_node_name', 'export_datetime'])
-        else:
-            result['error'] = cstore_result.get('error_message', 'C-STORE failed')
-            logger.error(f"Failed to send RT Structure to {export_node.name}: {result['error']}")
-            logger.error(f"C-STORE details - Sent: {cstore_result['sent_count']}, Failed: {cstore_result['failed_count']}")
+            try:
+                # Send file via C-STORE
+                logger.info(f"Attempting to send RT Structure file to {node_type} destination: {export_node.name}")
+                logger.info(f"File: {os.path.basename(file_path)}")
+                
+                cstore_result = send_dicom_files_to_node(
+                    remote_node=export_node,
+                    file_paths=[file_path],
+                    calling_ae_title=None  # Will use default from DicomServerConfig
+                )
+                
+                if cstore_result['success'] and cstore_result['sent_count'] > 0:
+                    result['success'] = True
+                    result['sent'] = True
+                    result['node_name'] = export_node.name
+                    logger.info(f"Successfully sent RT Structure to {export_node.name} ({node_type}) via C-STORE")
+                    
+                    # Update RTStructureFileImport with export info
+                    rt_import.exported_to_remote_node = True
+                    rt_import.export_node_name = export_node.name
+                    rt_import.export_datetime = timezone.now()
+                    rt_import.save(update_fields=['exported_to_remote_node', 'export_node_name', 'export_datetime'])
+                    
+                    # Success! No need to try fallback nodes
+                    return result
+                else:
+                    # Failed to send to this node, try next one
+                    error_msg = cstore_result.get('error_message', 'C-STORE failed')
+                    result['failed_nodes'].append({
+                        'name': export_node.name,
+                        'type': node_type,
+                        'error': error_msg
+                    })
+                    logger.warning(f"Failed to send RT Structure to {export_node.name} ({node_type}): {error_msg}")
+                    logger.warning(f"C-STORE details - Sent: {cstore_result['sent_count']}, Failed: {cstore_result['failed_count']}")
+                    
+                    # Continue to next node if available
+                    if idx < len(export_nodes) - 1:
+                        logger.info(f"Trying next export destination...")
+                    
+            except Exception as node_error:
+                # Error with this specific node, try next one
+                error_msg = str(node_error)
+                result['failed_nodes'].append({
+                    'name': export_node.name,
+                    'type': node_type,
+                    'error': error_msg
+                })
+                logger.error(f"Error sending RT Structure to {export_node.name} ({node_type}): {error_msg}", exc_info=True)
+                
+                # Continue to next node if available
+                if idx < len(export_nodes) - 1:
+                    logger.info(f"Trying next export destination...")
+        
+        # If we get here, all nodes failed
+        result['error'] = f"Failed to send to all configured export destinations ({len(export_nodes)} nodes attempted)"
+        logger.error(result['error'])
+        logger.error(f"Failed nodes: {result['failed_nodes']}")
         
     except Exception as e:
         result['error'] = str(e)
-        logger.error(f"Error sending RT Structure to export destination: {str(e)}", exc_info=True)
+        logger.error(f"Error in export destination workflow: {str(e)}", exc_info=True)
     
     return result
 

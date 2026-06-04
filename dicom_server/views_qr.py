@@ -53,10 +53,17 @@ def remote_node_add(request):
         config = DicomServerConfig.objects.get_or_create(pk=1)[0]
         form = RemoteDicomNodeForm(initial={'move_destination_ae': config.ae_title})
     
+    # Check if any primary export destination exists
+    has_primary_export_node = RemoteDicomNode.objects.filter(
+        is_primary_export_destination=True,
+        is_active=True
+    ).exists()
+    
     context = {
         'form': form,
         'page_title': 'Add Remote DICOM Node',
         'action': 'Add',
+        'has_primary_export_node': has_primary_export_node,
     }
     return render(request, 'dicom_server/qr/remote_node_form.html', context)
 
@@ -75,11 +82,24 @@ def remote_node_edit(request, node_id):
     else:
         form = RemoteDicomNodeForm(instance=node)
     
+    # Check if any OTHER primary export destination exists (excluding current node)
+    # This allows editing a primary node to become fallback if other primaries exist
+    has_primary_export_node = RemoteDicomNode.objects.filter(
+        is_primary_export_destination=True,
+        is_active=True
+    ).exclude(pk=node_id).exists()
+    
+    # If this node itself is primary, we should allow fallback selection
+    # (though validation will prevent it, this is for UI logic)
+    if node.is_primary_export_destination:
+        has_primary_export_node = True
+    
     context = {
         'form': form,
         'node': node,
         'page_title': f'Edit {node.name}',
         'action': 'Update',
+        'has_primary_export_node': has_primary_export_node,
     }
     return render(request, 'dicom_server/qr/remote_node_form.html', context)
 

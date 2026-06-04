@@ -48,16 +48,57 @@
                     </label>
                     <p class="text-xs text-gray-500 -mt-2 ml-8">Uncheck to temporarily disable without deleting the configuration</p>
                     
-                    <div class="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                </div>
+            </div>
+
+            <!-- Export Destination Configuration -->
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Export Destination Configuration</h2>
+                <div class="space-y-4">
+                    <!-- Master Switch -->
+                    <div>
                         <label class="flex items-center space-x-3">
                             {{ form.is_export_destination }}
-                            <span class="text-sm font-medium text-gray-700">Set as Export Destination for RT Structure Files</span>
+                            <span class="text-sm font-medium text-gray-700">Enable as Export Destination for RT Structure Files</span>
                         </label>
                         {% if form.is_export_destination.errors %}
-                            <p class="text-red-600 text-sm mt-2">{{ form.is_export_destination.errors.0 }}</p>
+                            <p class="text-red-600 text-sm mt-1 ml-8">{{ form.is_export_destination.errors.0 }}</p>
                         {% endif %}
-                        <p class="text-xs text-gray-500 mt-2 ml-8">{{ form.is_export_destination.help_text }}</p>
-                        <p class="text-xs text-amber-700 mt-2 ml-8 font-medium">⚠️ Note: Only ONE remote node can be marked as the export destination at a time.</p>
+                        <p class="text-xs text-gray-500 mt-1 ml-8">Check this to enable this node as an export destination, then configure as primary or fallback below</p>
+                    </div>
+
+                    <!-- Primary/Fallback Options (hidden by default) -->
+                    <div id="exportDestinationOptions" style="display: none;" class="ml-8 space-y-4 pl-4 border-l-2 border-gray-300">
+                        <div>
+                            <label class="flex items-center space-x-3">
+                                {{ form.is_primary_export_destination }}
+                                <span class="text-sm font-medium text-gray-700">Primary Export Destination</span>
+                            </label>
+                            {% if form.is_primary_export_destination.errors %}
+                                <p class="text-red-600 text-sm mt-1 ml-8">{{ form.is_primary_export_destination.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1 ml-8">The first choice for exporting RT Structure files</p>
+                        </div>
+
+                        <div>
+                            <label class="flex items-center space-x-3">
+                                {{ form.is_fallback_export_destination }}
+                                <span class="text-sm font-medium text-gray-700">Fallback Export Destination</span>
+                            </label>
+                            {% if form.is_fallback_export_destination.errors %}
+                                <p class="text-red-600 text-sm mt-1 ml-8">{{ form.is_fallback_export_destination.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1 ml-8">Used if the primary destination is unavailable</p>
+                        </div>
+
+                        <div id="fallbackPriorityField" style="display: none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Fallback Priority</label>
+                            {{ form.fallback_export_destination_priority }}
+                            {% if form.fallback_export_destination_priority.errors %}
+                                <p class="text-red-600 text-sm mt-1">{{ form.fallback_export_destination_priority.errors.0 }}</p>
+                            {% endif %}
+                            <p class="text-xs text-gray-500 mt-1">Lower numbers indicate higher priority (1 is tried first, then 2, then 3, etc.)</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -205,4 +246,88 @@
         </div>
     </form>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const exportDestCheckbox = document.querySelector('input[name="is_export_destination"]');
+    const primaryCheckbox = document.querySelector('input[name="is_primary_export_destination"]');
+    const fallbackCheckbox = document.querySelector('input[name="is_fallback_export_destination"]');
+    const priorityField = document.getElementById('fallbackPriorityField');
+    const exportOptions = document.getElementById('exportDestinationOptions');
+    
+    // Check if a primary export destination exists (passed from Django view)
+    const hasPrimaryNode = {{ has_primary_export_node|yesno:"true,false" }};
+    
+    function updateExportDestinationUI(isInitialLoad = false) {
+        // Show/hide export options based on master switch
+        if (exportDestCheckbox.checked) {
+            exportOptions.style.display = 'block';
+        } else {
+            exportOptions.style.display = 'none';
+            // Only uncheck sub-options if this is a user action (not initial load)
+            if (!isInitialLoad) {
+                primaryCheckbox.checked = false;
+                fallbackCheckbox.checked = false;
+            }
+            priorityField.style.display = 'none';
+            return; // Don't process further if master is unchecked
+        }
+        
+        // Handle primary checkbox
+        if (primaryCheckbox.checked) {
+            // Disable fallback if primary is checked
+            fallbackCheckbox.disabled = true;
+            // Only uncheck fallback if this is a user action (not initial load)
+            if (!isInitialLoad) {
+                fallbackCheckbox.checked = false;
+            }
+            priorityField.style.display = 'none';
+        } else {
+            // Check if we can enable fallback
+            // Fallback can only be enabled if:
+            // 1. Primary is not checked on this node, AND
+            // 2. A primary node exists in the system OR this node is currently primary (being edited)
+            const canEnableFallback = hasPrimaryNode || (isInitialLoad && primaryCheckbox.checked);
+            fallbackCheckbox.disabled = !canEnableFallback;
+            
+            // Add visual feedback if fallback is disabled
+            const fallbackLabel = fallbackCheckbox.closest('div');
+            if (!canEnableFallback && fallbackLabel) {
+                const helpText = fallbackLabel.querySelector('.text-gray-500');
+                if (helpText) {
+                    helpText.textContent = 'A primary export destination must be configured before adding fallback destinations';
+                    helpText.classList.add('text-red-600');
+                    helpText.classList.remove('text-gray-500');
+                }
+            }
+        }
+        
+        // Show/hide priority field based on fallback checkbox
+        if (fallbackCheckbox.checked) {
+            priorityField.style.display = 'block';
+            // Disable primary if fallback is checked
+            primaryCheckbox.disabled = true;
+        } else {
+            priorityField.style.display = 'none';
+            if (!primaryCheckbox.checked) {
+                primaryCheckbox.disabled = false;
+            }
+        }
+    }
+    
+    // Initial state - pass true to indicate this is initial load
+    updateExportDestinationUI(true);
+    
+    // Event listeners - pass false for user actions
+    exportDestCheckbox.addEventListener('change', function() {
+        updateExportDestinationUI(false);
+    });
+    primaryCheckbox.addEventListener('change', function() {
+        updateExportDestinationUI(false);
+    });
+    fallbackCheckbox.addEventListener('change', function() {
+        updateExportDestinationUI(false);
+    });
+});
+</script>
 {% endblock %}

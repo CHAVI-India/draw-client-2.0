@@ -950,6 +950,20 @@ class RemoteDicomNode(models.Model):
         help_text="Whether this node is an export destination for exporting RTStructureSet Files after the segmentation has been completed."
     )
 
+    is_primary_export_destination = models.BooleanField(
+        default=False,
+        help_text = "Weather this node is the default export destionation for RTStructureSet File after segmentation has been completed")
+    
+    is_fallback_export_destination = models.BooleanField(
+        default = False,
+        help_text = "Weather this node is the fall back export destination in case the default destination is not reachable."
+    )
+    fallback_export_destination_priority = models.PositiveIntegerField(
+        null = True, 
+        blank = True,
+        help_text = "If this is a fallback export destinaton, then select the priority. A lower number indicates a higher priority for the fallback export destination choice."
+    )
+
     # Metadata
     description = models.TextField(
         blank=True,
@@ -967,6 +981,32 @@ class RemoteDicomNode(models.Model):
         ordering = ['name']
         verbose_name = "Remote DICOM Node"
         verbose_name_plural = "Remote DICOM Nodes"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_primary_export_destination=False) | 
+                    models.Q(is_export_destination=True)
+                ),
+                name='primary_requires_export_destination',
+                violation_error_message='Primary export destination can only be set if the node is marked as an export destination.'
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_fallback_export_destination=False) | 
+                    models.Q(is_export_destination=True)
+                ),
+                name='fallback_requires_export_destination',
+                violation_error_message='Fallback export destination can only be set if the node is marked as an export destination.'
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_primary_export_destination=False) | 
+                    models.Q(is_fallback_export_destination=False)
+                ),
+                name='not_both_primary_and_fallback',
+                violation_error_message='A node cannot be both primary and fallback export destination.'
+            ),
+        ]
     
     def __str__(self):
         ae_display = []
@@ -996,6 +1036,81 @@ class RemoteDicomNode(models.Model):
                     'is_export_destination': f'Only one remote node can be marked as export destination. '
                                            f'"{existing_node.name}" is already set as the export destination. '
                                            f'Please uncheck that node first before setting this one.'
+                })
+        
+        # Constraint 0: Primary/Fallback can only be set if is_export_destination is True
+        if (self.is_primary_export_destination or self.is_fallback_export_destination) and not self.is_export_destination:
+            raise ValidationError(
+                'A node must be marked as an export destination before it can be designated as primary or fallback. '
+                'Please check "Set as Export Destination for RT Structure Files" first.'
+            )
+        
+        # Constraint 1: A node cannot be both primary and fallback destination
+        if self.is_primary_export_destination and self.is_fallback_export_destination:
+            raise ValidationError(
+                'A remote DICOM node cannot be both a primary and fallback export destination at the same time. '
+                'Please select only one option.'
+            )
+        
+        # Constraint 2: Ensure a primary destination exists before allowing fallback destinations
+        if self.is_fallback_export_destination:
+            # Check if there's at least one OTHER primary export destination
+            # (exclude current node in case user is changing from primary to fallback)
+            primary_exists = RemoteDicomNode.objects.filter(
+                is_primary_export_destination=True
+            ).exclude(pk=self.pk).exists()
+            
+            if not primary_exists:
+                raise ValidationError(
+                    'A primary export destination must be designated before any fallback export destinations can be configured. '
+                    'Please set another remote DICOM node as the primary export destination first, or keep this node as primary.'
+                )
+        
+        # Constraint 2b: Prevent removing the last primary destination
+        # If this node WAS a primary destination and is being changed to NOT primary
+        if self.pk:  # Only check for existing nodes (not new ones)
+            try:
+                old_instance = RemoteDicomNode.objects.get(pk=self.pk)
+                # If changing from primary to non-primary
+                if old_instance.is_primary_export_destination and not self.is_primary_export_destination:
+                    # Check if there are other primary destinations
+                    other_primary_exists = RemoteDicomNode.objects.filter(
+                        is_primary_export_destination=True
+                    ).exclude(pk=self.pk).exists()
+                    
+                    if not other_primary_exists:
+                        raise ValidationError(
+                            'Cannot remove the last primary export destination. '
+                            'Please designate another remote DICOM node as the primary export destination first.'
+                        )
+            except RemoteDicomNode.DoesNotExist:
+                # New instance, no need to check
+                pass
+        
+        # Constraint 3: If it is a fallback export destination, priority must be set
+        if self.is_fallback_export_destination and self.fallback_export_destination_priority is None:
+            raise ValidationError({
+                'fallback_export_destination_priority': 'Fallback export destination priority must be set when this node is marked as a fallback export destination.'
+            })
+        
+        # Constraint 4: If priority is set but not a fallback destination, clear the priority
+        if not self.is_fallback_export_destination and self.fallback_export_destination_priority is not None:
+            raise ValidationError({
+                'fallback_export_destination_priority': 'Fallback export destination priority should only be set for fallback export destinations.'
+            })
+        
+        # Constraint 5: Two remote dicom nodes should not have the same destination priority
+        if self.is_fallback_export_destination and self.fallback_export_destination_priority is not None:
+            duplicate_priority = RemoteDicomNode.objects.filter(
+                is_fallback_export_destination=True,
+                fallback_export_destination_priority=self.fallback_export_destination_priority
+            ).exclude(pk=self.pk)
+            
+            if duplicate_priority.exists():
+                existing_node = duplicate_priority.first()
+                raise ValidationError({
+                    'fallback_export_destination_priority': f'Another fallback export destination "{existing_node.name}" already has priority {self.fallback_export_destination_priority}. '
+                                                           f'Each fallback destination must have a unique priority.'
                 })
     
     def save(self, *args, **kwargs):
