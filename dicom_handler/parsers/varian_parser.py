@@ -101,7 +101,7 @@ class VarianEclipseParser(BaseTemplateParser):
         
         for struct_elem in structure_elements:
             structure_id = struct_elem.get('ID', '')
-            structure_name = struct_elem.get('Name', '') or structure_id
+            structure_name = structure_id or struct_elem.get('Name', '')
             
             # Get VolumeType from Identification section
             volume_type_elem = struct_elem.find('.//VolumeType')
