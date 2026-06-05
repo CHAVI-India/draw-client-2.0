@@ -33,7 +33,7 @@ from pydicom.errors import InvalidDicomError
 from ..models import (
     DICOMSeries, DICOMStudy, Patient, DICOMInstance, RTStructureFileImport,
     RTStructureFileVOIData,
-    ProcessingStatus, AutosegmentationStructure, StructureProperties
+    ProcessingStatus, AutosegmentationStructure, StructureProperties, AdditionalStructures
 )
 from dicom_server.models import RemoteDicomNode
 from dicom_server.cstore_push_service import send_dicom_files_to_node
@@ -527,6 +527,12 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
             
         except Exception as e:
             logger.error(f"Error updating ROI properties: {str(e)}", exc_info=True)
+        
+        # Add AdditionalStructures as empty ROIs
+        try:
+            _add_additional_structures_to_rtstruct(ds, series_data, roi_name_to_number_map)
+        except Exception as e:
+            logger.error(f"Error adding additional structures: {str(e)}", exc_info=True)
 
 
         ds.walk(frame_of_reference_callback)
@@ -541,6 +547,152 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
     except Exception as e:
         logger.error(f"Error reidentifying DICOM tags: {str(e)}")
         return None
+
+def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dict[str, Any], roi_name_to_number_map: Dict[str, int]) -> None:
+    """
+    Add AdditionalStructures as empty ROIs to the RT Structure Set.
+    
+    This function:
+    1. Retrieves AdditionalStructures linked to the matched templates
+    2. Creates empty ROI entries in StructureSetROISequence
+    3. Creates empty contour entries in ROIContourSequence
+    4. Creates observation entries in RTROIObservationsSequence
+    
+    Note: The actual contour generation logic (roi_generation_logic field) 
+    will be implemented as pluggable steps in future enhancements.
+    
+    Args:
+        ds: pydicom Dataset of RT Structure Set
+        series_data: Dict containing series, study, patient data
+        roi_name_to_number_map: Dict mapping ROI names to ROI numbers
+    """
+    try:
+        series = series_data['series']
+        
+        # Get matched templates for this series
+        matched_templates = series.matched_templates.all()
+        
+        if not matched_templates:
+            logger.info("No matched templates found for series - skipping additional structures")
+            return
+        
+        logger.info(f"Found {len(matched_templates)} matched template(s) for series")
+        
+        # Collect all additional structures from matched templates
+        additional_structures = []
+        for template in matched_templates:
+            template_structures = AdditionalStructures.objects.filter(
+                autosegmentation_template=template
+            ).order_by('roi_label')
+            
+            additional_structures.extend(template_structures)
+            logger.info(f"Template '{template.template_name}': {len(template_structures)} additional structure(s)")
+        
+        if not additional_structures:
+            logger.info("No additional structures found - skipping")
+            return
+        
+        logger.info(f"Adding {len(additional_structures)} additional structure(s) as empty ROIs")
+        
+        # Get the current maximum ROI number
+        max_roi_number = 0
+        if hasattr(ds, 'StructureSetROISequence') and ds.StructureSetROISequence:
+            for roi_item in ds.StructureSetROISequence:
+                if hasattr(roi_item, 'ROINumber'):
+                    max_roi_number = max(max_roi_number, roi_item.ROINumber)
+        
+        logger.debug(f"Current maximum ROI number: {max_roi_number}")
+        
+        # Initialize sequences if they don't exist
+        if not hasattr(ds, 'StructureSetROISequence') or ds.StructureSetROISequence is None:
+            ds.StructureSetROISequence = pydicom.Sequence()
+        if not hasattr(ds, 'ROIContourSequence') or ds.ROIContourSequence is None:
+            ds.ROIContourSequence = pydicom.Sequence()
+        if not hasattr(ds, 'RTROIObservationsSequence') or ds.RTROIObservationsSequence is None:
+            ds.RTROIObservationsSequence = pydicom.Sequence()
+        
+        added_count = 0
+        skipped_count = 0
+        
+        # Add each additional structure as an empty ROI
+        for additional_struct in additional_structures:
+            roi_label = additional_struct.roi_label
+            
+            # Check if ROI with this name already exists
+            if roi_label in roi_name_to_number_map:
+                logger.warning(f"ROI '{roi_label}' already exists in RT Structure Set - skipping")
+                skipped_count += 1
+                continue
+            
+            # Assign new ROI number
+            max_roi_number += 1
+            roi_number = max_roi_number
+            
+            # Add to name mapping
+            roi_name_to_number_map[roi_label] = roi_number
+            
+            # 1. Add to StructureSetROISequence
+            structure_set_roi = pydicom.Dataset()
+            structure_set_roi.ROINumber = roi_number
+            structure_set_roi.ReferencedFrameOfReferenceUID = ds.ReferencedFrameOfReferenceSequence[0].FrameOfReferenceUID if hasattr(ds, 'ReferencedFrameOfReferenceSequence') and ds.ReferencedFrameOfReferenceSequence else ""
+            structure_set_roi.ROIName = roi_label
+            structure_set_roi.ROIDescription = f"Additional structure: {roi_label}"
+            structure_set_roi.ROIGenerationAlgorithm = "MANUAL"  # Will be updated when generation logic is implemented
+            
+            ds.StructureSetROISequence.append(structure_set_roi)
+            
+            # 2. Add to ROIContourSequence (empty contour)
+            roi_contour = pydicom.Dataset()
+            roi_contour.ReferencedROINumber = roi_number
+            
+            # Set display color if available
+            if additional_struct.roi_display_color:
+                try:
+                    color_parts = additional_struct.roi_display_color.split('\\')
+                    if len(color_parts) == 3:
+                        color_values = [int(part.strip()) for part in color_parts]
+                        roi_contour.ROIDisplayColor = color_values
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Invalid color format for '{roi_label}': {additional_struct.roi_display_color}")
+                    roi_contour.ROIDisplayColor = [255, 255, 0]  # Default to yellow
+            else:
+                roi_contour.ROIDisplayColor = [255, 255, 0]  # Default to yellow
+            
+            # Empty contour sequence - will be populated by generation logic later
+            roi_contour.ContourSequence = pydicom.Sequence()
+            
+            ds.ROIContourSequence.append(roi_contour)
+            
+            # 3. Add to RTROIObservationsSequence
+            roi_observation = pydicom.Dataset()
+            roi_observation.ObservationNumber = roi_number
+            roi_observation.ReferencedROINumber = roi_number
+            roi_observation.ROIObservationLabel = roi_label
+            
+            # Set RT ROI Interpreted Type if available
+            if additional_struct.rt_roi_interpreted_type:
+                roi_observation.RTROIInterpretedType = additional_struct.rt_roi_interpreted_type
+            else:
+                roi_observation.RTROIInterpretedType = "ORGAN"  # Default
+            
+            roi_observation.ROIInterpreter = ""
+            
+            ds.RTROIObservationsSequence.append(roi_observation)
+            
+            added_count += 1
+            logger.info(f"Added empty ROI #{roi_number}: '{roi_label}' (Type: {roi_observation.RTROIInterpretedType})")
+            
+            # Log generation logic for future implementation
+            if additional_struct.roi_generation_logic:
+                logger.debug(f"ROI '{roi_label}' has generation logic defined: {additional_struct.roi_generation_logic[:100]}...")
+            else:
+                logger.debug(f"ROI '{roi_label}' has no generation logic defined - will remain empty")
+        
+        logger.info(f"Additional structures summary - Added: {added_count}, Skipped (duplicates): {skipped_count}")
+        
+    except Exception as e:
+        logger.error(f"Error adding additional structures to RT Structure Set: {str(e)}", exc_info=True)
+        raise
 
 def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], rt_import: RTStructureFileImport) -> str:
     """
