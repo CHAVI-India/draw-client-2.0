@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}XML Template Import - Step 3: Review{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <!-- Progress Steps -->
+    <div class="mb-8">
+        <div class="flex items-center justify-between">
+            <div class="flex-1">
+                <div class="flex items-center">
+                    <div class="flex items-center justify-center w-10 h-10 bg-green-600 text-white rounded-full font-semibold">
+                        ✓
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-green-600">Step 1</p>
+                        <p class="text-xs text-gray-500">Upload XML</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 border-t-2 border-green-600 mx-4"></div>
+            <div class="flex-1">
+                <div class="flex items-center">
+                    <div class="flex items-center justify-center w-10 h-10 bg-green-600 text-white rounded-full font-semibold">
+                        ✓
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-green-600">Step 2</p>
+                        <p class="text-xs text-gray-500">Map Structures</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-1 border-t-2 border-green-600 mx-4"></div>
+            <div class="flex-1">
+                <div class="flex items-center">
+                    <div class="flex items-center justify-center w-10 h-10 bg-primary-600 text-white rounded-full font-semibold">
+                        3
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-sm font-medium text-primary-600">Step 3</p>
+                        <p class="text-xs text-gray-500">Review & Save</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Card -->
+    <div class="bg-white rounded-lg shadow-lg p-8">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Review Structure Mappings</h1>
+            <p class="text-gray-600">Review the structure mappings before saving to <strong>{{ template.template_name }}</strong>.</p>
+        </div>
+
+        <!-- Summary Box -->
+        <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-green-800">Ready to Import</h3>
+                    <div class="mt-2 text-sm text-green-700">
+                        <p>You are about to import <strong>{{ total_mappings }}</strong> structure properties from <strong>{{ xml_filename }}</strong>.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mappings Table -->
+        <div class="overflow-x-auto mb-6">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Autosegmentation Structure</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">XML Source</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROI Label</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for mapping in mappings %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{{ forloop.counter }}</td>
+                        <td class="px-4 py-4">
+                            <div class="text-sm font-medium text-gray-900">{{ mapping.autoseg_structure.name }}</div>
+                            <div class="text-xs text-gray-500">{{ mapping.autoseg_structure.autosegmentation_model.name }}</div>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900">{{ mapping.xml_structure.name }}</div>
+                            {% if mapping.xml_structure.volume_type %}
+                            <div class="text-xs text-gray-500">{{ mapping.xml_structure.volume_type }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                {{ mapping.roi_label }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            {% if mapping.rt_roi_interpreted_type %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                {{ mapping.rt_roi_interpreted_type }}
+                            </span>
+                            {% else %}
+                            <span class="text-xs text-gray-400">Not set</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-4 whitespace-nowrap">
+                            {% if mapping.roi_display_color %}
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 rounded border border-gray-300"></div>
+                                <span class="text-xs font-mono text-gray-600">{{ mapping.roi_display_color }}</span>
+                            </div>
+                            {% else %}
+                            <span class="text-xs text-gray-400">Not set</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">
+                            No mappings to review. Please go back and map at least one structure.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Warning Box -->
+        <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-yellow-800">Important Note</h3>
+                    <div class="mt-2 text-sm text-yellow-700">
+                        <p>If a structure property already exists for a mapped autosegmentation structure, it will be <strong>updated</strong> with the new values from the XML template.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+            <a href="{% url 'dicom_handler:xml_template_wizard_cancel' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+                Cancel
+            </a>
+            <div class="flex gap-3">
+                <a href="{% url 'dicom_handler:xml_template_wizard_map' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    Back to Mapping
+                </a>
+                <a href="{% url 'dicom_handler:xml_template_wizard_additional' %}" class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    Next: Additional Structures
+                    <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Color preview helper
+    function parseColorString(colorStr) {
+        if (!colorStr) return null;
+        const parts = colorStr.split('\\');
+        if (parts.length === 3) {
+            return `rgb(${parts[0]}, ${parts[1]}, ${parts[2]})`;
+        }
+        return null;
+    }
+</script>
+{% endblock %}

@@ -184,6 +184,13 @@ class StructureProperties(models.Model):
         return self.roi_label
     
     def save(self, *args, **kwargs):
+        """
+        Save the StructureProperties instance with auto-population of roi_label.
+        
+        If roi_label is not provided and the instance is linked to an autosegmentation_structure,
+        automatically sets roi_label to the autosegmentation structure's name as a fallback.
+        This ensures every structure has a valid label for DICOM RT Structure Set generation.
+        """
         if not self.roi_label and self.autosegmentation_structure:
             self.roi_label = self.autosegmentation_structure.name
         super().save(*args, **kwargs)
@@ -219,7 +226,99 @@ class StructureProperties(models.Model):
                 })
     
     
-
+class AdditionalStructures(models.Model):
+    '''
+    This is a model to store additional structures that are not part of the autosegmentation template but will be added to the structureset before it is saved.
+    '''
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    autosegmentation_template = models.ForeignKey(AutosegmentationTemplate, on_delete=models.CASCADE)
+    roi_label = models.CharField(max_length=256)
+    rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
+    roi_display_color = models.CharField(max_length=256, null=True, blank = True)
+    roi_generation_logic = models.CharField(max_length = 512, null=True, blank=True, help_text = "This field will define the logic that will be used for generate the ROI.")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Additional Structures"
+        verbose_name_plural = "Additional Structures"
+    
+    def __str__(self):
+        return self.roi_label
+    
+    def clean(self):
+        """
+        Validate AdditionalStructures fields.
+        
+        Validates:
+        - ROI label length (max 16 characters per TG263 standard)
+        - ROI display color format (R\\G\\B with values 0-255)
+        - ROI label uniqueness within the template (no duplicates with StructureProperties or AutosegmentationStructure)
+        """
+        super().clean()
+        
+        # Validate ROI label length
+        if self.roi_label and len(self.roi_label) > 16:
+            raise ValidationError({
+                'roi_label': 'ROI Label cannot exceed 16 characters as per TG263 standard.'
+            })
+        
+        # Validate ROI display color
+        if self.roi_display_color:
+            try:
+                parts = self.roi_display_color.strip().split('\\')
+                if len(parts) != 3:
+                    raise ValidationError({
+                        'roi_display_color': 'ROI Display Color must be a DICOM Integer String with exactly 3 RGB values separated by backslashes (e.g., "255\\0\\0" for red).'
+                    })
+                
+                for part in parts:
+                    part_stripped = part.strip()
+                    value = int(part_stripped)
+                    if value < 0 or value > 255:
+                        raise ValidationError({
+                            'roi_display_color': f'Each RGB value must be an integer between 0 and 255. Invalid value: {value}'
+                        })
+            except ValueError:
+                raise ValidationError({
+                    'roi_display_color': 'ROI Display Color must contain only integer values separated by backslashes (e.g., "255\\0\\0").'
+                })
+        
+        # Validate ROI label uniqueness within the template
+        if self.roi_label and self.autosegmentation_template:
+            # Check against other AdditionalStructures (exclude self if editing)
+            duplicate_additional = AdditionalStructures.objects.filter(
+                autosegmentation_template=self.autosegmentation_template,
+                roi_label__iexact=self.roi_label
+            )
+            if self.pk:
+                duplicate_additional = duplicate_additional.exclude(pk=self.pk)
+            
+            if duplicate_additional.exists():
+                raise ValidationError({
+                    'roi_label': f'An additional structure with the name "{self.roi_label}" already exists in this template.'
+                })
+            
+            # Check against StructureProperties.roi_label for this template
+            # Get all AutosegmentationStructures for this template
+            autoseg_structures = AutosegmentationStructure.objects.filter(
+                autosegmentation_model__autosegmentation_template_name=self.autosegmentation_template
+            )
+            
+            for autoseg_struct in autoseg_structures:
+                # Check if StructureProperties exists and has matching roi_label
+                if hasattr(autoseg_struct, 'structureproperties'):
+                    if autoseg_struct.structureproperties.roi_label and \
+                       autoseg_struct.structureproperties.roi_label.lower() == self.roi_label.lower():
+                        raise ValidationError({
+                            'roi_label': f'A structure with the name "{self.roi_label}" already exists in this template (from mapped structures).'
+                        })
+                
+                # Check against AutosegmentationStructure.name (fallback if no StructureProperties)
+                if autoseg_struct.name and autoseg_struct.name.lower() == self.roi_label.lower():
+                    raise ValidationError({
+                        'roi_label': f'A structure with the name "{self.roi_label}" already exists in this template (autosegmentation structure).'
+                    })
     
     
 

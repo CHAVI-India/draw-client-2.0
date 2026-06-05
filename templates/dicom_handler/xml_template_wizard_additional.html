@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Additional Structures - XML Template Import Wizard{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-primary-600 to-primary-700 px-6 py-4">
+            <h1 class="text-2xl font-bold text-white">Step 4: Additional Structures</h1>
+            <p class="text-primary-100 mt-1">Select unmapped XML structures to save as additional structures</p>
+        </div>
+
+        <div class="p-6">
+            <!-- Progress Indicator -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-green-500 text-white text-sm font-medium">
+                            ✓
+                        </div>
+                        <span class="ml-2 text-sm font-medium text-gray-900">Upload</span>
+                    </div>
+                    <div class="flex-1 h-1 mx-4 bg-green-500"></div>
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-green-500 text-white text-sm font-medium">
+                            ✓
+                        </div>
+                        <span class="ml-2 text-sm font-medium text-gray-900">Map</span>
+                    </div>
+                    <div class="flex-1 h-1 mx-4 bg-green-500"></div>
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-green-500 text-white text-sm font-medium">
+                            ✓
+                        </div>
+                        <span class="ml-2 text-sm font-medium text-gray-900">Review</span>
+                    </div>
+                    <div class="flex-1 h-1 mx-4 bg-primary-500"></div>
+                    <div class="flex items-center">
+                        <div class="flex items-center justify-center w-8 h-8 rounded-full bg-primary-600 text-white text-sm font-medium">
+                            4
+                        </div>
+                        <span class="ml-2 text-sm font-medium text-primary-600">Additional</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Info Box -->
+            <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-medium text-blue-800">About Additional Structures</h3>
+                        <div class="mt-2 text-sm text-blue-700">
+                            <p>The structures below were found in the XML but were <strong>not mapped</strong> to any autosegmentation structure.</p>
+                            <p class="mt-1">You can save them as <strong>Additional Structures</strong> which will be created as empty ROIs in the structure set.</p>
+                            <ul class="list-disc list-inside mt-2 space-y-1">
+                                <li>Select the structures you want to save</li>
+                                <li>They will be linked to the template: <strong>{{ template.template_name }}</strong></li>
+                                <li>You can define generation logic for these structures later</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if unmapped_structures %}
+            <!-- Form -->
+            <form method="post" id="additionalForm">
+                {% csrf_token %}
+                
+                <!-- Unmapped Structures Table -->
+                <div class="overflow-x-auto mb-6">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left">
+                                    <input type="checkbox" id="selectAll" class="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500">
+                                </th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Structure Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for structure in unmapped_structures %}
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-4">
+                                    <input type="checkbox" 
+                                           name="selected_structures" 
+                                           value="{{ structure.id }}"
+                                           class="structure-checkbox w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500">
+                                </td>
+                                <td class="px-4 py-4">
+                                    <div class="text-sm font-medium text-gray-900">{{ structure.name }}</div>
+                                    {% if structure.name|length > 16 %}
+                                    <div class="text-xs text-red-600 mt-1">
+                                        ⚠️ Name exceeds 16 characters - will be truncated
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-4">
+                                    <span class="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                        {{ structure.rt_roi_interpreted_type|default:"Not specified" }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-4">
+                                    {% if structure.dicom_color %}
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-6 h-6 rounded border border-gray-300" style="background-color: rgb({{ structure.dicom_color|slice:':3' }}, {{ structure.dicom_color|slice:'4:7' }}, {{ structure.dicom_color|slice:'8:' }});"></div>
+                                        <span class="text-xs font-mono text-gray-600">{{ structure.dicom_color }}</span>
+                                    </div>
+                                    {% else %}
+                                    <span class="text-xs text-gray-400">No color</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Summary -->
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <p class="text-sm text-gray-700">
+                        <strong>Total unmapped structures:</strong> {{ unmapped_structures|length }}
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <span id="selectedCount">0</span> structure(s) selected
+                    </p>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                    <a href="{% url 'dicom_handler:xml_template_wizard_cancel' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                        Cancel
+                    </a>
+                    <div class="flex gap-3">
+                        <a href="{% url 'dicom_handler:xml_template_wizard_review' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                            </svg>
+                            Back to Review
+                        </a>
+                        <button type="submit" class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Save & Finish
+                        </button>
+                    </div>
+                </div>
+            </form>
+            {% else %}
+            <!-- No Unmapped Structures -->
+            <div class="text-center py-12">
+                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">All structures mapped!</h3>
+                <p class="mt-1 text-sm text-gray-500">All XML structures have been mapped to autosegmentation structures.</p>
+                <div class="mt-6">
+                    <form method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Finish Import
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Select All functionality
+    const selectAllCheckbox = document.getElementById('selectAll');
+    const structureCheckboxes = document.querySelectorAll('.structure-checkbox');
+    const selectedCountSpan = document.getElementById('selectedCount');
+    
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            structureCheckboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updateSelectedCount();
+        });
+    }
+    
+    structureCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedCount);
+    });
+    
+    function updateSelectedCount() {
+        const selectedCount = document.querySelectorAll('.structure-checkbox:checked').length;
+        selectedCountSpan.textContent = selectedCount;
+        
+        // Update select all checkbox state
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = selectedCount === structureCheckboxes.length && selectedCount > 0;
+            selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < structureCheckboxes.length;
+        }
+    }
+    
+    // Initial count
+    updateSelectedCount();
+</script>
+{% endblock %}

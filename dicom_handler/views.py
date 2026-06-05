@@ -1075,10 +1075,31 @@ def template_detail(request, template_id):
             associated_autosegmentation_template=template
         ).first()
         
+        # Get additional structures for this template
+        from .models import AdditionalStructures
+        additional_structures = AdditionalStructures.objects.filter(
+            autosegmentation_template=template
+        ).order_by('roi_label')
+        
+        # Parse color values for display
+        for struct in additional_structures:
+            if struct.roi_display_color:
+                try:
+                    color_parts = struct.roi_display_color.split('\\')
+                    if len(color_parts) == 3:
+                        struct.color_rgb = f"{color_parts[0]}, {color_parts[1]}, {color_parts[2]}"
+                    else:
+                        struct.color_rgb = None
+                except (AttributeError, ValueError):
+                    struct.color_rgb = None
+            else:
+                struct.color_rgb = None
+        
         return render(request, 'dicom_handler/template_detail.html', {
             'template': template,
             'models': models,
-            'related_rulegroup': related_rulegroup
+            'related_rulegroup': related_rulegroup,
+            'additional_structures': additional_structures
         })
     except AutosegmentationTemplate.DoesNotExist:
         messages.error(request, 'Template not found.')

@@ -26,6 +26,20 @@ from .api_views import (
     series_export_details,
     export_dicom_series
 )
+from .xml_template_views import (
+    xml_template_wizard_start,
+    xml_template_wizard_map,
+    xml_template_wizard_review,
+    xml_template_wizard_additional,
+    xml_template_wizard_save,
+    xml_template_wizard_cancel,
+    xml_template_search_structures
+)
+from .additional_structure_views import (
+    add_additional_structure,
+    edit_additional_structure,
+    delete_additional_structure
+)
 
 app_name = 'dicom_handler'
 
@@ -109,4 +123,18 @@ urlpatterns = [
     # DICOM Export API URLs
     path('api/series-export-details/', series_export_details, name='series_export_details'),
     path('api/export-dicom-series/', export_dicom_series, name='export_dicom_series'),
+    
+    # XML Template Import Wizard URLs
+    path('xml-template-wizard/start/', xml_template_wizard_start, name='xml_template_wizard_start'),
+    path('xml-template-wizard/map/', xml_template_wizard_map, name='xml_template_wizard_map'),
+    path('xml-template-wizard/review/', xml_template_wizard_review, name='xml_template_wizard_review'),
+    path('xml-template-wizard/additional/', xml_template_wizard_additional, name='xml_template_wizard_additional'),
+    path('xml-template-wizard/save/', xml_template_wizard_save, name='xml_template_wizard_save'),
+    path('xml-template-wizard/cancel/', xml_template_wizard_cancel, name='xml_template_wizard_cancel'),
+    path('api/xml-template/search-structures/', xml_template_search_structures, name='xml_template_search_structures'),
+    
+    # Additional Structures URLs
+    path('additional-structure/add/', add_additional_structure, name='add_additional_structure'),
+    path('additional-structure/edit/', edit_additional_structure, name='edit_additional_structure'),
+    path('additional-structure/delete/', delete_additional_structure, name='delete_additional_structure'),
 ]

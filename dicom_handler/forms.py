@@ -6,6 +6,7 @@ from .models import (RuleSet, Rule, RuleGroup, DICOMTagType, AutosegmentationTem
                      OperatorType, SystemConfiguration, RTStructureFileImport, RTStructureFileVOIData,
                      ContourModificationChoices, ContourModificationTypeChoices, StructureProperties, 
                      AutosegmentationStructure, RTROIInterpretedTypeChoices)
+from django.core.exceptions import ValidationError
 import uuid
 
 class TemplateCreationForm(forms.Form):
@@ -529,3 +530,139 @@ class StructurePropertiesForm(forms.ModelForm):
                 pass
         
         return cleaned_data
+
+
+class XMLTemplateUploadForm(forms.Form):
+    """
+    Form for uploading XML template file
+    """
+    template = forms.ModelChoiceField(
+        queryset=AutosegmentationTemplate.objects.all(),
+        required=True,
+        widget=forms.Select(attrs={
+            'class': 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+        }),
+        label='Select Autosegmentation Template',
+        help_text='Choose the autosegmentation template to map structures to'
+    )
+    
+    xml_file = forms.FileField(
+        required=True,
+        widget=forms.FileInput(attrs={
+            'class': 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+            'accept': '.xml'
+        }),
+        label='Upload XML Template File',
+        help_text='Upload an XML file containing structure definitions (e.g., Varian Eclipse format)'
+    )
+    
+    def clean_xml_file(self):
+        xml_file = self.cleaned_data.get('xml_file')
+        
+        if xml_file:
+            # Check file extension
+            if not xml_file.name.endswith('.xml'):
+                raise ValidationError('File must be an XML file (.xml extension)')
+            
+            # Check file size (max 10MB)
+            if xml_file.size > 10 * 1024 * 1024:
+                raise ValidationError('File size must be less than 10MB')
+        
+        return xml_file
+
+
+class StructureMappingForm(forms.Form):
+    """
+    Form for mapping a single XML structure to an autosegmentation structure
+    """
+    xml_structure_id = forms.CharField(widget=forms.HiddenInput())
+    xml_structure_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg',
+            'readonly': 'readonly'
+        }),
+        label='XML Structure Name'
+    )
+    
+    autosegmentation_structure = forms.ModelChoiceField(
+        queryset=AutosegmentationStructure.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+        }),
+        label='Map to Autosegmentation Structure',
+        help_text='Select the autosegmentation structure to map this XML structure to'
+    )
+    
+    roi_label = forms.CharField(
+        max_length=16,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+            'maxlength': '16'
+        }),
+        label='ROI Label (max 16 chars)',
+        help_text='Preferred name for the structure (TG263 standard)'
+    )
+    
+    rt_roi_interpreted_type = forms.ChoiceField(
+        choices=[('', '-- Select Type --')] + list(RTROIInterpretedTypeChoices.choices),
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+        }),
+        label='RT ROI Interpreted Type'
+    )
+    
+    roi_display_color = forms.CharField(
+        max_length=256,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
+            'placeholder': 'e.g., 255\\0\\0 for red'
+        }),
+        label='ROI Display Color (R\\G\\B)',
+        help_text='RGB color in DICOM format (e.g., 255\\0\\0 for red)'
+    )
+    
+    skip_structure = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500',
+        }),
+        label='Skip this structure'
+    )
+    
+    def __init__(self, *args, **kwargs):
+        template = kwargs.pop('template', None)
+        super().__init__(*args, **kwargs)
+        
+        if template:
+            # Filter autosegmentation structures by template
+            self.fields['autosegmentation_structure'].queryset = AutosegmentationStructure.objects.filter(
+                autosegmentation_model__autosegmentation_template_name=template
+            ).select_related('autosegmentation_model').order_by('name')
+    
+    def clean_roi_label(self):
+        roi_label = self.cleaned_data.get('roi_label')
+        if roi_label and len(roi_label) > 16:
+            raise ValidationError('ROI Label cannot exceed 16 characters (TG263 standard)')
+        return roi_label
+    
+    def clean_roi_display_color(self):
+        color = self.cleaned_data.get('roi_display_color')
+        if color:
+            try:
+                parts = color.strip().split('\\')
+                if len(parts) != 3:
+                    raise ValidationError('Color must have exactly 3 RGB values separated by backslashes (e.g., 255\\0\\0)')
+                
+                for part in parts:
+                    value = int(part.strip())
+                    if value < 0 or value > 255:
+                        raise ValidationError(f'RGB value {value} must be between 0 and 255')
+            except ValueError:
+                raise ValidationError('Color values must be integers')
+        
+        return color
