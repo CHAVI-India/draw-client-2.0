@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.db import transaction
 from django.views.decorators.http import require_http_methods
+from django.core.exceptions import ValidationError
 import json
 import logging
 
@@ -16,6 +17,56 @@ from .models import (
 from .xml_template_parser import XMLTemplateParser
 
 logger = logging.getLogger(__name__)
+
+
+def _smart_truncate_roi_name(name: str, max_length: int = 16) -> str:
+    """
+    Intelligently truncate ROI name to max_length while preserving laterality indicators.
+    
+    Preserves common laterality suffixes: _L, _R, _LEFT, _RIGHT, _Lt, _Rt
+    
+    Args:
+        name: Original ROI name
+        max_length: Maximum length (default 16 for TG263 compliance)
+        
+    Returns:
+        Truncated name with laterality preserved if possible
+        
+    Examples:
+        "PAROTID_GLAND_RIGHT" (19 chars) -> "PAROTID_G_RIGHT" (15 chars)
+        "SUBMANDIBULAR_L" (15 chars) -> "SUBMANDIBULAR_L" (unchanged)
+        "VERY_LONG_STRUCTURE_NAME_R" (26 chars) -> "VERY_LONG_ST_R" (14 chars)
+    """
+    if len(name) <= max_length:
+        return name
+    
+    # Common laterality suffixes (case-insensitive)
+    laterality_suffixes = ['_RIGHT', '_LEFT', '_R', '_L', '_Rt', '_Lt']
+    
+    # Check if name ends with a laterality suffix
+    laterality_suffix = None
+    name_without_suffix = name
+    
+    for suffix in laterality_suffixes:
+        if name.upper().endswith(suffix.upper()):
+            laterality_suffix = name[-len(suffix):]  # Preserve original case
+            name_without_suffix = name[:-len(suffix)]
+            break
+    
+    if laterality_suffix:
+        # Calculate how much space we have for the main part
+        available_length = max_length - len(laterality_suffix)
+        
+        if available_length > 0:
+            # Truncate the main part and add back the laterality suffix
+            truncated = name_without_suffix[:available_length] + laterality_suffix
+            return truncated
+        else:
+            # Laterality suffix itself is too long, just truncate normally
+            return name[:max_length]
+    else:
+        # No laterality suffix, truncate normally
+        return name[:max_length]
 
 
 @login_required
@@ -350,11 +401,14 @@ def xml_template_wizard_additional(request):
     template = get_object_or_404(AutosegmentationTemplate, id=xml_data['template_id'])
     all_xml_structures = xml_data['structures']
     
-    # Filter out mapped structures
-    unmapped_structures = [
-        s for s in all_xml_structures 
-        if s['id'] not in mapped_xml_ids
-    ]
+    # Filter out mapped structures and add truncated names for preview
+    unmapped_structures = []
+    for s in all_xml_structures:
+        if s['id'] not in mapped_xml_ids:
+            # Add truncated name for display
+            structure_copy = s.copy()
+            structure_copy['truncated_name'] = _smart_truncate_roi_name(s['name'], 16)
+            unmapped_structures.append(structure_copy)
     
     if request.method == 'POST':
         selected_structure_ids = request.POST.getlist('selected_structures')
@@ -400,22 +454,31 @@ def xml_template_wizard_additional(request):
                         errors.append(f'Error saving structure properties: {str(e)}')
                         logger.error(f'Error saving structure properties: {str(e)}', exc_info=True)
                 
-                # Pre-process selected structures to detect duplicate truncated names
-                truncated_names_map = {}
+                # Pre-process selected structures to detect duplicate ROI names
+                roi_names_map = {}
                 for struct_id in selected_structure_ids:
                     xml_struct = next((s for s in unmapped_structures if s['id'] == struct_id), None)
                     if xml_struct:
-                        original_name = xml_struct['name']
-                        truncated_name = original_name[:16]
+                        # Get custom ROI name from form input
+                        custom_roi_name = request.POST.get(f'roi_name_{struct_id}', '').strip()
                         
-                        if truncated_name in truncated_names_map:
-                            # Duplicate truncated name detected
+                        if not custom_roi_name:
+                            errors.append(f'ROI name is required for structure "{xml_struct["name"]}"')
+                            continue
+                        
+                        if len(custom_roi_name) > 16:
+                            errors.append(f'ROI name "{custom_roi_name}" exceeds 16 characters for structure "{xml_struct["name"]}"')
+                            continue
+                        
+                        # Check for duplicates
+                        if custom_roi_name.lower() in roi_names_map:
                             errors.append(
-                                f'Duplicate truncated name detected: "{original_name}" and "{truncated_names_map[truncated_name]}" '
-                                f'both truncate to "{truncated_name}". Please rename one of these structures in the XML file.'
+                                f'Duplicate ROI name detected: "{custom_roi_name}" is used for both '
+                                f'"{xml_struct["name"]}" and "{roi_names_map[custom_roi_name.lower()]}". '
+                                f'Please use unique names.'
                             )
                         else:
-                            truncated_names_map[truncated_name] = original_name
+                            roi_names_map[custom_roi_name.lower()] = xml_struct['name']
                 
                 # Only proceed if no duplicate truncated names
                 if not errors:
@@ -424,9 +487,9 @@ def xml_template_wizard_additional(request):
                         xml_struct = next((s for s in unmapped_structures if s['id'] == struct_id), None)
                         if xml_struct:
                             try:
-                                # Truncate name to 16 characters if needed
+                                # Get custom ROI name from form
                                 original_name = xml_struct['name']
-                                roi_label = original_name[:16]
+                                roi_label = request.POST.get(f'roi_name_{struct_id}', '').strip()
                                 
                                 # Create instance and validate before saving
                                 additional_struct = AdditionalStructures(
