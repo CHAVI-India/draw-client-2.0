@@ -400,38 +400,65 @@ def xml_template_wizard_additional(request):
                         errors.append(f'Error saving structure properties: {str(e)}')
                         logger.error(f'Error saving structure properties: {str(e)}', exc_info=True)
                 
-                # Now save selected unmapped structures as AdditionalStructures
+                # Pre-process selected structures to detect duplicate truncated names
+                truncated_names_map = {}
                 for struct_id in selected_structure_ids:
                     xml_struct = next((s for s in unmapped_structures if s['id'] == struct_id), None)
                     if xml_struct:
-                        try:
-                            # Truncate name to 16 characters if needed
-                            roi_label = xml_struct['name'][:16]
-                            
-                            # Create instance and validate before saving
-                            additional_struct = AdditionalStructures(
-                                autosegmentation_template=template,
-                                roi_label=roi_label,
-                                rt_roi_interpreted_type=xml_struct['rt_roi_interpreted_type'],
-                                roi_display_color=xml_struct['dicom_color']
+                        original_name = xml_struct['name']
+                        truncated_name = original_name[:16]
+                        
+                        if truncated_name in truncated_names_map:
+                            # Duplicate truncated name detected
+                            errors.append(
+                                f'Duplicate truncated name detected: "{original_name}" and "{truncated_names_map[truncated_name]}" '
+                                f'both truncate to "{truncated_name}". Please rename one of these structures in the XML file.'
                             )
-                            
-                            # This will trigger the clean() method with duplicate checking
-                            additional_struct.full_clean()
-                            additional_struct.save()
-                            created_additional_count += 1
-                            
-                        except ValidationError as ve:
-                            # Collect validation errors
-                            if hasattr(ve, 'message_dict'):
-                                for field, field_errors in ve.message_dict.items():
-                                    for error in field_errors:
-                                        errors.append(f'Structure "{xml_struct["name"]}": {error}')
-                            else:
-                                errors.append(f'Structure "{xml_struct["name"]}": {str(ve)}')
-                        except Exception as e:
-                            errors.append(f'Error saving additional structure "{xml_struct["name"]}": {str(e)}')
-                            logger.error(f'Error saving additional structure: {str(e)}', exc_info=True)
+                        else:
+                            truncated_names_map[truncated_name] = original_name
+                
+                # Only proceed if no duplicate truncated names
+                if not errors:
+                    # Now save selected unmapped structures as AdditionalStructures
+                    for struct_id in selected_structure_ids:
+                        xml_struct = next((s for s in unmapped_structures if s['id'] == struct_id), None)
+                        if xml_struct:
+                            try:
+                                # Truncate name to 16 characters if needed
+                                original_name = xml_struct['name']
+                                roi_label = original_name[:16]
+                                
+                                # Create instance and validate before saving
+                                additional_struct = AdditionalStructures(
+                                    autosegmentation_template=template,
+                                    roi_label=roi_label,
+                                    rt_roi_interpreted_type=xml_struct['rt_roi_interpreted_type'],
+                                    roi_display_color=xml_struct['dicom_color']
+                                )
+                                
+                                # This will trigger the clean() method with duplicate checking
+                                additional_struct.full_clean()
+                                additional_struct.save()
+                                created_additional_count += 1
+                                
+                                # Log truncation if it occurred
+                                if len(original_name) > 16:
+                                    logger.info(f'Truncated structure name: "{original_name}" -> "{roi_label}"')
+                                
+                            except ValidationError as ve:
+                                # Collect validation errors
+                                if hasattr(ve, 'message_dict'):
+                                    for field, field_errors in ve.message_dict.items():
+                                        for error in field_errors:
+                                            if len(original_name) > 16:
+                                                errors.append(f'Structure "{original_name}" (truncated to "{roi_label}"): {error}')
+                                            else:
+                                                errors.append(f'Structure "{original_name}": {error}')
+                                else:
+                                    errors.append(f'Structure "{original_name}": {str(ve)}')
+                            except Exception as e:
+                                errors.append(f'Error saving additional structure "{original_name}": {str(e)}')
+                                logger.error(f'Error saving additional structure "{original_name}": {str(e)}', exc_info=True)
             
             if errors:
                 for error in errors:

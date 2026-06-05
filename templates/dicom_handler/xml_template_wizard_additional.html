@@ -100,7 +100,7 @@
                                     <div class="text-sm font-medium text-gray-900">{{ structure.name }}</div>
                                     {% if structure.name|length > 16 %}
                                     <div class="text-xs text-red-600 mt-1">
-                                        ⚠️ Name exceeds 16 characters - will be truncated
+                                        ⚠️ Will be truncated to: <span class="font-mono font-semibold">"{{ structure.name|slice:":16" }}"</span>
                                     </div>
                                     {% endif %}
                                 </td>
