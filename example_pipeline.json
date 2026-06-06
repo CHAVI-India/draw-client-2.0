@@ -1,0 +1,19 @@
+{
+  "operations": [
+    {
+      "type": "expand",
+      "structures": ["CTV"],
+      "parameters": {
+        "margin_mm": 5.0,
+        "kernel_type": "ball"
+      }
+    },
+    {
+      "type": "smooth",
+      "parameters": {
+        "smoothing_mm": 2.0,
+        "iterations": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "description": "Create complex avoidance structure with multiple operations",
+  "operations": [
+    {
+      "type": "expand",
+      "structures": ["Lung_L"],
+      "parameters": {
+        "margin_mm": 3.0,
+        "kernel_type": "ball"
+      }
+    },
+    {
+      "type": "expand",
+      "structures": ["Lung_R"],
+      "parameters": {
+        "margin_mm": 3.0,
+        "kernel_type": "ball"
+      }
+    },
+    {
+      "type": "union",
+      "structures": ["Lung_L", "Lung_R", "Heart"]
+    },
+    {
+      "type": "smooth",
+      "parameters": {
+        "smoothing_mm": 2.5,
+        "iterations": 2
+      }
+    },
+    {
+      "type": "fill_holes"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "description": "Expand CTV by 5mm to create PTV",
+  "operations": [
+    {
+      "type": "expand",
+      "structures": ["CTV"],
+      "parameters": {
+        "margin_mm": 5.0,
+        "kernel_type": "ball"
+      }
+    }
+  ]
+}

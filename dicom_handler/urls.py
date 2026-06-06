@@ -40,6 +40,12 @@ from .additional_structure_views import (
     edit_additional_structure,
     delete_additional_structure
 )
+from .pipeline_builder_views import (
+    pipeline_builder_new,
+    pipeline_builder_edit,
+    pipeline_builder_save,
+    get_available_structures_api
+)
 
 app_name = 'dicom_handler'
 
@@ -137,4 +143,10 @@ urlpatterns = [
     path('additional-structure/add/', add_additional_structure, name='add_additional_structure'),
     path('additional-structure/edit/', edit_additional_structure, name='edit_additional_structure'),
     path('additional-structure/delete/', delete_additional_structure, name='delete_additional_structure'),
+    
+    # Pipeline Builder URLs
+    path('pipeline-builder/new/<uuid:template_id>/', pipeline_builder_new, name='pipeline_builder_new'),
+    path('pipeline-builder/edit/<uuid:structure_id>/', pipeline_builder_edit, name='pipeline_builder_edit'),
+    path('pipeline-builder/save/', pipeline_builder_save, name='pipeline_builder_save'),
+    path('api/available-structures/<uuid:template_id>/', get_available_structures_api, name='get_available_structures_api'),
 ]

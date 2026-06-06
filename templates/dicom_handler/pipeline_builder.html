@@ -1,0 +1,244 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Pipeline Builder - {{ structure.roi_label|default:"New Structure" }}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">
+                        {% if mode == 'edit' %}
+                            Edit Structure: {{ structure.roi_label }}
+                        {% else %}
+                            Create New Additional Structure
+                        {% endif %}
+                    </h1>
+                    <p class="mt-2 text-sm text-gray-600">
+                        Template: <span class="font-semibold">{{ template.template_name }}</span>
+                    </p>
+                </div>
+                <a href="{% url 'dicom_handler:template_detail' template.id %}" 
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                    </svg>
+                    Back to Template
+                </a>
+            </div>
+        </div>
+
+        <form method="post" action="{% url 'dicom_handler:pipeline_builder_save' %}" id="pipelineForm">
+            {% csrf_token %}
+            <input type="hidden" name="mode" value="{{ mode }}">
+            <input type="hidden" name="template_id" value="{{ template.id }}">
+            {% if structure %}
+                <input type="hidden" name="structure_id" value="{{ structure.id }}">
+            {% endif %}
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left Column: Structure Properties -->
+                <div class="lg:col-span-1">
+                    <div class="bg-white shadow rounded-lg p-6 sticky top-6">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-4">Structure Properties</h2>
+                        
+                        <div class="space-y-4">
+                            <!-- ROI Label -->
+                            <div>
+                                <label for="roi_label" class="block text-sm font-medium text-gray-700 mb-1">
+                                    ROI Label <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" 
+                                       id="roi_label" 
+                                       name="roi_label" 
+                                       maxlength="16" 
+                                       required
+                                       value="{{ structure.roi_label|default:'' }}"
+                                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
+                                <p class="mt-1 text-xs text-gray-500">Max 16 characters (TG263 standard)</p>
+                            </div>
+                            
+                            <!-- Structure Type -->
+                            <div>
+                                <label for="rt_roi_interpreted_type" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Structure Type
+                                </label>
+                                <select id="rt_roi_interpreted_type" 
+                                        name="rt_roi_interpreted_type"
+                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
+                                    <option value="">-- Select Type --</option>
+                                    <option value="ORGAN" {% if structure.rt_roi_interpreted_type == 'ORGAN' %}selected{% endif %}>ORGAN</option>
+                                    <option value="PTV" {% if structure.rt_roi_interpreted_type == 'PTV' %}selected{% endif %}>PTV</option>
+                                    <option value="CTV" {% if structure.rt_roi_interpreted_type == 'CTV' %}selected{% endif %}>CTV</option>
+                                    <option value="GTV" {% if structure.rt_roi_interpreted_type == 'GTV' %}selected{% endif %}>GTV</option>
+                                    <option value="EXTERNAL" {% if structure.rt_roi_interpreted_type == 'EXTERNAL' %}selected{% endif %}>EXTERNAL</option>
+                                    <option value="AVOIDANCE" {% if structure.rt_roi_interpreted_type == 'AVOIDANCE' %}selected{% endif %}>AVOIDANCE</option>
+                                    <option value="CAVITY" {% if structure.rt_roi_interpreted_type == 'CAVITY' %}selected{% endif %}>CAVITY</option>
+                                    <option value="CONTROL" {% if structure.rt_roi_interpreted_type == 'CONTROL' %}selected{% endif %}>CONTROL</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Display Color -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Display Color
+                                </label>
+                                
+                                <div class="flex items-center space-x-3 mb-3">
+                                    <input type="color" 
+                                           id="colorPicker" 
+                                           class="w-16 h-16 border-2 border-gray-300 rounded-lg cursor-pointer"
+                                           value="#ff0000">
+                                    <div class="flex-1">
+                                        <div class="text-xs text-gray-600">
+                                            <div>RGB: <span id="rgbDisplay" class="font-mono">255, 0, 0</span></div>
+                                            <div>Hex: <span id="hexDisplay" class="font-mono">#FF0000</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <input type="hidden" id="roi_display_color" name="roi_display_color">
+                                
+                                <!-- Quick presets -->
+                                <div class="grid grid-cols-8 gap-1">
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#FF0000" style="background-color: #FF0000;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#00FF00" style="background-color: #00FF00;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#0000FF" style="background-color: #0000FF;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#FFFF00" style="background-color: #FFFF00;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#FF00FF" style="background-color: #FF00FF;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#00FFFF" style="background-color: #00FFFF;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#FFA500" style="background-color: #FFA500;"></button>
+                                    <button type="button" class="color-preset w-8 h-8 rounded border hover:border-primary-500" 
+                                            data-color="#800080" style="background-color: #800080;"></button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Save Button -->
+                        <div class="mt-6 pt-6 border-t border-gray-200">
+                            <button type="submit" 
+                                    class="w-full inline-flex justify-center items-center px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                                Save Structure
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Right Column: Pipeline Builder -->
+                <div class="lg:col-span-2">
+                    <div class="bg-white shadow rounded-lg p-6">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-4">Generation Logic Pipeline</h2>
+                        
+                        <!-- Pipeline Builder Component -->
+                        <div id="pipelineBuilder"></div>
+                        
+                        <!-- Hidden field for form submission -->
+                        <input type="hidden" id="roi_generation_logic" name="roi_generation_logic">
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/pipeline_builder.js' %}"></script>
+<script>
+    // Color conversion functions
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+    
+    function dicomToHex(dicomColor) {
+        if (!dicomColor || dicomColor === 'None' || dicomColor.trim() === '') {
+            return '#ff0000';
+        }
+        
+        const parts = dicomColor.split('\\');
+        if (parts.length !== 3) {
+            return '#ff0000';
+        }
+        
+        try {
+            const r = parseInt(parts[0]).toString(16).padStart(2, '0');
+            const g = parseInt(parts[1]).toString(16).padStart(2, '0');
+            const b = parseInt(parts[2]).toString(16).padStart(2, '0');
+            return `#${r}${g}${b}`;
+        } catch (e) {
+            return '#ff0000';
+        }
+    }
+    
+    function updateColorDisplays(hexColor) {
+        const rgb = hexToRgb(hexColor);
+        if (rgb) {
+            document.getElementById('rgbDisplay').textContent = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+            document.getElementById('hexDisplay').textContent = hexColor.toUpperCase();
+            document.getElementById('roi_display_color').value = `${rgb.r}\\${rgb.g}\\${rgb.b}`;
+        }
+    }
+    
+    // Initialize color picker
+    document.addEventListener('DOMContentLoaded', function() {
+        const colorPicker = document.getElementById('colorPicker');
+        const colorPresets = document.querySelectorAll('.color-preset');
+        
+        // Handle color picker change
+        colorPicker.addEventListener('input', function() {
+            updateColorDisplays(this.value);
+        });
+        
+        // Handle preset buttons
+        colorPresets.forEach(function(preset) {
+            preset.addEventListener('click', function() {
+                const color = this.getAttribute('data-color');
+                colorPicker.value = color;
+                updateColorDisplays(color);
+            });
+        });
+        
+        // Set initial color
+        {% if structure.roi_display_color %}
+            const initialColor = dicomToHex('{{ structure.roi_display_color }}');
+            colorPicker.value = initialColor;
+            updateColorDisplays(initialColor);
+        {% else %}
+            updateColorDisplays('#ff0000');
+        {% endif %}
+    });
+    
+    // Initialize Pipeline Builder
+    const availableStructures = {{ available_structures|safe }};
+    
+    const pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
+        availableStructures: availableStructures,
+        onPipelineChange: (pipeline) => {
+            document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
+        }
+    });
+    
+    // Load existing pipeline if editing
+    {% if initial_pipeline %}
+        pipelineBuilder.loadFromJson('{{ initial_pipeline|escapejs }}');
+    {% endif %}
+</script>
+{% endblock %}

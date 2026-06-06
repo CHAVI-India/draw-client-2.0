@@ -235,7 +235,7 @@ class AdditionalStructures(models.Model):
     roi_label = models.CharField(max_length=256)
     rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
     roi_display_color = models.CharField(max_length=256, null=True, blank = True)
-    roi_generation_logic = models.CharField(max_length = 512, null=True, blank=True, help_text = "This field will define the logic that will be used for generate the ROI.")
+    roi_generation_logic = models.JSONField(null=True, blank=True, help_text = "This field will define the logic that will be used for generate the ROI.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

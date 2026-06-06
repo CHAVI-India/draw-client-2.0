@@ -1,0 +1,16 @@
+{
+  "description": "Combine left and right parotids into single structure",
+  "operations": [
+    {
+      "type": "union",
+      "structures": ["Parotid_L", "Parotid_R"]
+    },
+    {
+      "type": "smooth",
+      "parameters": {
+        "smoothing_mm": 2.0,
+        "iterations": 1
+      }
+    }
+  ]
+}

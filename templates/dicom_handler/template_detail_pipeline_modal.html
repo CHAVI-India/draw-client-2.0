@@ -1,0 +1,166 @@
+<!-- This is a replacement for the Generation Logic section in the modal -->
+<!-- Replace lines 369-380 in template_detail.html with this content -->
+
+<!-- Generation Logic with Pipeline Builder -->
+<div>
+    <div class="flex justify-between items-center mb-2">
+        <label class="block text-sm font-semibold text-gray-700">
+            Generation Logic
+        </label>
+        <div class="flex gap-2">
+            <button type="button" id="toggleBuilderBtn" 
+                    class="text-xs text-primary-600 hover:text-primary-800 font-medium">
+                <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/>
+                </svg>
+                <span id="builderToggleText">Switch to Visual Builder</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Visual Pipeline Builder (hidden by default) -->
+    <div id="pipelineBuilderContainer" class="hidden">
+        <div id="pipelineBuilder"></div>
+    </div>
+    
+    <!-- JSON Text Editor (visible by default) -->
+    <div id="jsonEditorContainer">
+        <textarea id="roi_generation_logic" 
+                  name="roi_generation_logic" 
+                  rows="6"
+                  class="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm resize-none font-mono text-xs"
+                  placeholder='{"source_roi": "CTV", "operations": [{"type": "expand", "parameters": {"margin_mm": 5.0}}]}'></textarea>
+        <p class="mt-1.5 text-xs text-gray-500">
+            Enter JSON pipeline definition or use the visual builder
+        </p>
+    </div>
+</div>
+
+<script>
+// This script should be added to the extra_js block
+
+let pipelineBuilder = null;
+let useVisualBuilder = false;
+
+// Get available structures for this template
+function getAvailableStructures() {
+    const structures = [];
+    
+    // Extract from the template data (passed from Django view)
+    {% if models %}
+        {% for model in models %}
+            {% for structure in model.autosegmentationstructure_set.all %}
+                structures.push({
+                    value: '{{ structure.structureproperties.roi_label|default:structure.name }}',
+                    label: '{{ structure.structureproperties.roi_label|default:structure.name }}'
+                });
+            {% endfor %}
+        {% endfor %}
+    {% endif %}
+    
+    return structures;
+}
+
+// Initialize pipeline builder when modal opens
+function initializePipelineBuilder() {
+    if (!pipelineBuilder) {
+        const availableStructures = getAvailableStructures();
+        
+        pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
+            availableStructures: availableStructures,
+            onPipelineChange: (pipeline) => {
+                // Sync with textarea
+                if (useVisualBuilder) {
+                    document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
+                }
+            }
+        });
+    }
+}
+
+// Toggle between visual builder and JSON editor
+function toggleBuilder() {
+    const builderContainer = document.getElementById('pipelineBuilderContainer');
+    const jsonContainer = document.getElementById('jsonEditorContainer');
+    const toggleText = document.getElementById('builderToggleText');
+    const jsonTextarea = document.getElementById('roi_generation_logic');
+    
+    useVisualBuilder = !useVisualBuilder;
+    
+    if (useVisualBuilder) {
+        // Switch to visual builder
+        builderContainer.classList.remove('hidden');
+        jsonContainer.classList.add('hidden');
+        toggleText.textContent = 'Switch to JSON Editor';
+        
+        // Initialize builder if not already done
+        initializePipelineBuilder();
+        
+        // Load current JSON into builder
+        const currentJson = jsonTextarea.value.trim();
+        if (currentJson) {
+            try {
+                pipelineBuilder.loadFromJson(currentJson);
+            } catch (e) {
+                console.error('Failed to load JSON into builder:', e);
+            }
+        }
+    } else {
+        // Switch to JSON editor
+        builderContainer.classList.add('hidden');
+        jsonContainer.classList.remove('hidden');
+        toggleText.textContent = 'Switch to Visual Builder';
+        
+        // Update textarea from builder if it exists
+        if (pipelineBuilder) {
+            const jsonPreview = document.getElementById('jsonPreview');
+            if (jsonPreview) {
+                jsonTextarea.value = jsonPreview.textContent;
+            }
+        }
+    }
+}
+
+// Attach toggle event listener
+document.addEventListener('DOMContentLoaded', function() {
+    const toggleBtn = document.getElementById('toggleBuilderBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', toggleBuilder);
+    }
+});
+
+// Modified openAddModal to reset builder
+function openAddModalWithBuilder() {
+    // ... existing openAddModal code ...
+    
+    // Reset builder mode to JSON editor
+    useVisualBuilder = false;
+    document.getElementById('pipelineBuilderContainer').classList.add('hidden');
+    document.getElementById('jsonEditorContainer').classList.remove('hidden');
+    document.getElementById('builderToggleText').textContent = 'Switch to Visual Builder';
+    
+    // Reset builder if it exists
+    if (pipelineBuilder) {
+        pipelineBuilder.operations = [];
+        pipelineBuilder.operationCounter = 0;
+        pipelineBuilder.renderOperations();
+        pipelineBuilder.updateJsonPreview();
+    }
+}
+
+// Modified openEditModal to load existing pipeline
+function openEditModalWithBuilder(id, label, type, color, logic) {
+    // ... existing openEditModal code ...
+    
+    // Reset builder mode to JSON editor by default
+    useVisualBuilder = false;
+    document.getElementById('pipelineBuilderContainer').classList.add('hidden');
+    document.getElementById('jsonEditorContainer').classList.remove('hidden');
+    document.getElementById('builderToggleText').textContent = 'Switch to Visual Builder';
+    
+    // If there's existing logic, user can switch to visual builder
+    if (logic && logic.trim() !== '') {
+        document.getElementById('roi_generation_logic').value = logic;
+    }
+}
+</script>

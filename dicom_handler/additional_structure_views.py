@@ -2,6 +2,7 @@
 Views for managing AdditionalStructures
 """
 
+import json
 import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
@@ -26,13 +27,23 @@ def add_additional_structure(request):
     template = get_object_or_404(AutosegmentationTemplate, id=template_id)
     
     try:
+        # Parse JSON for roi_generation_logic
+        roi_generation_logic_str = request.POST.get('roi_generation_logic', '').strip()
+        roi_generation_logic = None
+        if roi_generation_logic_str:
+            try:
+                roi_generation_logic = json.loads(roi_generation_logic_str)
+            except json.JSONDecodeError as e:
+                messages.error(request, f'Invalid JSON in generation logic: {str(e)}')
+                return redirect('dicom_handler:template_detail', template_id=template.id)
+        
         # Create new structure
         structure = AdditionalStructures(
             autosegmentation_template=template,
             roi_label=request.POST.get('roi_label', '').strip(),
             rt_roi_interpreted_type=request.POST.get('rt_roi_interpreted_type', '').strip() or None,
             roi_display_color=request.POST.get('roi_display_color', '').strip() or None,
-            roi_generation_logic=request.POST.get('roi_generation_logic', '').strip() or None
+            roi_generation_logic=roi_generation_logic
         )
         
         # Validate
@@ -77,11 +88,21 @@ def edit_additional_structure(request):
     template = structure.autosegmentation_template
     
     try:
+        # Parse JSON for roi_generation_logic
+        roi_generation_logic_str = request.POST.get('roi_generation_logic', '').strip()
+        roi_generation_logic = None
+        if roi_generation_logic_str:
+            try:
+                roi_generation_logic = json.loads(roi_generation_logic_str)
+            except json.JSONDecodeError as e:
+                messages.error(request, f'Invalid JSON in generation logic: {str(e)}')
+                return redirect('dicom_handler:template_detail', template_id=template.id)
+        
         # Update fields
         structure.roi_label = request.POST.get('roi_label', '').strip()
         structure.rt_roi_interpreted_type = request.POST.get('rt_roi_interpreted_type', '').strip() or None
         structure.roi_display_color = request.POST.get('roi_display_color', '').strip() or None
-        structure.roi_generation_logic = request.POST.get('roi_generation_logic', '').strip() or None
+        structure.roi_generation_logic = roi_generation_logic
         
         # Validate
         structure.full_clean()

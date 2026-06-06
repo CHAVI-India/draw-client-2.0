@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}{{ template.template_name }} - Template Details{% endblock %}
 
@@ -150,13 +151,13 @@
                         <p class="text-sm text-gray-500 mt-1">Empty structures that will be added to the structure set</p>
                     </div>
                     {% if perms.dicom_handler.add_additionalstructures %}
-                        <button onclick="openAddModal()" 
-                                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
+                        <a href="{% url 'dicom_handler:pipeline_builder_new' template.id %}" 
+                           class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                             </svg>
                             Add Structure
-                        </button>
+                        </a>
                     {% endif %}
                 </div>
 
@@ -204,8 +205,13 @@
                                     </td>
                                     <td class="px-4 py-4">
                                         {% if struct.roi_generation_logic %}
-                                            <div class="text-xs text-gray-600 max-w-xs truncate" title="{{ struct.roi_generation_logic }}">
-                                                {{ struct.roi_generation_logic }}
+                                            <div class="text-xs font-mono text-gray-600 max-w-xs">
+                                                {% if struct.roi_generation_logic.source_rois %}
+                                                    <div class="font-semibold text-gray-700">Sources: {{ struct.roi_generation_logic.source_rois|join:", " }}</div>
+                                                {% endif %}
+                                                {% if struct.roi_generation_logic.operations %}
+                                                    <div class="text-gray-500">{{ struct.roi_generation_logic.operations|length }} operation(s)</div>
+                                                {% endif %}
                                             </div>
                                         {% else %}
                                             <span class="text-xs text-gray-400">Not defined</span>
@@ -214,21 +220,19 @@
                                     <td class="px-4 py-4 whitespace-nowrap text-sm font-medium">
                                         <div class="flex gap-2">
                                             {% if perms.dicom_handler.change_additionalstructures %}
-                                                <button class="edit-structure-btn text-primary-600 hover:text-primary-900"
-                                                        data-id="{{ struct.id }}"
-                                                        data-label="{{ struct.roi_label }}"
-                                                        data-type="{{ struct.rt_roi_interpreted_type }}"
-                                                        data-color="{{ struct.roi_display_color|default:'' }}"
-                                                        data-logic="{{ struct.roi_generation_logic|default:'' }}">
+                                                <a href="{% url 'dicom_handler:pipeline_builder_edit' struct.id %}" 
+                                                   class="text-primary-600 hover:text-primary-900"
+                                                   title="Edit structure">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                                     </svg>
-                                                </button>
+                                                </a>
                                             {% endif %}
                                             {% if perms.dicom_handler.delete_additionalstructures %}
                                                 <button class="delete-structure-btn text-red-600 hover:text-red-900"
                                                         data-id="{{ struct.id }}"
-                                                        data-label="{{ struct.roi_label }}">
+                                                        data-label="{{ struct.roi_label }}"
+                                                        title="Delete structure">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                                                     </svg>
@@ -366,17 +370,19 @@
                     </div>
                 </div>
                 
-                <!-- Generation Logic -->
+                <!-- Generation Logic with Pipeline Builder -->
                 <div>
-                    <label for="roi_generation_logic" class="block text-sm font-semibold text-gray-700 mb-1">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">
                         Generation Logic
                     </label>
-                    <textarea id="roi_generation_logic" 
-                              name="roi_generation_logic" 
-                              rows="4"
-                              class="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm resize-none"
-                              placeholder="Define how this structure should be generated (e.g., Boolean operations, expansions, etc.)"></textarea>
-                    <p class="mt-1.5 text-xs text-gray-500">Optional: Describe the logic for generating this ROI</p>
+                    
+                    <!-- Visual Pipeline Builder -->
+                    <div id="pipelineBuilderContainer">
+                        <div id="pipelineBuilder"></div>
+                    </div>
+                    
+                    <!-- Hidden field for form submission (auto-populated by pipeline builder) -->
+                    <input type="hidden" id="roi_generation_logic" name="roi_generation_logic">
                 </div>
             </div>
             
@@ -397,6 +403,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/pipeline_builder.js' %}"></script>
 <script>
     // Color conversion functions
     function hexToRgb(hex) {
@@ -487,6 +494,19 @@
         
         // Initialize color picker after modal is shown
         setTimeout(initializeColorPicker, 100);
+        
+        // Initialize pipeline builder
+        setTimeout(() => {
+            initializePipelineBuilder();
+            // Reset builder for new structure
+            if (pipelineBuilder) {
+                pipelineBuilder.operations = [];
+                pipelineBuilder.operationCounter = 0;
+                document.getElementById('sourceRoiSelect').value = '';
+                pipelineBuilder.renderOperations();
+                pipelineBuilder.updateJsonPreview();
+            }
+        }, 150);
     }
     
     function openEditModal(id, label, type, color, logic) {
@@ -512,6 +532,23 @@
         
         // Initialize color picker after modal is shown
         setTimeout(initializeColorPicker, 100);
+        
+        // Initialize pipeline builder and load existing logic
+        setTimeout(() => {
+            initializePipelineBuilder();
+            if (logic && logic.trim() !== '') {
+                loadExistingPipeline(logic);
+            } else {
+                // Reset builder for empty logic
+                if (pipelineBuilder) {
+                    pipelineBuilder.operations = [];
+                    pipelineBuilder.operationCounter = 0;
+                    document.getElementById('sourceRoiSelect').value = '';
+                    pipelineBuilder.renderOperations();
+                    pipelineBuilder.updateJsonPreview();
+                }
+            }
+        }, 150);
     }
     
     function closeModal() {
@@ -566,5 +603,53 @@
             closeModal();
         }
     });
+    
+    // Pipeline Builder Integration
+    let pipelineBuilder = null;
+    
+    // Get available structures for this template
+    function getAvailableStructures() {
+        const structures = [];
+        
+        // Extract from the template data (passed from Django view)
+        {% if models %}
+            {% for model in models %}
+                {% for structure in model.autosegmentationstructure_set.all %}
+                    structures.push({
+                        value: '{{ structure.structureproperties.roi_label|default:structure.name }}',
+                        label: '{{ structure.structureproperties.roi_label|default:structure.name }}'
+                    });
+                {% endfor %}
+            {% endfor %}
+        {% endif %}
+        
+        return structures;
+    }
+    
+    // Initialize pipeline builder
+    function initializePipelineBuilder() {
+        if (!pipelineBuilder) {
+            const availableStructures = getAvailableStructures();
+            
+            pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
+                availableStructures: availableStructures,
+                onPipelineChange: (pipeline) => {
+                    // Auto-update hidden field for form submission
+                    document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
+                }
+            });
+        }
+    }
+    
+    // Load existing pipeline when editing
+    function loadExistingPipeline(jsonString) {
+        if (pipelineBuilder && jsonString && jsonString.trim() !== '') {
+            try {
+                pipelineBuilder.loadFromJson(jsonString);
+            } catch (e) {
+                console.error('Failed to load existing pipeline:', e);
+            }
+        }
+    }
 </script>
 {% endblock %}
