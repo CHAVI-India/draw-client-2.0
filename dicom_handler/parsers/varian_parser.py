@@ -32,6 +32,11 @@ class VarianEclipseParser(BaseTemplateParser):
         'Brown': '165\\42\\42',
         'Gray': '128\\128\\128',
         'Grey': '128\\128\\128',
+        # Varian special rendering colors
+        'Skin Rendering': '255\\224\\189',
+        'Skin': '255\\224\\189',
+        'Bone Rendering': '255\\245\\238',
+        'Bone': '255\\245\\238',
     }
     
     # Volume type to RT ROI Interpreted Type mapping
@@ -139,8 +144,17 @@ class VarianEclipseParser(BaseTemplateParser):
         """
         Parse color string and convert to DICOM format (R\\G\\B).
         
+        Handles multiple Varian Eclipse color formats:
+        - Named colors: "Red", "Yellow", etc.
+        - Prefixed colors: "Segment - Cyan", "Translucent Red", "Contour-Magenta"
+          Supported prefixes: Segment, Translucent, Contour, Transparent, Opaque
+        - Special rendering: "Skin Rendering", "Bone Rendering"
+        - RGB format: "RGB 255 0 0"
+        - Hex format: "#FF0000" or "FF0000"
+        - Numeric format: concatenated RGB values
+        
         Args:
-            color_string: Color string from XML (name, hex, or numeric)
+            color_string: Color string from XML
             
         Returns:
             DICOM color string (R\\G\\B) or None if parsing fails
@@ -150,15 +164,49 @@ class VarianEclipseParser(BaseTemplateParser):
         
         color_string = color_string.strip()
         
-        # Handle hex color (#RRGGBB or RRGGBB)
-        if color_string.startswith('#'):
-            color_string = color_string[1:]
+        # Handle Varian color prefixes: "Segment", "Translucent", "Contour", etc.
+        # These can appear as "Segment - Cyan", "Segment-Cyan", "Translucent Red", etc.
+        varian_prefixes = ['segment', 'translucent', 'contour', 'transparent', 'opaque']
+        for prefix in varian_prefixes:
+            if color_string.lower().startswith(prefix):
+                # Extract color name after prefix
+                # Handles formats: "Prefix - Color", "Prefix-Color", "Prefix Color"
+                prefix_match = re.match(rf'{prefix}\s*-?\s*(.+)', color_string, re.IGNORECASE)
+                if prefix_match:
+                    color_string = prefix_match.group(1).strip()
+                    break
         
-        if len(color_string) == 6 and all(c in '0123456789ABCDEFabcdef' for c in color_string):
+        # Handle "RGB x y z" format
+        rgb_match = re.match(r'rgb\s+(\d+)\s+(\d+)\s+(\d+)', color_string, re.IGNORECASE)
+        if rgb_match:
             try:
-                r = int(color_string[0:2], 16)
-                g = int(color_string[2:4], 16)
-                b = int(color_string[4:6], 16)
+                r = int(rgb_match.group(1))
+                g = int(rgb_match.group(2))
+                b = int(rgb_match.group(3))
+                if 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255:
+                    return f"{r}\\{g}\\{b}"
+            except ValueError:
+                pass
+        
+        # Handle named colors (exact match)
+        if color_string in self.COLOR_MAP:
+            return self.COLOR_MAP[color_string]
+        
+        # Check case-insensitive match for named colors
+        for name, rgb in self.COLOR_MAP.items():
+            if name.lower() == color_string.lower():
+                return rgb
+        
+        # Handle hex color (#RRGGBB or RRGGBB)
+        hex_color = color_string
+        if hex_color.startswith('#'):
+            hex_color = hex_color[1:]
+        
+        if len(hex_color) == 6 and all(c in '0123456789ABCDEFabcdef' for c in hex_color):
+            try:
+                r = int(hex_color[0:2], 16)
+                g = int(hex_color[2:4], 16)
+                b = int(hex_color[4:6], 16)
                 return f"{r}\\{g}\\{b}"
             except ValueError:
                 pass
@@ -176,15 +224,6 @@ class VarianEclipseParser(BaseTemplateParser):
                     return f"{r}\\{g}\\{b}"
                 except:
                     pass
-        
-        # Handle named colors
-        if color_string in self.COLOR_MAP:
-            return self.COLOR_MAP[color_string]
-        
-        # Check case-insensitive match
-        for name, rgb in self.COLOR_MAP.items():
-            if name.lower() == color_string.lower():
-                return rgb
         
         return None
     
