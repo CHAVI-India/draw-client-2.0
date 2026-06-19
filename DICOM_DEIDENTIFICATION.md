@@ -14,6 +14,37 @@ This deidentification task removes Protected Health Information (PHI) from CT/MR
 
 ---
 
+## HIPAA Safe Harbor Compliance
+
+The implementation addresses **16 out of 18 HIPAA Safe Harbor identifier categories** by masking/replacing **50 specific DICOM fields**. The 2 non-applicable identifiers (biometric identifiers and full-face photographs) are not present in CT/MR/PET imaging data.
+
+### Mapping: HIPAA Identifiers to DICOM Fields
+
+| **HIPAA Safe Harbor Identifier** | **DICOM Fields Addressed** | **How Handled** |
+|----------------------------------|----------------------------|-----------------|
+| 1. Names | Patient Name, Referring Physician Name, Performing Physician Name, Operators Name, Physicians of Record, Requesting Physician, Consulting Physician Name, Responsible Person, Reviewer Name (9 fields) | Replaced with `#` |
+| 2. Geographic locations | Institution Address, Referring Physician Address, Person Address (3 fields) | Replaced with `#` |
+| 3. Dates | All DA (Date) and DT (DateTime) fields | Shifted to random date 2000-2020 |
+| 4. Telephone numbers | Telephone Numbers, Patient Telephone Numbers (2 fields) | Replaced with `#` |
+| 5. Fax numbers | Covered in Free-Text Fields | Replaced with `#` |
+| 6. Email addresses | Covered in Free-Text Fields | Replaced with `#` |
+| 7. Social Security numbers | Covered in Free-Text Fields | Replaced with `#` |
+| 8. Medical record numbers | Other Patient IDs, Other Patient IDs Sequence, Medical Record Locator (3 fields) | Replaced with `#` |
+| 9. Health plan numbers | Patient Insurance Plan Code Sequence (1 field) | Replaced with `#` |
+| 10. Account numbers | Accession Number, Filler Order Number, Placer Order Number (3 fields) | Replaced with `#` |
+| 11. Certificate/license numbers | Covered in Free-Text Fields | Replaced with `#` |
+| 12. Vehicle identifiers | Covered in Free-Text Fields | Replaced with `#` |
+| 13. Device identifiers | Device Serial Number, Plate ID, Generator ID, Cassette ID, Gantry ID (5 fields) | Replaced with `#` |
+| 14. Web URLs | Covered in Free-Text Fields | Replaced with `#` |
+| 15. IP addresses | Covered in Free-Text Fields | Replaced with `#` |
+| 18. Other unique identifiers | Patient ID, Study Instance UID, Series Instance UID, SOP Instance UID, Frame of Reference UID, Study ID, Requested Procedure ID, Scheduled Procedure Step ID, Institution Name, Institutional Department Name, Station Name, Institution Code Sequence, Referring Physician Identification Sequence, Physicians Reading Study Identification Sequence, Operator Identification Sequence (15 fields) + 10 Free-Text Fields | Patient ID → UUID; UIDs → Deidentified UIDs; Others → `#` |
+
+**Note:** HIPAA identifiers 16 (Biometric identifiers) and 17 (Full-face photographs) are not applicable to CT/MR/PET imaging data.
+
+**Total: 50 DICOM fields** addressing 16 applicable HIPAA Safe Harbor identifier categories (out of 18 total).
+
+---
+
 ## What Gets Deidentified
 
 ### 1. **Patient & Person Information (9 fields)**
@@ -198,6 +229,172 @@ Deidentified values are stored in the database for tracking:
 
 ### Instance Table
 - `deidentified_sop_instance_uid` - Generated UID
+
+---
+
+## Testing & Verification
+
+### Independent Verification Script
+
+A standalone CLI test script is provided for IT administrators to independently verify the deidentification process:
+
+**Script:** `test_deidentification_cli.py`
+
+#### Purpose
+- Test the actual deidentification implementation without database dependencies
+- Generate detailed verification reports for compliance auditing
+- Allow IT administrators to validate HIPAA compliance before production deployment
+
+#### Requirements
+
+**Prerequisites:**
+- Python 3.6 or higher
+- pip (Python package installer)
+
+**Initial Setup (First Time):**
+```bash
+# Clone the repository (if not already cloned)
+git clone <repository-url>
+cd draw-client-2.0
+
+# Pull latest changes
+git pull
+
+# Create virtual environment (if not exists)
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate  # On Linux/Mac
+# OR
+venv\Scripts\activate     # On Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+**Subsequent Usage:**
+```bash
+# Navigate to project root and update
+cd /path/to/draw-client-2.0
+git pull
+
+# Activate the virtual environment
+source venv/bin/activate  # On Linux/Mac
+```
+
+**Key Dependencies:**
+- `pydicom` - DICOM file handling
+- `Django` - Project framework
+- Other dependencies in `requirements.txt`
+
+**Note:** The script imports from the Django project, so it needs:
+- The virtual environment activated
+- Django settings configured (automatic via `django.setup()`)
+- Access to `dicom_handler/export_services/task3_deidentify_series.py`
+
+#### Usage
+```bash
+# From project root directory with venv activated:
+python test_deidentification_cli.py <input_folder>
+```
+
+#### What It Does
+1. **Scans input folder** - Recursively finds all DICOM files
+2. **Uses actual implementation** - Imports and uses the exact deidentification logic from `task3_deidentify_series.py`:
+   - `FIELDS_TO_MASK` (50 fields)
+   - `FREE_TEXT_FIELDS` (10 fields)
+   - `generate_deidentified_study_uid()`
+   - `generate_deidentified_series_uids()`
+   - `generate_sop_instance_uid()`
+   - `generate_random_date()`
+3. **Generates consistent UIDs** - Same patient/study/series UIDs for all files in test run
+4. **Deidentifies each file** - Applies same logic as production (field masking, UID replacement, date shifting, private tag removal)
+5. **Saves deidentified files** - Outputs to `<input_folder>/deidentified/`
+6. **Generates verification report** - Creates detailed report at `<input_folder>/deidentification_report.txt`
+
+#### Output
+
+**Deidentified Files:**
+- Location: `<input_folder>/deidentified/`
+- Format: Same folder structure as input
+- Content: Fully deidentified DICOM files
+
+**Verification Report:**
+- Summary of files processed
+- Verification checks:
+  - ✓ All PHI fields masked
+  - ✓ All UIDs replaced
+  - ✓ All dates shifted
+- Detailed results for each file showing original vs deidentified values
+- HIPAA Safe Harbor compliance checklist
+
+#### Key Features
+- ✅ **Tests actual implementation** - Uses the same code as production
+- ✅ **No database required** - Runs standalone without database entries
+- ✅ **Detailed verification** - Shows before/after values for audit trail
+- ✅ **HIPAA compliance checklist** - Verifies all 18 Safe Harbor identifiers
+
+#### Example Report Output
+```
+================================================================================
+DICOM DEIDENTIFICATION VERIFICATION REPORT
+================================================================================
+Generated: 2026-06-19 11:15:30
+Total files processed: 185
+
+Implementation tested:
+  dicom_handler/export_services/task3_deidentify_series.py
+================================================================================
+
+SUMMARY
+--------------------------------------------------------------------------------
+Files deidentified: 185
+All PHI fields masked: ✓ YES
+All UIDs replaced: ✓ YES
+All dates shifted: ✓ YES
+
+DETAILED RESULTS
+================================================================================
+
+File 1: CT_001.dcm
+--------------------------------------------------------------------------------
+
+[PATIENT INFORMATION]
+  Patient ID:
+    Original:      12345
+    Deidentified:  a1b2c3d4-e5f6-7890-1234-567890abcdef
+  Patient Name:
+    Original:      Doe^John
+    Deidentified:  #
+
+[UNIQUE IDENTIFIERS]
+  Study Instance UID:
+    Original:      1.2.840.113619.2.55.3.12345
+    Deidentified:  1.2.826.0.1.3680043.10.1561.123.45.678
+
+[DATES]
+  Study Date:
+    Original:      20240315
+    Deidentified:  20150810
+
+[VERIFICATION]
+  Patient Name masked            ✓ PASS
+  Institution masked             ✓ PASS
+  Study Description masked       ✓ PASS
+  Patient ID replaced            ✓ PASS
+  Study UID replaced             ✓ PASS
+  Study date shifted             ✓ PASS
+```
+
+#### For IT Administrators
+This script allows you to:
+1. Verify deidentification works correctly before production deployment
+2. Test with sample data without affecting the database
+3. Generate compliance reports for auditing purposes
+4. Validate HIPAA Safe Harbor compliance
+5. Provide evidence of deidentification testing for regulatory requirements
+
+See `TEST_DEIDENTIFICATION_README.md` for detailed documentation.
 
 ---
 
