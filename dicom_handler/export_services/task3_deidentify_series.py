@@ -57,6 +57,7 @@ import uuid
 import shutil
 import yaml
 import zipfile
+import re
 from datetime import datetime, date, timedelta
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
@@ -76,27 +77,69 @@ ORGANIZATION_PREFIX = "1.2.826.0.1.3680043.10.1561"
 
 # Fields to replace with # for deidentification
 FIELDS_TO_MASK = [
+    # Person Names
     'PatientName',  # (0010,0010)
     'ReferringPhysicianName',  # (0008,0090)
-    'InstitutionName',  # (0008,0080)
     'PerformingPhysicianName',  # (0008,1050)
     'OperatorsName',  # (0008,1070)
-    'StationName',  # (0008,1010)
-    'InstitutionalDepartmentName',  # (0008,1040)
     'PhysiciansOfRecord',  # (0008,1048)
     'RequestingPhysician',  # (0032,1032)
     'ConsultingPhysicianName',  # (0008,009C)
     'ResponsiblePerson',  # (0010,2297)
     'ReviewerName',  # (300E,0008)
+    
+    # Institution Information
+    'InstitutionName',  # (0008,0080)
     'InstitutionAddress',  # (0008,0081)
+    'InstitutionalDepartmentName',  # (0008,1040)
+    'StationName',  # (0008,1010)
+    
+    # Addresses and Contact
     'ReferringPhysicianAddress',  # (0008,0092)
+    'PersonAddress',  # (0040,1102)
+    'TelephoneNumbers',  # (0040,1103)
+    'PatientTelephoneNumbers',  # (0010,2154)
+    
+    # Sequences
     'InstitutionCodeSequence',  # (0008,0082)
     'PhysiciansReadingStudyIdentificationSequence',  # (0008,1062)
     'OperatorIdentificationSequence',  # (0008,1072)
-    'PersonAddress',  # (0040,1102)
-    'TelephoneNumbers',  # (0040,1103)
-    'AccessionNumber',  # (0008,0050) - Deidentified separately
-    'StudyID',  # (0020,0010) - Deidentified separately
+    'ReferringPhysicianIdentificationSequence',  # (0008,0096)
+    
+    # Medical Record and Patient Identifiers
+    'OtherPatientIDs',  # (0010,1000)
+    'OtherPatientIDsSequence',  # (0010,1002)
+    'MedicalRecordLocator',  # (0010,1090)
+    'PatientInsurancePlanCodeSequence',  # (0010,0050)
+    
+    # Device Identifiers
+    'DeviceSerialNumber',  # (0018,1000)
+    'PlateID',  # (0018,1004)
+    'GeneratorID',  # (0018,1005)
+    'CassetteID',  # (0018,1007)
+    'GantryID',  # (0018,1008)
+    
+    # Study/Series Identifiers (handled separately but listed for completeness)
+    'AccessionNumber',  # (0008,0050)
+    'StudyID',  # (0020,0010)
+    'RequestedProcedureID',  # (0040,1001)
+    'ScheduledProcedureStepID',  # (0040,0009)
+    'FillerOrderNumberImagingServiceRequest',  # (0040,2017)
+    'PlacerOrderNumberImagingServiceRequest',  # (0040,2016)
+]
+
+# Free-text fields that may contain PHI - these need pattern scrubbing
+FREE_TEXT_FIELDS = [
+    'StudyDescription',  # (0008,1030)
+    'SeriesDescription',  # (0008,103E)
+    'ImageComments',  # (0020,4000)
+    'AdditionalPatientHistory',  # (0010,21B0)
+    'StudyComments',  # (0032,4000)
+    'PatientComments',  # (0010,4000)
+    'RequestedProcedureDescription',  # (0032,1060)
+    'PerformedProcedureStepDescription',  # (0040,0254)
+    'ProtocolName',  # (0018,1030)
+    'AcquisitionProtocolDescription',  # (0018,9424)
 ]
 
 # Allowed base directory for file operations
@@ -138,6 +181,34 @@ def validate_path_within_allowed_dir(file_path, allow_base_dir=None):
 
     return True, None
 
+
+def scrub_phi_patterns(text):
+    """
+    Remove common PHI patterns from text fields (email, IP, URL, SSN, phone)
+    Returns scrubbed text with patterns replaced
+    """
+    if not text or text == '#':
+        return '#'
+    
+    text = str(text)
+    
+    # Email pattern
+    text = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', 'EMAIL_REMOVED', text, flags=re.IGNORECASE)
+    
+    # URL pattern (http/https)
+    text = re.sub(r'https?://\S+', 'URL_REMOVED', text, flags=re.IGNORECASE)
+    
+    # IP address pattern (IPv4)
+    text = re.sub(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', 'IP_REMOVED', text)
+    
+    # SSN pattern (XXX-XX-XXXX or XXXXXXXXX)
+    text = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', 'SSN_REMOVED', text)
+    text = re.sub(r'\b\d{9}\b', 'SSN_REMOVED', text)
+    
+    # Phone pattern (various formats)
+    text = re.sub(r'\(?\d{3}\)?[-\.\s]?\d{3}[-\.\s]?\d{4}', 'PHONE_REMOVED', text)
+    
+    return text
 
 def mask_sensitive_data(data, field_name=""):
     """
@@ -290,6 +361,11 @@ def deidentify_dicom_file(file_path, uid_mappings, date_mappings, output_path):
                         element.value = date_mappings[tag_name].strftime('%Y%m%d')
                     else:  # DT
                         element.value = date_mappings[tag_name].strftime('%Y%m%d%H%M%S')
+        
+        # Remove all free-text fields (not needed for segmentation)
+        for field_name in FREE_TEXT_FIELDS:
+            if hasattr(dicom_data, field_name):
+                setattr(dicom_data, field_name, '#')
         
         # Remove private tags
         dicom_data.remove_private_tags()
