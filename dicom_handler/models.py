@@ -29,6 +29,7 @@ class SystemConfiguration(models.Model):
     task1_checkpoint_last_directory = models.TextField(null=True,blank=True,help_text="Internal: Last processed directory path for task1 checkpoint recovery on network storage")
     task1_checkpoint_directories_processed = models.IntegerField(default=0,help_text="Internal: Number of directories processed in current task1 run")
     task1_checkpoint_last_updated = models.DateTimeField(null=True,blank=True,help_text="Internal: Last time task1 checkpoint was updated")
+    exclude_localizer_series = models.BooleanField(default=True,help_text="Exclude scanograms, surview, scout or topograms from the series handling process. This is a system wide configuration whcih will prevent these series from being sent for automatic segmentation.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

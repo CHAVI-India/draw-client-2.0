@@ -9,6 +9,8 @@ import sys
 import django
 from pathlib import Path
 import time
+import tempfile
+import shutil
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
@@ -23,6 +25,9 @@ from dicom_handler.models import SystemConfiguration, Patient, DICOMStudy, DICOM
 from datetime import datetime
 from django.utils import timezone
 from django.db import connection
+import pydicom
+from pydicom.dataset import FileDataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
 def clear_test_data():
     """
@@ -196,6 +201,116 @@ def print_comparison(results):
     
     print("="*70)
 
+def create_test_dicom_file(file_path, series_description, sop_instance_uid, series_instance_uid, study_instance_uid):
+    """
+    Create a minimal DICOM file for localizer exclusion testing
+    """
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = "1.2.840.10008.5.1.4.1.1.2"
+    file_meta.MediaStorageSOPInstanceUID = sop_instance_uid
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+
+    ds = FileDataset(file_path, {}, file_meta=file_meta, preamble=b"\x00" * 128)
+    ds.PatientName = "Test Patient"
+    ds.PatientID = "TEST001"
+    ds.StudyInstanceUID = study_instance_uid
+    ds.SeriesInstanceUID = series_instance_uid
+    ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
+    ds.SOPInstanceUID = sop_instance_uid
+    ds.Modality = "CT"
+    ds.SeriesDescription = series_description
+    ds.StudyDescription = "Test Study"
+    ds.save_as(file_path)
+
+
+def test_localizer_series_exclusion(config, original_date_filter):
+    """
+    Test that the optimized implementation excludes localizer/scout/scanogram/surview
+    series when exclude_localizer_series is enabled, and includes them when disabled.
+    """
+    from dicom_handler.export_services.task1_read_dicom_from_storage import read_dicom_from_storage
+
+    print("\n" + "="*70)
+    print("LOCALIZER SERIES EXCLUSION TEST")
+    print("="*70)
+
+    temp_dir = tempfile.mkdtemp()
+    try:
+        study_uid = generate_uid()
+        localizer_series_uid = generate_uid()
+        normal_series_uid = generate_uid()
+        localizer_sop_uid = generate_uid()
+        normal_sop_uid = generate_uid()
+
+        # Create two files: one localizer (topogram), one normal (axial CT)
+        create_test_dicom_file(
+            os.path.join(temp_dir, "topogram.dcm"),
+            "Topogram",
+            localizer_sop_uid,
+            localizer_series_uid,
+            study_uid,
+        )
+        create_test_dicom_file(
+            os.path.join(temp_dir, "axial.dcm"),
+            "Axial CT",
+            normal_sop_uid,
+            normal_series_uid,
+            study_uid,
+        )
+
+        # Set file mtimes old enough to avoid "recently_modified" skip
+        old_mtime = (timezone.now() - timezone.timedelta(hours=1)).timestamp()
+        for f in os.listdir(temp_dir):
+            os.utime(os.path.join(temp_dir, f), (old_mtime, old_mtime))
+
+        # Save original config values
+        original_folder = config.folder_configuration
+
+        # Configure to use temp folder and old date filter
+        config.folder_configuration = temp_dir
+        config.data_pull_start_datetime = timezone.make_aware(datetime(2000, 1, 1))
+
+        # --- Test with exclusion enabled ---
+        print("\nTesting with exclude_localizer_series = True")
+        clear_test_data()
+        config.exclude_localizer_series = True
+        config.save()
+
+        result = read_dicom_from_storage()
+        series_uids = {s['series_instance_uid'] for s in result.get('series_data', [])}
+
+        if normal_series_uid in series_uids and localizer_series_uid not in series_uids:
+            print("✅ Localizer series correctly excluded; normal series included")
+        else:
+            print(f"❌ Unexpected result. Normal series present: {normal_series_uid in series_uids}")
+            print(f"   Localizer series present: {localizer_series_uid in series_uids}")
+            print(f"   Returned series UIDs: {series_uids}")
+
+        # --- Test with exclusion disabled ---
+        print("\nTesting with exclude_localizer_series = False")
+        clear_test_data()
+        config.exclude_localizer_series = False
+        config.save()
+
+        result = read_dicom_from_storage()
+        series_uids = {s['series_instance_uid'] for s in result.get('series_data', [])}
+
+        if normal_series_uid in series_uids and localizer_series_uid in series_uids:
+            print("✅ Both series included when exclusion is disabled")
+        else:
+            print(f"❌ Unexpected result. Normal series present: {normal_series_uid in series_uids}")
+            print(f"   Localizer series present: {localizer_series_uid in series_uids}")
+            print(f"   Returned series UIDs: {series_uids}")
+
+    finally:
+        # Restore original configuration
+        config.folder_configuration = original_folder
+        config.data_pull_start_datetime = original_date_filter
+        config.save()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        print("\n✅ Original folder configuration restored")
+
+
 def main():
     """
     Main test function
@@ -250,6 +365,9 @@ def main():
         
         # Print comparison
         print_comparison(results)
+
+        # Test localizer series exclusion using the optimized implementation
+        test_localizer_series_exclusion(config, original_date_filter)
         
         print(f"\n" + "="*70)
         print("COMPARISON TEST COMPLETED")

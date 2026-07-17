@@ -39,7 +39,8 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
             'fields': ('draw_bearer_token', 'draw_refresh_token', 'draw_bearer_token_validaty')
         }),
         ('System Settings', {
-            'fields': ('folder_configuration', 'data_pull_start_datetime')
+            'fields': ('folder_configuration', 'data_pull_start_datetime', 'study_date_based_filtering',
+                       'exclude_localizer_series')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

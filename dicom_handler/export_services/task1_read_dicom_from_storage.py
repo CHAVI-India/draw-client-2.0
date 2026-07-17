@@ -18,8 +18,6 @@ FILE FILTERING RULES:
 2. Skip files created/modified in past 10 minutes (likely still being written)
 3. Skip files created before data_pull_start_datetime (if configured)
 4. Skip files already in database (check SOP Instance UID)
-
-SERIES COMPLETION DETECTION:
 - Directory change: When moving to new directory, finalize series from previous directory
 - End of walk: Finalize all remaining series after filesystem traversal completes
 - Prevents re-adding: finalized_series_uids set prevents double-finalization
@@ -59,6 +57,7 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import transaction
 import json
+import re
 from ..models import (
     SystemConfiguration, Patient, DICOMStudy, DICOMSeries, 
     DICOMInstance, ProcessingStatus
@@ -66,6 +65,10 @@ from ..models import (
 
 # Configure logging with masking for sensitive information
 logger = logging.getLogger(__name__)
+
+# Regex pattern to detect localizer/scout/scanogram/surview series descriptions.
+# Uses word boundaries so "topo gram" won't match, but "Topogram" will.
+LOCALIZER_SERIES_PATTERN = re.compile(r'\b(topogram|scout|scanogram|surview)\b', re.IGNORECASE)
 
 def mask_sensitive_data(data, field_name=""):
     """
@@ -99,7 +102,7 @@ def process_single_file(file_info):
     Process a single DICOM file - designed for threading
     Returns: Dictionary with file processing results
     """
-    file_path, series_root_path, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled = file_info
+    file_path, series_root_path, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series = file_info
     
     try:
         # Check file modification time conditions
@@ -128,6 +131,19 @@ def process_single_file(file_info):
             sop_instance_uid = getattr(dicom_data, 'SOPInstanceUID', None)
             if not sop_instance_uid:
                 return {"status": "error", "reason": "missing_sop_uid", "file_path": file_path}
+            
+            # Extract series description for localizer filtering (before full metadata build)
+            series_description = getattr(dicom_data, 'SeriesDescription', '')
+            
+            # Skip files belonging to localizer/scout/scanogram/surview series when configured
+            if exclude_localizer_series and series_description:
+                if LOCALIZER_SERIES_PATTERN.search(series_description):
+                    return {
+                        "status": "skipped",
+                        "reason": "localizer_series",
+                        "file_path": file_path,
+                        "series_description": series_description
+                    }
             
             # Extract DICOM metadata
             dicom_metadata = {
@@ -1022,6 +1038,9 @@ def read_dicom_from_storage_series_aware():
         # Get study date-based filtering setting
         study_date_filtering_enabled = system_config.study_date_based_filtering
         
+        # Get localizer series exclusion setting
+        exclude_localizer_series = system_config.exclude_localizer_series
+        
         current_time = timezone.now()
         ten_minutes_ago = current_time - timedelta(minutes=10)
         
@@ -1135,7 +1154,7 @@ def read_dicom_from_storage_series_aware():
             # Process all files in this directory
             for file_path in file_paths:
                 # Process single file
-                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled)
+                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series)
                 result = process_single_file(file_info)
                 
                 # Count by status
@@ -1270,10 +1289,10 @@ def read_dicom_from_storage_series_aware():
             "series_data": series_data,
             "previous_date_filter": str(date_filter),
             "new_date_filter": str(new_datetime) if new_datetime else None
-        }
-        
+        }        
     except Exception as e:
         logger.error(f"Critical error in DICOM reading task: {str(e)}")
         logger.info("⚠️  data_pull_start_datetime NOT updated due to failed run")
         return {"status": "error", "message": str(e)}
+
 
