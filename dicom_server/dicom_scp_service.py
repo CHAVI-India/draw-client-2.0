@@ -373,8 +373,9 @@ class DicomSCPService:
         # Association handlers
         handlers.append((evt.EVT_CONN_OPEN, self._handle_connection_open))
         handlers.append((evt.EVT_CONN_CLOSE, self._handle_connection_close))
-        # Note: EVT_REQUESTED is a notification event, not intervention - cannot reject here
-        # Validation moved to EVT_ACCEPTED for proper handling
+        # EVT_REQUESTED is the correct place to validate and reject associations
+        # Validation must happen BEFORE acceptance to avoid abort after accept
+        handlers.append((evt.EVT_REQUESTED, self._handle_association_requested))
         handlers.append((evt.EVT_ACCEPTED, self._handle_association_accepted))
         handlers.append((evt.EVT_REJECTED, self._handle_association_rejected))
         handlers.append((evt.EVT_RELEASED, self._handle_association_released))
@@ -522,49 +523,58 @@ Can
     
     def _handle_association_requested(self, event):
         """
-        Handle association requested event (NOTIFICATION EVENT).
-        Note: This is a notification event in pynetdicom, not an intervention event.
-        Return values are ignored. Validation is performed in EVT_ACCEPTED handler.
+        Handle association requested event - VALIDATION HAPPENS HERE.
+        This is the correct place to validate and reject associations BEFORE acceptance.
+        If validation fails, send A-ASSOCIATE-RJ to properly reject the association.
         """
-        calling_ae = event.assoc.requestor.ae_title
+        # Get calling AE from the primitive (populated before handler is called)
+        try:
+            calling_ae_raw = event.assoc.requestor.primitive.calling_ae_title
+            calling_ae = calling_ae_raw.decode('ascii').strip() if calling_ae_raw else ''
+        except (AttributeError, UnicodeDecodeError) as e:
+            logger.warning(f"Failed to decode calling AE title: {e}")
+            calling_ae = ''
+        
         remote_ip = event.assoc.requestor.address
         
-        logger.debug(f"Association requested from {calling_ae} ({remote_ip})")
-    
-    def _handle_association_accepted(self, event):
-        """
-        Handle association accepted event.
-        Perform validation here since EVT_REQUESTED is a notification event.
-        If validation fails, abort the association.
-        """
-        calling_ae = event.assoc.requestor.ae_title
-        remote_ip = event.assoc.requestor.address
+        logger.info(f"Association requested from {calling_ae} ({remote_ip})")
         
         # Validate calling AE title
         if not self._validate_calling_ae(calling_ae):
-            logger.warning(f"Association validation failed: Calling AE '{calling_ae}' not authorized - aborting")
+            logger.warning(f"Association rejected: Calling AE '{calling_ae}' not authorized")
             self._log_transaction(
                 'ASSOCIATION',
                 'REJECTED',
                 event,
                 error_message=f"Calling AE '{calling_ae}' not authorized"
             )
-            # Abort the association
-            event.assoc.abort()
+            # Send proper rejection (result=1: rejected-permanent, source=1: service-user, reason=3: calling-ae-title-not-recognized)
+            event.assoc.acse.send_reject(0x01, 0x01, 0x03)
             return
         
         # Validate remote IP
         if not self._validate_remote_ip(remote_ip):
-            logger.warning(f"Association validation failed: Remote IP '{remote_ip}' not authorized - aborting")
+            logger.warning(f"Association rejected: Remote IP '{remote_ip}' not authorized")
             self._log_transaction(
                 'ASSOCIATION',
                 'REJECTED',
                 event,
                 error_message=f"Remote IP '{remote_ip}' not authorized"
             )
-            # Abort the association
-            event.assoc.abort()
+            # Send proper rejection (result=1: rejected-permanent, source=1: service-user, reason=7: application-context-name-not-supported)
+            event.assoc.acse.send_reject(0x01, 0x01, 0x07)
             return
+        
+        logger.debug(f"Association validation passed for {calling_ae} ({remote_ip})")
+    
+    def _handle_association_accepted(self, event):
+        """
+        Handle association accepted event.
+        Validation already performed in EVT_REQUESTED handler.
+        This handler just logs the successful acceptance.
+        """
+        calling_ae = event.assoc.requestor.ae_title
+        remote_ip = event.assoc.requestor.address
         
         logger.info(f"Association accepted from {calling_ae} ({remote_ip})")
         
