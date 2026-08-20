@@ -714,6 +714,15 @@ def _process_cstore_file_to_database(file_path, ds, ae_title=None):
             logger.info(f"[C-STORE] Skipping modality {modality} - not CT/MR/PT")
             return {"status": "skipped", "reason": "unsupported_modality"}
         
+        # Check if file is a Secondary Capture image based on SOP Class UID (same as task1)
+        system_config = SystemConfiguration.get_singleton()
+        if system_config and system_config.exclude_secondary_capture:
+            from dicom_handler.export_services.task1_read_dicom_from_storage import SECONDARY_CAPTURE_SOP_CLASS_UIDS
+            sop_class_uid = getattr(ds, 'SOPClassUID', None)
+            if sop_class_uid and str(sop_class_uid) in SECONDARY_CAPTURE_SOP_CLASS_UIDS:
+                logger.info(f"[C-STORE] Skipping secondary capture image (SOP Class UID: {sop_class_uid})")
+                return {"status": "skipped", "reason": "secondary_capture"}
+        
         # Extract metadata
         patient_id = getattr(ds, 'PatientID', '')
         patient_name = str(getattr(ds, 'PatientName', ''))

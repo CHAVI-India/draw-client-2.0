@@ -70,6 +70,16 @@ logger = logging.getLogger(__name__)
 # Uses word boundaries so "topo gram" won't match, but "Topogram" will.
 LOCALIZER_SERIES_PATTERN = re.compile(r'\b(topogram|scout|scanogram|surview)\b', re.IGNORECASE)
 
+# SOP Class UIDs for Secondary Capture image variants.
+# Used to exclude secondary captures which may have CT/MR/PT modality
+# but are not actual diagnostic images.
+SECONDARY_CAPTURE_SOP_CLASS_UIDS = {
+    '1.2.840.10008.5.1.4.1.1.7',       # Secondary Capture Image Storage
+    '1.2.840.10008.5.1.4.1.1.7.1',     # Multi-frame Secondary Capture Image Storage
+    '1.2.840.10008.5.1.4.1.1.7.2',     # Secondary Capture Audio Storage
+    '1.2.840.10008.5.1.4.1.1.7.3',     # Multi-frame True Color Secondary Capture Image Storage
+}
+
 def mask_sensitive_data(data, field_name=""):
     """
     Mask sensitive DICOM data for logging purposes
@@ -102,7 +112,7 @@ def process_single_file(file_info):
     Process a single DICOM file - designed for threading
     Returns: Dictionary with file processing results
     """
-    file_path, series_root_path, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series = file_info
+    file_path, series_root_path, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series, exclude_secondary_capture = file_info
     
     try:
         # Check file modification time conditions
@@ -131,6 +141,17 @@ def process_single_file(file_info):
             sop_instance_uid = getattr(dicom_data, 'SOPInstanceUID', None)
             if not sop_instance_uid:
                 return {"status": "error", "reason": "missing_sop_uid", "file_path": file_path}
+            
+            # Check if file is a Secondary Capture image based on SOP Class UID
+            if exclude_secondary_capture:
+                sop_class_uid = getattr(dicom_data, 'SOPClassUID', None)
+                if sop_class_uid and str(sop_class_uid) in SECONDARY_CAPTURE_SOP_CLASS_UIDS:
+                    return {
+                        "status": "skipped",
+                        "reason": "secondary_capture",
+                        "file_path": file_path,
+                        "sop_class_uid": str(sop_class_uid)
+                    }
             
             # Extract series description for localizer filtering (before full metadata build)
             series_description = getattr(dicom_data, 'SeriesDescription', '')
@@ -1041,6 +1062,9 @@ def read_dicom_from_storage_series_aware():
         # Get localizer series exclusion setting
         exclude_localizer_series = system_config.exclude_localizer_series
         
+        # Get secondary capture exclusion setting
+        exclude_secondary_capture = system_config.exclude_secondary_capture
+        
         current_time = timezone.now()
         ten_minutes_ago = current_time - timedelta(minutes=10)
         
@@ -1154,7 +1178,7 @@ def read_dicom_from_storage_series_aware():
             # Process all files in this directory
             for file_path in file_paths:
                 # Process single file
-                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series)
+                file_info = (file_path, root_dir, date_filter, current_time, ten_minutes_ago, study_date_filtering_enabled, exclude_localizer_series, exclude_secondary_capture)
                 result = process_single_file(file_info)
                 
                 # Count by status

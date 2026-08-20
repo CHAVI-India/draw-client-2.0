@@ -261,7 +261,8 @@ class SystemConfigurationForm(forms.ModelForm):
             'draw_download_endpoint', 'draw_notify_endpoint', 'draw_token_refresh_endpoint',
             'draw_bearer_token', 'draw_refresh_token', 'draw_bearer_token_validaty',
             'folder_configuration', 'data_pull_start_datetime', 'study_date_based_filtering',
-            'exclude_localizer_series'
+            'exclude_localizer_series',
+            'exclude_secondary_capture'
         ]
         widgets = {
             'draw_base_url': forms.URLInput(attrs={
@@ -317,6 +318,9 @@ class SystemConfigurationForm(forms.ModelForm):
             }),
             'exclude_localizer_series': forms.CheckboxInput(attrs={
                 'class': 'sr-only peer'
+            }),
+            'exclude_secondary_capture': forms.CheckboxInput(attrs={
+                'class': 'sr-only peer'
             })
         }
 
@@ -369,6 +373,7 @@ class SystemConfigurationForm(forms.ModelForm):
                 'data_pull_start_datetime',
                 'study_date_based_filtering',
                 'exclude_localizer_series',
+                'exclude_secondary_capture',
                 css_class='mb-4'
             ),
             Submit('submit', 'Save Configuration', css_class='btn btn-primary')

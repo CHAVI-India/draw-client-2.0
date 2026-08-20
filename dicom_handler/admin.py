@@ -40,7 +40,7 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
         }),
         ('System Settings', {
             'fields': ('folder_configuration', 'data_pull_start_datetime', 'study_date_based_filtering',
-                       'exclude_localizer_series')
+                       'exclude_localizer_series', 'exclude_secondary_capture')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
