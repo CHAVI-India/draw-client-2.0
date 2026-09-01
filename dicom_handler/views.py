@@ -1640,6 +1640,11 @@ def series_processing_status(request):
     if rule_group_filter:
         series_queryset = series_queryset.filter(matched_rule_sets__rulegroup__id=rule_group_filter)
     
+    # Station Name filter
+    station_name_filter = request.GET.get('station_name', '').strip()
+    if station_name_filter:
+        series_queryset = series_queryset.filter(station_name__icontains=station_name_filter)
+    
     # Date filters
     study_date_from = request.GET.get('study_date_from', '').strip()
     study_date_to = request.GET.get('study_date_to', '').strip()
@@ -1667,6 +1672,10 @@ def series_processing_status(request):
     all_protocols = DICOMSeries.objects.select_related('study').values_list(
         'study__study_protocol', flat=True
     ).distinct().exclude(study__study_protocol__isnull=True).exclude(study__study_protocol='')
+    
+    all_station_names = DICOMSeries.objects.values_list(
+        'station_name', flat=True
+    ).distinct().exclude(station_name__isnull=True).exclude(station_name='')
     
     # Get all rule groups for filter dropdown
     all_rule_groups = RuleGroup.objects.all().order_by('rulegroup_name')
@@ -1708,6 +1717,7 @@ def series_processing_status(request):
             'gender': series.study.patient.patient_gender or 'N/A',
             'study_date': series.study.study_date,
             'series_description': series.series_description or 'N/A',
+            'station_name': series.station_name or 'N/A',
             'study_protocol': series.study.study_protocol or 'N/A',
             'study_modality': series.study.study_modality or 'N/A',
             'instance_count': series.instance_count or 0,
@@ -1751,8 +1761,10 @@ def series_processing_status(request):
         'all_genders': sorted(list(set(all_genders))),
         'all_modalities': sorted(list(set(all_modalities))),
         'all_protocols': sorted(list(set(all_protocols))),
+        'all_station_names': sorted(list(set(all_station_names))),
         'all_rule_groups': all_rule_groups,
         'rule_group_filter': rule_group_filter,
+        'station_name_filter': station_name_filter,
         'processing_statuses': ProcessingStatus.choices,
         'remote_nodes': remote_nodes,
     }

@@ -183,6 +183,7 @@ def process_single_file(file_info):
                 'modality': modality,
                 'series_instance_uid': getattr(dicom_data, 'SeriesInstanceUID', ''),
                 'series_date': getattr(dicom_data, 'SeriesDate', None),
+                'station_name': getattr(dicom_data, 'StationName', ''),
                 'frame_of_reference_uid': getattr(dicom_data, 'FrameOfReferenceUID', ''),
                 'sop_instance_uid': sop_instance_uid,
                 'file_path': file_path,
@@ -300,6 +301,7 @@ def bulk_create_database_records(processed_files):
                 'frame_of_reference_uid': metadata['frame_of_reference_uid'],
                 'series_description': metadata['series_description'],
                 'series_date': series_date,
+                'station_name': metadata['station_name'],
                 'instance_count': 0
             }
         # If a description is found later, update it
@@ -365,12 +367,14 @@ def bulk_create_database_records(processed_files):
                     'series_date': series_data['series_date'],
                     'instance_count': series_data['instance_count'],
                     'series_description': series_data['series_description'],
+                    'station_name': series_data['station_name'],
                     'series_processsing_status': ProcessingStatus.UNPROCESSED
                 }
             )
             if not created and series.instance_count != series_data['instance_count']:
                     series.instance_count = series_data['instance_count']
                     series.series_description = series_data['series_description']
+                    series.station_name = series_data['station_name']
                     series.save()
             
             series_objects[series_key] = series
@@ -451,6 +455,7 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
             study_id = getattr(dicom_data, 'StudyID', '')
             series_description = getattr(dicom_data, 'SeriesDescription', '')
             modality = getattr(dicom_data, 'Modality', '')
+            station_name = getattr(dicom_data, 'StationName', '')
             
             # Convert study date
             if study_date:
@@ -509,6 +514,7 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
                     'frame_of_reference_uid': frame_of_reference_uid,
                     'series_description': series_description,
                     'series_date': series_date,
+                    'station_name': station_name,
                     'series_processsing_status': ProcessingStatus.UNPROCESSED
                 }
             )
@@ -516,9 +522,10 @@ def process_dicom_file(dicom_data, file_path, series_root_path):
             if created:
                 logger.info(f"Created new series: {mask_sensitive_data(series_instance_uid, 'series_uid')}")
             else:
-                # If series already exists, check if description needs updating
-                if series.series_description != series_description:
+                # If series already exists, check if description or station name needs updating
+                if series.series_description != series_description or series.station_name != station_name:
                     series.series_description = series_description
+                    series.station_name = station_name
                     series.save()
             
             # Extract instance information

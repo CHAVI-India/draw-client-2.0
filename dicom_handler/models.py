@@ -612,6 +612,7 @@ class DICOMSeries(models.Model):
     matched_rule_sets = models.ManyToManyField(RuleSet)
     matched_templates = models.ManyToManyField(AutosegmentationTemplate)
     series_processsing_status = models.CharField(max_length=256,choices=ProcessingStatus.choices,default=ProcessingStatus.UNPROCESSED, null=True, blank=True)
+    station_name = models.CharField(max_length=256,null=True,blank=True,help_text="Station name where the series originated.")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

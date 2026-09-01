@@ -740,6 +740,7 @@ def _process_cstore_file_to_database(file_path, ds, ae_title=None):
         series_instance_uid = getattr(ds, 'SeriesInstanceUID', '')
         series_date = getattr(ds, 'SeriesDate', None)
         series_description = getattr(ds, 'SeriesDescription', '')
+        station_name = getattr(ds, 'StationName', '')
         frame_of_reference_uid = getattr(ds, 'FrameOfReferenceUID', '')
         sop_instance_uid = getattr(ds, 'SOPInstanceUID', '')
         
@@ -819,6 +820,7 @@ def _process_cstore_file_to_database(file_path, ds, ae_title=None):
                     'frame_of_reference_uid': frame_of_reference_uid,
                     'series_description': series_description,
                     'series_date': series_date,
+                    'station_name': station_name,
                     'series_processsing_status': ProcessingStatus.UNPROCESSED,
                     'instance_count': 0,
                     'series_files_fully_read': False
