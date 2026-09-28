@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-2xl">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Upload Missing Image Series</h1>
+    <p class="text-gray-600 mb-6">The selected RTStruct references a CT/MR/PT image series that could not be found. Upload the DICOM image files for that series below.</p>
+
+    {% if error %}
+    <div class="rounded-md bg-red-50 p-4 mb-6">
+        <div class="flex">
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-red-800">Error</h3>
+                <div class="mt-2 text-sm text-red-700">{{ error }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="bg-white shadow sm:rounded-md p-6 space-y-6">
+        {% csrf_token %}
+        <input type="hidden" name="job_id" value="{{ job_id }}">
+        {% if expected_series_uid %}
+        <input type="hidden" name="expected_series_uid" value="{{ expected_series_uid }}">
+        {% endif %}
+
+        <div>
+            <label for="dicom_files" class="block text-sm font-medium text-gray-700 mb-1">DICOM Image Files</label>
+            <p class="text-xs text-gray-500 mb-2">Select all DICOM files for a single CT, MR, or PT series. You may also upload a zip archive.</p>
+            <input type="file" id="dicom_files" name="dicom_files" multiple accept=".dcm,.dicom,application/zip" required
+                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                Import Series
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

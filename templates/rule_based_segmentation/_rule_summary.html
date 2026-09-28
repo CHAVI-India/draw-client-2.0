@@ -1,0 +1,24 @@
+<div class="mt-2 text-sm text-gray-600 pl-8">
+    {% if rule.rule_type == "BOOLEAN" %}
+        Boolean expression tree
+    {% elif rule.rule_type == "INTENSITY" %}
+        Intensity ranges: {% for r in rule.intensity_config.ranges.all %}{{ r.min_value }} to {{ r.max_value }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        {% if rule.intensity_config.seed_type == "STRUCTURE" %}
+            (seed: {{ rule.intensity_config.seed_roi }})
+        {% elif rule.intensity_config.seed_type == "BOUNDARY" %}
+            (boundary: {{ rule.intensity_config.boundary_roi }})
+        {% else %}
+            (full image)
+        {% endif %}
+    {% elif rule.rule_type == "MARGIN" %}
+        {% if rule.margin_config.variant == "UNIFORM" %}
+            {{ rule.margin_config.margin_mm }} mm uniform on {{ rule.margin_config.source }}
+        {% else %}
+            Anisotropic on {{ rule.margin_config.source }}: x={{ rule.margin_config.margin_x_mm }} y={{ rule.margin_config.margin_y_mm }} z={{ rule.margin_config.margin_z_mm }} mm
+        {% endif %}
+    {% elif rule.rule_type == "CROP" %}
+        Crop {{ rule.crop_config.source }} to {% for b in rule.crop_config.boundaries.all %}{{ b.boundary_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    {% elif rule.rule_type == "CLEANUP" %}
+        {{ rule.cleanup_config.get_operation_display }} on {{ rule.cleanup_config.source }}
+    {% endif %}
+</div>

@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-3xl">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Run Pipeline: {{ pipeline.name }}</h1>
+    <p class="text-gray-600 mb-6">{{ pipeline.description|default:"" }}</p>
+
+    {% if error %}
+    <div class="rounded-md bg-red-50 p-4 mb-6">
+        <div class="flex">
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-red-800">Error</h3>
+                <div class="mt-2 text-sm text-red-700">{{ error }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" class="bg-white shadow sm:rounded-md p-6 space-y-6">
+        {% csrf_token %}
+
+        <div>
+            <h2 class="text-lg font-medium text-gray-900 mb-4">Select RTStruct Input</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="flex items-center">
+                        <input id="input_type_upload_new" name="input_type" type="radio" value="UPLOAD_NEW" checked class="focus:ring-primary-500 h-4 w-4 text-primary-600 border-gray-300">
+                        <span class="ml-3 block text-sm font-medium text-gray-700">Upload a new RTStruct</span>
+                    </label>
+                    <div class="ml-7 mt-2">
+                        <input type="file" name="rtstruct_file" accept=".dcm,.dicom" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
+                    </div>
+                </div>
+
+                {% if sample_rtstructs %}
+                <div>
+                    <label class="flex items-center">
+                        <input id="input_type_existing" name="input_type" type="radio" value="EXISTING" class="focus:ring-primary-500 h-4 w-4 text-primary-600 border-gray-300">
+                        <span class="ml-3 block text-sm font-medium text-gray-700">Use an existing RTStruct</span>
+                    </label>
+                    <div class="ml-7 mt-2">
+                        <select id="sample-rtstruct-select" name="input_id" class="w-full" style="min-width: 0;">
+                            <option value="">-- Select RTStruct --</option>
+                            {% regroup sample_rtstructs by source as source_groups %}
+                            {% for group in source_groups %}
+                            <optgroup label="{% if group.grouper == 'upload' %}Uploaded{% else %}Auto-segmented{% endif %}">
+                                {% for item in group.list %}
+                                <option value="{{ item.source }}:{{ item.id }}" data-source="{{ item.source }}" data-id="{{ item.id }}">{{ item.label }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                Start Segmentation
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+    .select2-container--default .select2-selection--single {
+        height: 40px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+        padding: 0 0.75rem !important;
+    }
+    .select2-container {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 38px !important;
+        padding-left: 0 !important;
+        color: #374151 !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 38px !important;
+        right: 8px !important;
+    }
+    .select2-container--default.select2-container--focus .select2-selection--single {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) !important;
+    }
+</style>
+<script>
+(function() {
+    const $select = $("#sample-rtstruct-select");
+    $select.select2({ placeholder: "Search and select an RTStruct...", allowClear: true, width: "100%" });
+
+    function updateSelectState() {
+        const usingExisting = document.getElementById("input_type_existing").checked;
+        $select.prop("disabled", !usingExisting);
+    }
+
+    document.querySelectorAll("input[name='input_type']").forEach(radio => {
+        radio.addEventListener("change", updateSelectState);
+    });
+    updateSelectState();
+})();
+</script>
+{% endblock %}

@@ -26,6 +26,7 @@
                     <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Statistics</a>
                     <a href="{% url 'dicom_handler:rt_structure_ratings_list' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Contour Ratings</a>
                     <a href="{% url 'dicom_server:dashboard' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">DICOM Server</a>
+                    <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">Rule Segmentation</a>
                 {% endif %}
                 {% if perms.dicom_handler.view_systemconfiguration %}
                     <a href="{% url 'dicom_handler:system_configuration' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">System Config</a>
@@ -103,6 +104,9 @@
                     </a>
                     <a href="{% url 'dicom_server:dashboard' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
                         DICOM Server
+                    </a>
+                    <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
+                        Rule Segmentation
                     </a>
                 {% endif %}
                 {% if perms.dicom_handler.view_systemconfiguration %}

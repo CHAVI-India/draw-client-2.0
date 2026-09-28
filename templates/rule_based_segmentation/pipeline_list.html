@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">Rule-Based Segmentation Pipelines</h1>
+        <a href="{% url 'rule_based_segmentation:pipeline_create' %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+            + New Pipeline
+        </a>
+    </div>
+
+    {% if pipelines %}
+    <div class="bg-white shadow overflow-hidden sm:rounded-md">
+        <ul class="divide-y divide-gray-200">
+            {% for pipeline in pipelines %}
+            <li class="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center">
+                        <p class="text-sm font-medium text-primary-600 truncate">{{ pipeline.name }}</p>
+                        {% if pipeline.is_public %}
+                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Public</span>
+                        {% else %}
+                        <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Private</span>
+                        {% endif %}
+                    </div>
+                    <p class="mt-1 text-sm text-gray-500">
+                        {{ pipeline.description|default:"No description" }}
+                    </p>
+                    <p class="mt-1 text-xs text-gray-400">
+                        {{ pipeline.rules.count }} rule{{ pipeline.rules.count|pluralize }}
+                        {% if pipeline.created_by %} &middot; {{ pipeline.created_by }}{% endif %}
+                    </p>
+                </div>
+                <div class="ml-4 flex items-center space-x-2">
+                    <a href="{% url 'rule_based_segmentation:job_create' pipeline.id %}" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">
+                        Run
+                    </a>
+                    <a href="{% url 'rule_based_segmentation:pipeline_detail' pipeline.id %}" class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        View
+                    </a>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <div class="text-center py-12 bg-white rounded-lg shadow">
+        <p class="text-gray-500">No pipelines yet.</p>
+        <a href="{% url 'rule_based_segmentation:pipeline_create' %}" class="mt-2 inline-flex items-center text-primary-600 hover:text-primary-800">
+            Create your first pipeline
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

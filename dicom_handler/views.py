@@ -1707,7 +1707,13 @@ def series_processing_status(request):
         rt_structures = RTStructureFileImport.objects.filter(deidentified_series_instance_uid=series)
         rt_structure_count = rt_structures.count()
         rated_count = rt_structures.filter(date_contour_reviewed__isnull=False).count()
-        
+
+        # Get rule-based segmentation jobs for this series
+        from rule_based_segmentation.models import SegmentationJob
+        segmentation_jobs = SegmentationJob.objects.filter(
+            dicom_series=series
+        ).select_related('pipeline').order_by('-created_at')
+
         series_info = {
             'id': series.id,
             'series_instance_uid': series.series_instance_uid,  # Add the missing field
@@ -1727,7 +1733,8 @@ def series_processing_status(request):
             'updated_at': series.updated_at,
             'export_info': export_info,
             'rt_structure_count': rt_structure_count,
-            'rated_count': rated_count
+            'rated_count': rated_count,
+            'segmentation_jobs': segmentation_jobs,
         }
         series_data.append(series_info)
     
@@ -1745,7 +1752,7 @@ def series_processing_status(request):
     ).exclude(
         host=''
     )
-    
+
     context = {
         'page_obj': page_obj,
         'series_data': series_data,

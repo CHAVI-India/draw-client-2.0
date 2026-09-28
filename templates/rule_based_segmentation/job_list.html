@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">Segmentation Jobs</h1>
+
+    {% if jobs %}
+    <div class="bg-white shadow overflow-hidden sm:rounded-md">
+        <ul class="divide-y divide-gray-200">
+            {% for job in jobs %}
+            <li class="px-6 py-4 flex items-center justify-between hover:bg-gray-50">
+                <div>
+                    <p class="text-sm font-medium text-primary-600">{{ job.pipeline.name }}</p>
+                    <p class="text-xs text-gray-500">{{ job.created_at }}</p>
+                </div>
+                <div class="flex items-center space-x-3">
+                    {% if job.status == "SUCCESS" %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Success</span>
+                    {% elif job.status == "FAILED" %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Failed</span>
+                    {% elif job.status == "STARTED" %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Running</span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Pending</span>
+                    {% endif %}
+                    <a href="{% url 'rule_based_segmentation:job_detail' job.id %}" class="text-sm text-primary-600 hover:text-primary-800">View</a>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% else %}
+    <p class="text-gray-500">No jobs yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

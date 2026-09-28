@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">
+        {% if pipeline %}Edit Pipeline{% else %}New Pipeline{% endif %}
+    </h1>
+
+    {% if error %}
+    <div class="rounded-md bg-red-50 p-4 mb-6">
+        <div class="text-sm font-medium text-red-800">Error</div>
+        <div class="mt-2 text-sm text-red-700">{{ error }}</div>
+    </div>
+    {% endif %}
+
+    <form method="post" id="pipeline-form" class="space-y-6">
+        {% csrf_token %}
+        <input type="hidden" name="pipeline_data" id="pipeline_data">
+
+        <div class="bg-white shadow sm:rounded-md p-6 space-y-4">
+            <div>
+                <label for="pipeline-name" class="block text-sm font-medium text-gray-700 mb-1">Pipeline Name</label>
+                <input type="text" id="pipeline-name" name="name" required maxlength="256"
+                    value="{{ pipeline.name|default:'' }}"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+            </div>
+            <div>
+                <label for="pipeline-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea id="pipeline-description" name="description" rows="2"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">{{ pipeline.description|default:'' }}</textarea>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="pipeline-public" name="is_public" {% if pipeline.is_public %}checked{% endif %}
+                    class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded">
+                <label for="pipeline-public" class="ml-2 block text-sm text-gray-900">Public (visible to all authenticated users)</label>
+            </div>
+        </div>
+
+        <div class="bg-white shadow sm:rounded-md p-6">
+            <div class="mb-4">
+                <label for="sample-rtstruct" class="block text-sm font-medium text-gray-700 mb-1">Sample RTStruct for structure list</label>
+                <div class="flex items-center space-x-2">
+                    <select id="sample-rtstruct" class="w-full" style="min-width: 0;">
+                        <option value="">-- Select RTStruct --</option>
+                        {% if sample_rtstructs %}
+                        {% regroup sample_rtstructs by source as source_groups %}
+                        {% for group in source_groups %}
+                        <optgroup label="{% if group.grouper == 'upload' %}Uploaded{% else %}Auto-segmented{% endif %}">
+                            {% for item in group.list %}
+                            <option value="{{ item.source }}:{{ item.id }}" data-source="{{ item.source }}" data-id="{{ item.id }}">{{ item.label }}</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                        {% endif %}
+                    </select>
+                    <button type="button" id="load-structures" class="inline-flex items-center h-10 px-3 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 whitespace-nowrap">
+                        Refresh
+                    </button>
+                </div>
+                <div class="mt-3 flex items-center gap-2">
+                    <span class="text-sm text-gray-500">or</span>
+                    <label class="inline-flex items-center cursor-pointer">
+                        <span class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            Upload RTStruct
+                        </span>
+                        <input type="file" id="upload-sample-rtstruct" accept=".dcm,.dicom" class="hidden">
+                    </label>
+                    <span id="upload-sample-filename" class="text-sm text-gray-600"></span>
+                </div>
+                <div id="sample-structures-container" class="mt-4 hidden">
+                    <p class="text-sm font-medium text-gray-700 mb-2">Available structures</p>
+                    <div id="sample-structures-tags" class="flex flex-wrap gap-2"></div>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">Select or upload an RTStruct to populate structure dropdowns. You can still type custom names for structures that will exist in your target RTStruct.</p>
+            </div>
+
+            <div id="pipeline-builder"></div>
+        </div>
+
+        <div class="flex justify-end space-x-3">
+            <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">Cancel</a>
+            <button type="submit" class="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                Save Pipeline
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/rule_based_pipeline_builder.js' %}"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<style>
+    .select2-container--default .select2-selection--single {
+        height: 40px !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 0.375rem !important;
+        padding: 0 0.75rem !important;
+    }
+    .select2-container {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+        line-height: 38px !important;
+        padding-left: 0 !important;
+        color: #374151 !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 38px !important;
+        right: 8px !important;
+    }
+    .select2-container--default.select2-container--focus .select2-selection--single {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) !important;
+    }
+</style>
+{{ pipeline_data|json_script:"pipeline-data" }}
+{{ sample_rtstructs|json_script:"sample-rtstructs-data" }}
+<script>
+(function() {
+    const existingPipeline = JSON.parse(document.getElementById("pipeline-data").textContent);
+    let sampleRtstructs = JSON.parse(document.getElementById("sample-rtstructs-data").textContent);
+
+    const builder = new RuleBasedPipelineBuilder("pipeline-builder", {
+        existingRules: existingPipeline.rules || [],
+        availableStructures: [],
+    });
+
+    const $sampleSelect = $("#sample-rtstruct");
+
+    function populateSampleSelect() {
+        const currentValue = $sampleSelect.val();
+        $sampleSelect.empty();
+        $sampleSelect.append(new Option("-- Select RTStruct --", "", true, true));
+        const groups = {};
+        sampleRtstructs.forEach(item => {
+            if (!groups[item.source]) groups[item.source] = [];
+            groups[item.source].push(item);
+        });
+        Object.keys(groups).forEach(source => {
+            const label = source === "upload" ? "Uploaded" : "Auto-segmented";
+            const optgroup = $("<optgroup></optgroup>").attr("label", label);
+            groups[source].forEach(item => {
+                const value = `${item.source}:${item.id}`;
+                const option = new Option(item.label, value, false, currentValue === value);
+                option.dataset.source = item.source;
+                option.dataset.id = item.id;
+                optgroup.append(option);
+            });
+            $sampleSelect.append(optgroup);
+        });
+        $sampleSelect.trigger("change");
+    }
+
+    $sampleSelect.select2({ placeholder: "Search and select an RTStruct...", allowClear: true, width: "100%" });
+    populateSampleSelect();
+
+    const ROI_TYPE_COLORS = {
+        "EXTERNAL": { bg: "bg-gray-100", text: "text-gray-800", border: "border-gray-300" },
+        "ORGAN": { bg: "bg-green-100", text: "text-green-800", border: "border-green-300" },
+        "ORGAN_AT_RISK": { bg: "bg-red-100", text: "text-red-800", border: "border-red-300" },
+        "PTV": { bg: "bg-blue-100", text: "text-blue-800", border: "border-blue-300" },
+        "CTV": { bg: "bg-purple-100", text: "text-purple-800", border: "border-purple-300" },
+        "GTV": { bg: "bg-orange-100", text: "text-orange-800", border: "border-orange-300" },
+        "TREATED_VOLUME": { bg: "bg-yellow-100", text: "text-yellow-800", border: "border-yellow-300" },
+        "IRRADED_VOLUME": { bg: "bg-yellow-100", text: "text-yellow-800", border: "border-yellow-300" },
+    };
+
+    function renderStructureTags(structures) {
+        const container = document.getElementById("sample-structures-container");
+        const tagsDiv = document.getElementById("sample-structures-tags");
+        tagsDiv.innerHTML = "";
+        if (!structures || structures.length === 0) {
+            container.classList.add("hidden");
+            return;
+        }
+        structures.forEach(s => {
+            const tag = document.createElement("span");
+            tag.className = "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border";
+            tag.textContent = s.label;
+            tag.title = s.roi_type ? `${s.label} (${s.roi_type})` : s.label;
+            if (s.color) {
+                tag.style.backgroundColor = s.color;
+                tag.style.borderColor = s.color;
+                tag.style.color = _contrastingTextColor(s.color);
+            } else {
+                const type = (s.roi_type || "OTHER").toUpperCase();
+                const colors = ROI_TYPE_COLORS[type] || { bg: "bg-gray-100", text: "text-gray-800", border: "border-gray-300" };
+                tag.classList.add(colors.bg, colors.text, colors.border);
+            }
+            tagsDiv.appendChild(tag);
+        });
+        container.classList.remove("hidden");
+    }
+
+    function _contrastingTextColor(hexColor) {
+        const hex = hexColor.replace("#", "");
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.5 ? "#1f2937" : "#ffffff";
+    }
+
+    function loadStructuresFromApi(source, id) {
+        const params = source === "upload" ? `rtstruct_id=${id}` : `import_id=${id}`;
+        fetch(`{% url 'rule_based_segmentation:api_get_structures' %}?${params}`)
+            .then(r => r.json())
+            .then(data => {
+                builder.setAvailableStructures(data.structures.map(s => ({ value: s.value, label: s.label, kind: "existing" })));
+                renderStructureTags(data.structures);
+                alert(`Loaded ${data.structures.length} structures`);
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Failed to load structures");
+            });
+    }
+
+    document.getElementById("load-structures").addEventListener("click", function() {
+        const value = $sampleSelect.val();
+        if (!value) {
+            alert("Please select an RTStruct.");
+            return;
+        }
+        const [source, id] = value.split(":");
+        loadStructuresFromApi(source, id);
+    });
+
+    document.getElementById("upload-sample-rtstruct").addEventListener("change", function() {
+        const fileInput = this;
+        if (!fileInput.files || fileInput.files.length === 0) return;
+        const file = fileInput.files[0];
+        document.getElementById("upload-sample-filename").textContent = file.name;
+
+        const formData = new FormData();
+        formData.append("rtstruct_file", file);
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ||
+            document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+
+        fetch(`{% url 'rule_based_segmentation:api_upload_sample_rtstruct' %}`, {
+            method: "POST",
+            headers: { "X-CSRFToken": csrfToken },
+            body: formData,
+        })
+            .then(r => {
+                if (!r.ok) return r.json().then(j => Promise.reject(j.error || "Upload failed"));
+                return r.json();
+            })
+            .then(data => {
+                document.getElementById("upload-sample-filename").textContent = `${file.name} (${data.structures.length} structures)`;
+                sampleRtstructs.push({ id: data.input_id, source: "upload", label: data.label });
+                populateSampleSelect();
+                const value = `upload:${data.input_id}`;
+                $sampleSelect.val(value).trigger("change");
+                builder.setAvailableStructures(data.structures.map(s => ({ value: s.value, label: s.label, kind: "existing" })));
+                renderStructureTags(data.structures);
+                alert(`Uploaded ${file.name} and loaded ${data.structures.length} structures`);
+            })
+            .catch(err => {
+                console.error(err);
+                alert(err);
+            })
+            .finally(() => {
+                fileInput.value = "";
+            });
+    });
+
+    document.getElementById("pipeline-form").addEventListener("submit", function(e) {
+        const data = builder.serialize();
+        data.name = document.getElementById("pipeline-name").value;
+        data.description = document.getElementById("pipeline-description").value;
+        data.is_public = document.getElementById("pipeline-public").checked;
+        document.getElementById("pipeline_data").value = JSON.stringify(data);
+    });
+})();
+</script>
+{% endblock %}

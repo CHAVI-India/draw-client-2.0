@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'user',
     'dicom_handler',
     'spatial_overlap',
+    'rule_based_segmentation',
     'dicom_server',
     'log_viewer',
 ]
