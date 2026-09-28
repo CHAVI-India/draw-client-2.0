@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 from pathlib import Path
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +35,7 @@ def cleanup_old_files(storage_path, retention_days, target_free_gb=10):
     }
     
     if not os.path.exists(storage_path):
-        logger.warning(f"Storage path does not exist: {storage_path}")
+        logger.warning(f"Storage path does not exist: {mask_sensitive_data(storage_path, 'file_path')}")
         return stats
     
     # Calculate cutoff date
@@ -56,7 +58,7 @@ def cleanup_old_files(storage_path, retention_days, target_free_gb=10):
                         'size': file_stat.st_size
                     })
                 except Exception as e:
-                    logger.error(f"Error accessing file {filepath}: {str(e)}")
+                    logger.error(f"Error accessing file {mask_sensitive_data(filepath, 'file_path')}: {str(e)}")
                     stats['errors'] += 1
     
     # Sort by modification time (oldest first)
@@ -78,10 +80,10 @@ def cleanup_old_files(storage_path, retention_days, target_free_gb=10):
                 stats['space_freed_bytes'] += file_info['size']
                 stats['deleted_files'].append(file_info['path'])
                 
-                logger.debug(f"Deleted old file: {file_info['path']}")
+                logger.debug(f"Deleted old file: {mask_sensitive_data(file_info['path'], 'file_path')}")
                 
             except Exception as e:
-                logger.error(f"Error deleting file {file_info['path']}: {str(e)}")
+                logger.error(f"Error deleting file {mask_sensitive_data(file_info['path'], 'file_path')}: {str(e)}")
                 stats['errors'] += 1
     
     # Clean up empty directories
@@ -110,9 +112,9 @@ def _cleanup_empty_directories(storage_path):
                 # Only remove if directory is empty
                 if not os.listdir(dirpath):
                     os.rmdir(dirpath)
-                    logger.debug(f"Removed empty directory: {dirpath}")
+                    logger.debug(f"Removed empty directory: {mask_sensitive_data(dirpath, 'file_path')}")
             except Exception as e:
-                logger.debug(f"Could not remove directory {dirpath}: {str(e)}")
+                logger.debug(f"Could not remove directory {mask_sensitive_data(dirpath, 'file_path')}: {str(e)}")
 
 
 def get_storage_usage(storage_path):
@@ -142,7 +144,7 @@ def get_storage_usage(storage_path):
                     stats['total_files'] += 1
                     stats['total_bytes'] += os.path.getsize(filepath)
                 except Exception as e:
-                    logger.error(f"Error accessing file {filepath}: {str(e)}")
+                    logger.error(f"Error accessing file {mask_sensitive_data(filepath, 'file_path')}: {str(e)}")
     
     stats['total_gb'] = round(stats['total_bytes'] / (1024**3), 2)
     

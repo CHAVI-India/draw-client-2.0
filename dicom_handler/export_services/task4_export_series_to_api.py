@@ -271,9 +271,10 @@ def upload_file_to_api(file_path, checksum, config, session):
             logger.error(f"File upload failed with status: {response.status_code}")
             try:
                 error_data = response.json()
-                logger.error(f"Upload error details: {error_data}")
-            except:
-                logger.error(f"Upload error response: {response.text}")
+                error_message = error_data.get('error') or error_data.get('message') or error_data.get('detail')
+                logger.error(f"Upload error details: {error_message}")
+            except Exception:
+                logger.error(f"Upload error response received ({len(response.content)} bytes)")
             
             return {
                 'success': False,

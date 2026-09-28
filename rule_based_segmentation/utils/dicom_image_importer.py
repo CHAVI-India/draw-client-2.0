@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -12,11 +13,40 @@ import pydicom
 from django.core.files.uploadedfile import UploadedFile
 
 from dicom_handler.models import DICOMInstance, DICOMSeries, DICOMStudy, Patient, SystemConfiguration
+from dicom_handler.utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
 
 ALLOWED_MODALITIES = {"CT", "MR", "PT"}
+
+_SAFE_UID_RE = re.compile(r"^[0-9.]{1,64}$")
+
+
+def sanitize_filename_component(name: str) -> str:
+    """
+    Reduce a client-supplied filename to a single safe path component.
+
+    Returns an empty string when nothing safe remains.
+    """
+    base = os.path.basename(str(name or "").replace("\\", "/").replace("\x00", ""))
+    base = base.strip(" .")
+    if base in ("", ".", ".."):
+        return ""
+    return base
+
+
+def _safe_uid_component(value, fallback: Optional[str] = None) -> Optional[str]:
+    """
+    Return a DICOM UID usable as a single filesystem path component.
+
+    Valid UIDs are digits and dots only; anything else (including '..'
+    segments and path separators) falls back to `fallback`.
+    """
+    s = str(value or "").strip()
+    if _SAFE_UID_RE.match(s) and ".." not in s:
+        return s
+    return fallback
 
 
 def import_uploaded_image_series(
@@ -65,8 +95,11 @@ def import_uploaded_image_series(
 
 
 def _save_uploaded_files(uploaded_files: List[UploadedFile], target_dir: str) -> None:
-    for uploaded_file in uploaded_files:
-        dest_path = os.path.join(target_dir, uploaded_file.name)
+    for idx, uploaded_file in enumerate(uploaded_files):
+        safe_name = sanitize_filename_component(uploaded_file.name)
+        if not safe_name:
+            safe_name = f"upload_{idx:04d}"
+        dest_path = os.path.join(target_dir, safe_name)
         with open(dest_path, "wb+") as dest:
             for chunk in uploaded_file.chunks():
                 dest.write(chunk)
@@ -96,16 +129,16 @@ def _read_dicom_datasets(file_paths: List[str]) -> List[pydicom.Dataset]:
         try:
             ds = pydicom.dcmread(path, force=True)
         except Exception as e:
-            logger.warning(f"Could not read DICOM file {path}: {e}")
+            logger.warning(f"Could not read DICOM file {mask_sensitive_data(path, 'file_path')}: {e}")
             continue
 
         modality = str(getattr(ds, "Modality", "")).upper()
         if modality not in ALLOWED_MODALITIES:
-            logger.warning(f"Skipping non-image modality {modality}: {path}")
+            logger.warning(f"Skipping non-image modality {modality}: {mask_sensitive_data(path, 'file_path')}")
             continue
 
         if not hasattr(ds, "SeriesInstanceUID"):
-            logger.warning(f"Skipping file without SeriesInstanceUID: {path}")
+            logger.warning(f"Skipping file without SeriesInstanceUID: {mask_sensitive_data(path, 'file_path')}")
             continue
 
         datasets.append(ds)
@@ -201,10 +234,14 @@ def _get_or_create_series(study: DICOMStudy, dataset: pydicom.Dataset) -> DICOMS
 
 
 def _get_series_target_directory(series_uid: str) -> str:
+    safe_series_uid = _safe_uid_component(series_uid)
+    if not safe_series_uid:
+        raise ValueError(f"Invalid SeriesInstanceUID for storage path: {series_uid!r}")
+
     config = SystemConfiguration.load()
     base_dir = config.folder_configuration or os.getcwd()
     target_dir = os.path.join(
-        base_dir, "rule_based_segmentation", "image_series", series_uid
+        base_dir, "rule_based_segmentation", "image_series", safe_series_uid
     )
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
@@ -216,7 +253,8 @@ def _copy_datasets_to_directory(
 ) -> None:
     for idx, ds in enumerate(datasets):
         sop_uid = str(getattr(ds, "SOPInstanceUID", "") or f"instance_{idx:04d}")
-        target_path = os.path.join(target_dir, f"{sop_uid}.dcm")
+        safe_sop_uid = _safe_uid_component(sop_uid, f"instance_{idx:04d}")
+        target_path = os.path.join(target_dir, f"{safe_sop_uid}.dcm")
         ds.save_as(target_path, enforce_file_format=True)
 
 
@@ -229,7 +267,8 @@ def _create_or_update_instances(
 
     for idx, ds in enumerate(datasets):
         sop_uid = str(getattr(ds, "SOPInstanceUID", "") or f"instance_{idx:04d}")
-        target_path = os.path.join(target_dir, f"{sop_uid}.dcm")
+        safe_sop_uid = _safe_uid_component(sop_uid, f"instance_{idx:04d}")
+        target_path = os.path.join(target_dir, f"{safe_sop_uid}.dcm")
 
         if sop_uid in existing:
             existing[sop_uid].instance_path = target_path

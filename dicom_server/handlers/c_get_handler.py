@@ -10,6 +10,8 @@ from pathlib import Path
 from pydicom import dcmread
 from pydicom.dataset import Dataset
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -130,7 +132,7 @@ def handle_c_get(service, event):
                     success_count += 1
                     
             except Exception as e:
-                logger.error(f"Error sending file {file_path}: {str(e)}")
+                logger.error(f"Error sending file {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")
                 failure_count += 1
                 # Yield failure status
                 identifier = Dataset()

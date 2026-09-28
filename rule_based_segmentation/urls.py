@@ -55,6 +55,11 @@ urlpatterns = [
     # APIs
     path("api/structures/", views.api_get_structures, name="api_get_structures"),
     path(
+        "api/rtstructs/search/",
+        views.api_search_rtstructs,
+        name="api_search_rtstructs",
+    ),
+    path(
         "api/upload-sample-rtstruct/",
         views.api_upload_sample_rtstruct,
         name="api_upload_sample_rtstruct",

@@ -22,6 +22,8 @@ from .metrics import (
     overcontouring_mean_distance_to_conformity,
 )
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,7 +145,7 @@ def prepare_dicom_series_for_rtutils(series_instance_uid):
         
         # Create temporary directory
         temp_dir = tempfile.mkdtemp(prefix='spatial_overlap_')
-        logger.info(f"Created temporary directory: {temp_dir}")
+        logger.info(f"Created temporary directory: {mask_sensitive_data(temp_dir, 'file_path')}")
         
         # Read DICOM metadata to get proper ordering
         instance_metadata = []
@@ -198,7 +200,7 @@ def prepare_dicom_series_for_rtutils(series_instance_uid):
         def cleanup():
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-                logger.info(f"Cleaned up temporary directory: {temp_dir}")
+                logger.info(f"Cleaned up temporary directory: {mask_sensitive_data(temp_dir, 'file_path')}")
             except Exception as e:
                 logger.warning(f"Failed to cleanup temporary directory: {e}")
         
@@ -251,7 +253,7 @@ def extract_roi_mask_with_rtutils(rtstruct_file_path, series_instance_uid, roi_n
             return None
         
         logger.info(f"Loading RT Structure from {temp_rt_struct}")
-        logger.info(f"Using DICOM series from {temp_dir}")
+        logger.info(f"Using DICOM series from {mask_sensitive_data(temp_dir, 'file_path')}")
         
         # Create RTStruct object from the DICOM series and RT Structure file
         rtstruct = RTStructBuilder.create_from(
@@ -464,8 +466,8 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
         rtstruct_file_1 = voi1.rtstructure_set_file.rtstructure_file_path
         rtstruct_file_2 = voi2.rtstructure_set_file.rtstructure_file_path
         
-        logger.info(f"RT Structure file 1: {rtstruct_file_1}")
-        logger.info(f"RT Structure file 2: {rtstruct_file_2}")
+        logger.info(f"RT Structure file 1: {mask_sensitive_data(rtstruct_file_1, 'file_path')}")
+        logger.info(f"RT Structure file 2: {mask_sensitive_data(rtstruct_file_2, 'file_path')}")
         
         # Use working directory which contains DICOM images and RT Structure files
         working_dir_1 = voi1.rtstructure_set_file.working_directory
@@ -473,13 +475,13 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
         
         # Both RT Structures should share the same working directory
         if working_dir_1 != working_dir_2:
-            logger.warning(f"RT Structures have different working directories: {working_dir_1} vs {working_dir_2}")
+            logger.warning(f"RT Structures have different working directories: {mask_sensitive_data(working_dir_1, 'file_path')} vs {mask_sensitive_data(working_dir_2, 'file_path')}")
         
         if not working_dir_1 or not os.path.exists(working_dir_1):
-            logger.error(f"Working directory not found: {working_dir_1}")
+            logger.error(f"Working directory not found: {mask_sensitive_data(working_dir_1, 'file_path')}")
             return None
         
-        logger.info(f"Using working directory: {working_dir_1}")
+        logger.info(f"Using working directory: {mask_sensitive_data(working_dir_1, 'file_path')}")
         
         # Extract masks using rt-utils with DICOM images from working directory
         logger.info("Using rt-utils for mask extraction with DICOM images from working directory")
@@ -490,7 +492,7 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
             from rt_utils import RTStructBuilder
             
             # Load RT Structure 1 with DICOM images from working directory
-            logger.info(f"Loading RT Structure 1 from: {rtstruct_file_1}")
+            logger.info(f"Loading RT Structure 1 from: {mask_sensitive_data(rtstruct_file_1, 'file_path')}")
             rtstruct1 = RTStructBuilder.create_from(
                 dicom_series_path=working_dir_1,
                 rt_struct_path=rtstruct_file_1
@@ -499,7 +501,7 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
             logger.info(f"Extracted mask 1 with shape: {mask1.shape}")
             
             # Load RT Structure 2 with DICOM images from working directory
-            logger.info(f"Loading RT Structure 2 from: {rtstruct_file_2}")
+            logger.info(f"Loading RT Structure 2 from: {mask_sensitive_data(rtstruct_file_2, 'file_path')}")
             rtstruct2 = RTStructBuilder.create_from(
                 dicom_series_path=working_dir_2 if working_dir_2 != working_dir_1 else working_dir_1,
                 rt_struct_path=rtstruct_file_2

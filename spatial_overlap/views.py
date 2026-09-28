@@ -17,6 +17,7 @@ from .models import (
     ComparisionTypeChoices
 )
 from .utils.compute_metrics import compute_comparison_metrics
+from dicom_handler.utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def prepare_working_directory_for_comparison(series, rt_structure_file_path, upl
     try:
         # Create working directory
         working_dir = tempfile.mkdtemp(prefix='spatial_overlap_comparison_')
-        logger.info(f"Created working directory: {working_dir}")
+        logger.info(f"Created working directory: {mask_sensitive_data(working_dir, 'file_path')}")
         
         # 1. Prepare DICOM images - read from database and save to working directory
         instances = DICOMInstance.objects.filter(
@@ -98,7 +99,7 @@ def prepare_working_directory_for_comparison(series, rt_structure_file_path, upl
                 # Save to working directory
                 autoseg_rt_path = os.path.join(working_dir, 'autoseg_rtstruct.dcm')
                 ds_rt.save_as(autoseg_rt_path, enforce_file_format=True)
-                logger.info(f"Saved autosegmented RT Structure to: {autoseg_rt_path}")
+                logger.info(f"Saved autosegmented RT Structure to: {mask_sensitive_data(autoseg_rt_path, 'file_path')}")
                 
             except Exception as e:
                 logger.error(f"Failed to save autosegmented RT Structure: {e}")
@@ -114,7 +115,7 @@ def prepare_working_directory_for_comparison(series, rt_structure_file_path, upl
                 # Save to working directory
                 reference_rt_path = os.path.join(working_dir, 'reference_rtstruct.dcm')
                 ds_ref.save_as(reference_rt_path, enforce_file_format=True)
-                logger.info(f"Saved reference RT Structure to: {reference_rt_path}")
+                logger.info(f"Saved reference RT Structure to: {mask_sensitive_data(reference_rt_path, 'file_path')}")
                 
             except Exception as e:
                 logger.error(f"Failed to save reference RT Structure: {e}")
@@ -300,9 +301,9 @@ def select_rtstruct_for_comparison(request):
                     messages.error(request, "Failed to prepare working directory. Please check logs for details.")
                     return redirect('spatial_overlap:select_rtstruct_for_comparison')
                 
-                logger.info(f"Working directory created at: {working_dir}")
-                logger.info(f"Autosegmented RT Structure: {autoseg_rt_path}")
-                logger.info(f"Reference RT Structure: {reference_rt_path}")
+                logger.info(f"Working directory created at: {mask_sensitive_data(working_dir, 'file_path')}")
+                logger.info(f"Autosegmented RT Structure: {mask_sensitive_data(autoseg_rt_path, 'file_path')}")
+                logger.info(f"Reference RT Structure: {mask_sensitive_data(reference_rt_path, 'file_path')}")
                 
                 # Extract metadata from reference
                 patient_name = str(getattr(ds, 'PatientName', 'Reference'))

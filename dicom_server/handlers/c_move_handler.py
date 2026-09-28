@@ -13,6 +13,8 @@ from pynetdicom import AE
 from pynetdicom.sop_class import CTImageStorage, MRImageStorage, RTStructureSetStorage, RTPlanStorage, RTDoseStorage
 from pynetdicom import AllStoragePresentationContexts
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,7 +126,7 @@ def handle_c_move(service, event):
                 success_count += 1
                     
             except Exception as e:
-                logger.error(f"Error reading file {file_path}: {str(e)}")
+                logger.error(f"Error reading file {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")
                 failure_count += 1
         
         # Log the transaction
@@ -346,10 +348,10 @@ def _send_file_to_destination(service, file_path, dest_ae, dest_host, dest_port)
             assoc.release()
             
             if status:
-                logger.debug(f"C-STORE to {dest_ae} successful: {file_path}")
+                logger.debug(f"C-STORE to {dest_ae} successful: {mask_sensitive_data(file_path, 'file_path')}")
                 return status.Status
             else:
-                logger.error(f"C-STORE to {dest_ae} failed: {file_path}")
+                logger.error(f"C-STORE to {dest_ae} failed: {mask_sensitive_data(file_path, 'file_path')}")
                 return 0xC000  # Error
         else:
             logger.error(f"Failed to associate with {dest_ae} at {dest_host}:{dest_port}")

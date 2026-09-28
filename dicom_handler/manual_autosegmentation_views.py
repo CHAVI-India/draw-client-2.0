@@ -58,13 +58,10 @@ class ManualAutosegmentationSeriesInfoView(View):
     def post(self, request):
         try:
             logger.info(f"ManualAutosegmentationSeriesInfoView POST called")
-            logger.info(f"Request body: {request.body}")
             
             # Parse request data
             data = json.loads(request.body)
             series_uids = data.get('series_uids', [])
-            
-            logger.info(f"Parsed series_uids: {series_uids}")
             
             if not series_uids:
                 logger.warning("No series UIDs provided")

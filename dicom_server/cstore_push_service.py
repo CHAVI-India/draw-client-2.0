@@ -11,6 +11,8 @@ from pydicom import dcmread
 from pynetdicom import AE, StoragePresentationContexts
 from django.utils import timezone
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,7 +111,7 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
                 if status and status.Status == 0x0000:
                     file_result['success'] = True
                     results['sent_count'] += 1
-                    logger.debug(f"Successfully sent: {os.path.basename(file_path)}")
+                    logger.debug(f"Successfully sent: {mask_sensitive_data(file_path, 'file_path')}")
                     
                     # Log transaction
                     _log_cstore_transaction(
@@ -123,7 +125,7 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
                     status_code = status.Status if status else 'Unknown'
                     file_result['error'] = f"C-STORE failed with status: {status_code}"
                     results['failed_count'] += 1
-                    logger.warning(f"Failed to send {os.path.basename(file_path)}: {file_result['error']}")
+                    logger.warning(f"Failed to send {mask_sensitive_data(file_path, 'file_path')}: {file_result['error']}")
                     
                     # Log failed transaction
                     _log_cstore_transaction(
@@ -138,7 +140,7 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
             except Exception as e:
                 file_result['error'] = str(e)
                 results['failed_count'] += 1
-                logger.error(f"Error sending {os.path.basename(file_path)}: {str(e)}")
+                logger.error(f"Error sending {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")
             
             results['details'].append(file_result)
         

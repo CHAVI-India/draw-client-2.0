@@ -20,6 +20,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from rt_utils import RTStructBuilder
 
 from dicom_handler.models import DICOMSeries, RTStructureFileImport
+from dicom_handler.utils.log_masking import mask_sensitive_data
 from spatial_overlap.models import RTStructureSetFile
 
 from .models import (
@@ -34,7 +35,10 @@ from .models import (
     SegmentationJob,
     SegmentationPipeline,
 )
-from .utils.dicom_image_importer import import_uploaded_image_series
+from .utils.dicom_image_importer import (
+    import_uploaded_image_series,
+    sanitize_filename_component,
+)
 from .utils.job_service import MissingImageSeriesError, create_segmentation_job
 from .utils.rtstruct_io import _backup_rtstruct
 
@@ -81,68 +85,54 @@ def pipeline_edit(request, pipeline_id):
 
 
 def _render_pipeline_form(request, pipeline=None, error=None):
-    uploaded_rtstructs = RTStructureSetFile.objects.all().order_by("-created_at")[:100]
-    imported_rtstructs = RTStructureFileImport.objects.all().order_by("-created_at")[:100]
     pipeline_data = (
         {"rules": [_rule_to_json(r) for r in pipeline.rules.all().order_by("order")]}
         if pipeline
         else {"rules": []}
     )
-    sample_rtstructs = []
-    for r in uploaded_rtstructs:
-        sample_rtstructs.append({
-            "id": str(r.id),
-            "source": "upload",
-            "label": _rtstruct_choice_label(r),
-        })
-    for r in imported_rtstructs:
-        sample_rtstructs.append({
-            "id": str(r.id),
-            "source": "import",
-            "label": _rtstruct_choice_label(r, source="import"),
-        })
     return render(
         request,
         "rule_based_segmentation/pipeline_form.html",
         {
             "pipeline": pipeline,
             "pipeline_data": pipeline_data,
-            "sample_rtstructs": sample_rtstructs,
             "error": error,
         },
     )
 
 
-def _rtstruct_choice_label(rtstruct, source="upload"):
-    """Build a human-readable label for an RTStruct selection dropdown."""
-    if source == "upload":
-        parts = [
-            rtstruct.patient_name or "Unknown Patient",
-            rtstruct.structure_set_label or "RTStruct",
-        ]
-        if rtstruct.structure_set_date:
-            parts.append(str(rtstruct.structure_set_date))
-        elif rtstruct.created_at:
-            parts.append(rtstruct.created_at.strftime("%Y-%m-%d"))
-        return " - ".join(parts)
-
-    # For imported RTStructs, read metadata from the file if available.
-    file_path = getattr(rtstruct, "reidentified_rt_structure_file_path", None)
-    if file_path and os.path.exists(file_path):
-        try:
-            ds = pydicom.dcmread(file_path, stop_before_pixels=True, force=True)
-            patient_name = str(getattr(ds, "PatientName", "Unknown Patient"))
-            structure_set_label = str(getattr(ds, "StructureSetLabel", "Auto-segmented"))
-        except Exception:
-            patient_name = "Unknown Patient"
-            structure_set_label = "Auto-segmented"
-    else:
-        patient_name = "Unknown Patient"
-        structure_set_label = "Auto-segmented"
-
-    parts = [patient_name, structure_set_label]
-    if rtstruct.created_at:
+def _rtstruct_choice_label(rtstruct):
+    """Build a human-readable label for an uploaded RTStruct selection option."""
+    parts = [
+        rtstruct.patient_name or "Unknown Patient",
+        rtstruct.structure_set_label or "RTStruct",
+    ]
+    if rtstruct.structure_set_date:
+        parts.append(str(rtstruct.structure_set_date))
+    elif rtstruct.created_at:
         parts.append(rtstruct.created_at.strftime("%Y-%m-%d"))
+    return " - ".join(parts)
+
+
+def _import_rtstruct_choice_label(rt_import):
+    """Build a human-readable label for an auto-segmented RTStruct from DB fields."""
+    series = rt_import.deidentified_series_instance_uid
+    patient = getattr(getattr(series, "study", None), "patient", None) if series else None
+    patient_name = getattr(patient, "patient_name", None) or "Unknown Patient"
+    patient_id = getattr(patient, "patient_id", None) or ""
+    if series:
+        description = series.series_description or "Auto-segmented"
+    else:
+        file_path = (
+            rt_import.reidentified_rt_structure_file_path
+            or rt_import.deidentified_rt_structure_file_path
+            or ""
+        )
+        description = os.path.basename(file_path) if file_path else "Auto-segmented"
+
+    parts = [f"{patient_name} ({patient_id})" if patient_id else patient_name, description]
+    if rt_import.created_at:
+        parts.append(rt_import.created_at.strftime("%Y-%m-%d"))
     return " - ".join(parts)
 
 
@@ -498,6 +488,73 @@ def select_series_for_upload(request):
     )
 
 
+RTSTRUCT_SEARCH_PAGE_SIZE = 20
+
+
+def _paginate_list(queryset, page, page_size=RTSTRUCT_SEARCH_PAGE_SIZE):
+    """Return (items, has_more) for a 1-based page without a separate count query."""
+    start = (page - 1) * page_size
+    items = list(queryset[start : start + page_size + 1])
+    return items[:page_size], len(items) > page_size
+
+
+@login_required
+def api_search_rtstructs(request):
+    """Paginated Select2-compatible search across uploaded and auto-segmented RTStructs."""
+    try:
+        page = max(1, int(request.GET.get("page", 1)))
+    except (TypeError, ValueError):
+        page = 1
+    query = (request.GET.get("q") or "").strip()
+
+    uploads = RTStructureSetFile.objects.all().order_by("-created_at")
+    if query:
+        uploads = uploads.filter(
+            models.Q(patient_name__icontains=query)
+            | models.Q(patient_id__icontains=query)
+            | models.Q(structure_set_label__icontains=query)
+        )
+    uploads_page, uploads_more = _paginate_list(uploads, page)
+
+    series_prefix = "deidentified_series_instance_uid__"
+    imports = (
+        RTStructureFileImport.objects.select_related(
+            f"{series_prefix}study__patient"
+        )
+        .all()
+        .order_by("-created_at")
+    )
+    if query:
+        imports = imports.filter(
+            models.Q(**{f"{series_prefix}study__patient__patient_name__icontains": query})
+            | models.Q(**{f"{series_prefix}study__patient__patient_id__icontains": query})
+            | models.Q(**{f"{series_prefix}study__patient__deidentified_patient_id__icontains": query})
+            | models.Q(**{f"{series_prefix}series_description__icontains": query})
+            | models.Q(**{f"{series_prefix}study__study_description__icontains": query})
+            | models.Q(reidentified_rt_structure_file_path__icontains=query)
+            | models.Q(deidentified_rt_structure_file_path__icontains=query)
+        )
+    imports_page, imports_more = _paginate_list(imports, page)
+
+    results = []
+    upload_children = [
+        {"id": f"upload:{r.id}", "text": _rtstruct_choice_label(r)}
+        for r in uploads_page
+    ]
+    if upload_children:
+        results.append({"text": "Uploaded", "children": upload_children})
+    import_children = [
+        {"id": f"import:{r.id}", "text": _import_rtstruct_choice_label(r)}
+        for r in imports_page
+    ]
+    if import_children:
+        results.append({"text": "Auto-segmented", "children": import_children})
+
+    return JsonResponse(
+        {"results": results, "pagination": {"more": uploads_more or imports_more}}
+    )
+
+
 @login_required
 def api_get_structures(request):
     """Return ROI names from a selected RTStruct file."""
@@ -524,7 +581,7 @@ def _read_structures_from_rtstruct(rtstruct_path: str):
     try:
         ds = pydicom.dcmread(rtstruct_path, stop_before_pixels=True, force=True)
     except Exception as e:
-        logger.warning(f"Could not read structures from {rtstruct_path}: {e}")
+        logger.warning(f"Could not read structures from {mask_sensitive_data(rtstruct_path, 'file_path')}: {e}")
         return []
 
     # Build maps of observation interpreted type and display color by ROINumber.
@@ -669,30 +726,29 @@ def api_validate_pipeline(request):
 
 
 def _render_job_create(request, pipeline, error=None):
-    uploaded_rtstructs = RTStructureSetFile.objects.all().order_by("-created_at")[:50]
-    imported_rtstructs = RTStructureFileImport.objects.all().order_by("-created_at")[:50]
-    sample_rtstructs = []
-    for r in uploaded_rtstructs:
-        sample_rtstructs.append({
-            "id": str(r.id),
-            "source": "upload",
-            "label": _rtstruct_choice_label(r),
-        })
-    for r in imported_rtstructs:
-        sample_rtstructs.append({
-            "id": str(r.id),
-            "source": "import",
-            "label": _rtstruct_choice_label(r, source="import"),
-        })
-    return render(
-        request,
-        "rule_based_segmentation/job_create.html",
-        {
-            "pipeline": pipeline,
-            "sample_rtstructs": sample_rtstructs,
-            "error": error,
-        },
-    )
+    context = {"pipeline": pipeline, "error": error}
+
+    # On POST-error re-render, restore the submitted RTStruct selection.
+    selected = request.POST.get("input_id", "") if request.method == "POST" else ""
+    if selected and ":" in selected:
+        source, input_id = selected.split(":", 1)
+        label = None
+        if source == "upload":
+            r = RTStructureSetFile.objects.filter(id=input_id).first()
+            label = _rtstruct_choice_label(r) if r else None
+        elif source == "import":
+            r = (
+                RTStructureFileImport.objects.select_related(
+                    "deidentified_series_instance_uid__study__patient"
+                )
+                .filter(id=input_id)
+                .first()
+            )
+            label = _import_rtstruct_choice_label(r) if r else None
+        if label:
+            context["selected_rtstruct"] = {"value": selected, "label": label}
+
+    return render(request, "rule_based_segmentation/job_create.html", context)
 
 
 def _parse_pipeline_data(post_data):
@@ -1002,7 +1058,8 @@ def _save_uploaded_rtstruct(uploaded_file: UploadedFile, user):
     target_dir = _get_rtstruct_upload_directory(user)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_{uploaded_file.name}"
+    safe_name = sanitize_filename_component(uploaded_file.name) or "rtstruct.dcm"
+    filename = f"{timestamp}_{safe_name}"
     target_path = os.path.join(target_dir, filename)
 
     with open(target_path, "wb+") as dest:

@@ -13,12 +13,15 @@ import tempfile
 import shutil
 import json
 import base64
+import hashlib
 from io import BytesIO
 import logging
 import pickle
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from .utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +146,18 @@ def dicom_viewer(request, series_uid, rt_structure_id):
     }
     
     return render(request, 'dicom_handler/dicom_viewer.html', context)
+
+
+def _roi_cache_filename(roi_name, ext):
+    """
+    Return a filesystem-safe cache filename for an ROI name.
+
+    ROI names are attacker-influenceable (they come from RT Structure files and
+    are echoed back in the request body), so they are hashed rather than used
+    verbatim to prevent path traversal in the mask cache.
+    """
+    digest = hashlib.sha256(str(roi_name).encode('utf-8')).hexdigest()[:32]
+    return f"{digest}{ext}"
 
 
 def _read_dicom_full(instance):
@@ -447,7 +462,7 @@ def get_dicom_slice(request):
         # Overlay RT Structure contours if selected
         if selected_rois and rt_struct_path and os.path.exists(rt_struct_path):
             try:
-                logger.info(f"Loading RT Structure from {rt_struct_path}")
+                logger.info(f"Loading RT Structure from {mask_sensitive_data(rt_struct_path, 'file_path')}")
                 logger.info(f"Selected ROIs: {selected_rois}")
                 
                 # Use file-based cache instead of session (masks are too large for session)
@@ -521,12 +536,16 @@ def get_dicom_slice(request):
                 
                 contours_drawn = 0
                 for idx, roi_name in enumerate(selected_rois):
+                    if roi_name not in available_rois:
+                        logger.warning(f"Skipping requested ROI not present in RT Structure: {roi_name}")
+                        failed_rois.append(roi_name)
+                        continue
                     try:
                         logger.info(f"Processing ROI: {roi_name}")
                         
                         # Check if mask is already cached in file
-                        cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
-                        failed_cache_file = os.path.join(cache_dir, f"{roi_name}.failed")
+                        cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
+                        failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
                         
                         # Check if this ROI failed previously
                         if os.path.exists(failed_cache_file):
@@ -706,7 +725,10 @@ def render_all_slices(request):
                 os.makedirs(cache_dir, exist_ok=True)
                 
                 for roi_name in selected_rois:
-                    cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
+                    if roi_name not in available_rois:
+                        logger.warning(f"Skipping requested ROI not present in RT Structure: {roi_name}")
+                        continue
+                    cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
                     if not os.path.exists(cache_file):
                         try:
                             mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
@@ -762,7 +784,7 @@ def render_all_slices(request):
                     contours_drawn = 0
                     
                     for roi_name in selected_rois:
-                        cache_file = os.path.join(cache_dir, f"{roi_name}.pkl")
+                        cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
                         if os.path.exists(cache_file):
                             try:
                                 with open(cache_file, 'rb') as f:

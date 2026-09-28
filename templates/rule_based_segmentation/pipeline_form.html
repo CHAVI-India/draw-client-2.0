@@ -42,17 +42,7 @@
                 <label for="sample-rtstruct" class="block text-sm font-medium text-gray-700 mb-1">Sample RTStruct for structure list</label>
                 <div class="flex items-center space-x-2">
                     <select id="sample-rtstruct" class="w-full" style="min-width: 0;">
-                        <option value="">-- Select RTStruct --</option>
-                        {% if sample_rtstructs %}
-                        {% regroup sample_rtstructs by source as source_groups %}
-                        {% for group in source_groups %}
-                        <optgroup label="{% if group.grouper == 'upload' %}Uploaded{% else %}Auto-segmented{% endif %}">
-                            {% for item in group.list %}
-                            <option value="{{ item.source }}:{{ item.id }}" data-source="{{ item.source }}" data-id="{{ item.id }}">{{ item.label }}</option>
-                            {% endfor %}
-                        </optgroup>
-                        {% endfor %}
-                        {% endif %}
+                        <option value=""></option>
                     </select>
                     <button type="button" id="load-structures" class="inline-flex items-center h-10 px-3 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 whitespace-nowrap">
                         Refresh
@@ -90,9 +80,9 @@
 
 {% block extra_js %}
 <script src="{% static 'js/rule_based_pipeline_builder.js' %}"></script>
-<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" integrity="sha384-OXVF05DQEe311p6ohU11NwlnX08FzMCsyoXzGOaL+83dKAb3qS17yZJxESl8YrJQ" crossorigin="anonymous" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js" integrity="sha384-d3UHjPdzJkZuk5H3qKYMLRyWLAQBJbby2yr2Q58hXXtAGF8RSNO9jpLDlKKPv5v3" crossorigin="anonymous"></script>
 <style>
     .select2-container--default .select2-selection--single {
         height: 40px !important;
@@ -119,11 +109,9 @@
     }
 </style>
 {{ pipeline_data|json_script:"pipeline-data" }}
-{{ sample_rtstructs|json_script:"sample-rtstructs-data" }}
 <script>
 (function() {
     const existingPipeline = JSON.parse(document.getElementById("pipeline-data").textContent);
-    let sampleRtstructs = JSON.parse(document.getElementById("sample-rtstructs-data").textContent);
 
     const builder = new RuleBasedPipelineBuilder("pipeline-builder", {
         existingRules: existingPipeline.rules || [],
@@ -132,32 +120,20 @@
 
     const $sampleSelect = $("#sample-rtstruct");
 
-    function populateSampleSelect() {
-        const currentValue = $sampleSelect.val();
-        $sampleSelect.empty();
-        $sampleSelect.append(new Option("-- Select RTStruct --", "", true, true));
-        const groups = {};
-        sampleRtstructs.forEach(item => {
-            if (!groups[item.source]) groups[item.source] = [];
-            groups[item.source].push(item);
-        });
-        Object.keys(groups).forEach(source => {
-            const label = source === "upload" ? "Uploaded" : "Auto-segmented";
-            const optgroup = $("<optgroup></optgroup>").attr("label", label);
-            groups[source].forEach(item => {
-                const value = `${item.source}:${item.id}`;
-                const option = new Option(item.label, value, false, currentValue === value);
-                option.dataset.source = item.source;
-                option.dataset.id = item.id;
-                optgroup.append(option);
-            });
-            $sampleSelect.append(optgroup);
-        });
-        $sampleSelect.trigger("change");
-    }
-
-    $sampleSelect.select2({ placeholder: "Search and select an RTStruct...", allowClear: true, width: "100%" });
-    populateSampleSelect();
+    $sampleSelect.select2({
+        placeholder: "Search and select an RTStruct...",
+        allowClear: true,
+        width: "100%",
+        minimumInputLength: 0,
+        ajax: {
+            url: "{% url 'rule_based_segmentation:api_search_rtstructs' %}",
+            dataType: "json",
+            delay: 250,
+            cache: true,
+            data: params => ({ q: params.term || "", page: params.page || 1 }),
+            processResults: data => data,
+        },
+    });
 
     const ROI_TYPE_COLORS = {
         "EXTERNAL": { bg: "bg-gray-100", text: "text-gray-800", border: "border-gray-300" },
@@ -254,10 +230,10 @@
             })
             .then(data => {
                 document.getElementById("upload-sample-filename").textContent = `${file.name} (${data.structures.length} structures)`;
-                sampleRtstructs.push({ id: data.input_id, source: "upload", label: data.label });
-                populateSampleSelect();
-                const value = `upload:${data.input_id}`;
-                $sampleSelect.val(value).trigger("change");
+                const option = new Option(data.label, `upload:${data.input_id}`, true, true);
+                option.dataset.source = "upload";
+                option.dataset.id = data.input_id;
+                $sampleSelect.append(option).trigger("change");
                 builder.setAvailableStructures(data.structures.map(s => ({ value: s.value, label: s.label, kind: "existing" })));
                 renderStructureTags(data.structures);
                 alert(`Uploaded ${file.name} and loaded ${data.structures.length} structures`);

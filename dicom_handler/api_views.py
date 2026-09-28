@@ -14,6 +14,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import DICOMSeries, DICOMInstance, RTStructureFileImport
+from .utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,7 @@ def export_dicom_series(request):
                             # Validate dest_path is within series_dir
                             is_valid_dest, validated_dest_path = validate_path_within_base(dest_path, series_dir)
                             if not is_valid_dest:
-                                logger.warning(f"Invalid destination path detected for file: {filename}")
+                                logger.warning(f"Invalid destination path detected for file: {mask_sensitive_data(filename, 'file_path')}")
                                 continue
                             shutil.copy2(instance.instance_path, validated_dest_path)
                             total_files += 1
@@ -204,7 +205,7 @@ def export_dicom_series(request):
                             # Validate dest_path is within series_dir
                             is_valid_dest, validated_dest_path = validate_path_within_base(dest_path, series_dir)
                             if not is_valid_dest:
-                                logger.warning(f"Invalid destination path detected for RT struct: {filename}")
+                                logger.warning(f"Invalid destination path detected for RT struct: {mask_sensitive_data(filename, 'file_path')}")
                                 continue
                             shutil.copy2(rt_struct.reidentified_rt_structure_file_path, validated_dest_path)
                             total_files += 1

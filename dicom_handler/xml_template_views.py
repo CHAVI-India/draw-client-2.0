@@ -102,11 +102,9 @@ def xml_template_wizard_start(request):
             form = XMLTemplateUploadForm(request.POST, request.FILES)
             form.fields['template'].required = False
             
-            logger.debug(f"Template locked mode - Form data: {request.POST}")
-            logger.debug(f"Files: {request.FILES}")
             logger.debug(f"Form is valid: {form.is_valid()}")
             if not form.is_valid():
-                logger.error(f"Form errors: {form.errors}")
+                logger.error(f"Form errors: {list(form.errors.keys())}")
             
             if form.is_valid():
                 template = preselected_template  # Use locked template

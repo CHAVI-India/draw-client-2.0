@@ -18,6 +18,7 @@ from django.core.cache import cache
 from ..models import DicomTransaction
 from ..storage_cleanup import check_and_cleanup_if_needed, get_storage_usage
 from dicom_handler.models import SystemConfiguration
+from dicom_handler.utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,25 @@ def handle_c_store(service, event):
         filename = _get_filename(service, ds, fresh_config)
         file_path = os.path.join(storage_path, filename)
         logger.info(f"[TIMING] Get filename took {(time.time() - t8)*1000:.2f}ms")
+
+        # Defense in depth: ensure the resolved path stays inside the storage root
+        if not _path_within(file_path, storage_path):
+            logger.error(
+                f"C-STORE rejected: resolved file path escapes storage root "
+                f"(uid fields contained path separators)"
+            )
+            service._log_transaction(
+                'C-STORE',
+                'REJECTED',
+                event,
+                patient_id=patient_id,
+                study_instance_uid=study_uid,
+                series_instance_uid=series_uid,
+                sop_instance_uid=sop_instance_uid,
+                sop_class_uid=sop_class_uid,
+                error_message="Invalid storage path components"
+            )
+            return 0xA700  # Refused: Out of Resources
         
         # OPTIMIZATION: Write raw encoded dataset directly to file
         # This is MUCH faster than ds.save_as() as it skips decode/re-encode
@@ -220,7 +240,7 @@ def handle_c_store(service, event):
         
         # Log the transaction (use fresh config)
         if fresh_config.log_received_files:
-            logger.info(f"C-STORE: Received {filename} from {calling_ae} ({file_size} bytes)")
+            logger.info(f"C-STORE: Received {mask_sensitive_data(filename, 'file_path')} from {calling_ae} ({file_size} bytes)")
         
         service._log_transaction(
             'C-STORE',
@@ -422,7 +442,7 @@ def _get_storage_path(service, ds, fresh_config=None):
     
     elif structure == 'study':
         study_uid = getattr(ds, 'StudyInstanceUID', 'UNKNOWN') if ds else 'UNKNOWN'
-        return os.path.join(base_path, study_uid)
+        return os.path.join(base_path, _sanitize_dicom_uid(study_uid))
     
     elif structure == 'series':
         patient_id = getattr(ds, 'PatientID', 'UNKNOWN') if ds else 'UNKNOWN'
@@ -431,7 +451,12 @@ def _get_storage_path(service, ds, fresh_config=None):
         
         patient_id = _sanitize_for_filesystem(patient_id)
         
-        return os.path.join(base_path, patient_id, study_uid, series_uid)
+        return os.path.join(
+            base_path,
+            patient_id,
+            _sanitize_dicom_uid(study_uid),
+            _sanitize_dicom_uid(series_uid)
+        )
     
     elif structure == 'date':
         now = datetime.now()
@@ -462,7 +487,7 @@ def _get_filename(service, ds, fresh_config=None):
     if naming == 'sop_uid' and ds:
         sop_uid = getattr(ds, 'SOPInstanceUID', None)
         if sop_uid:
-            return f"{sop_uid}.dcm"
+            return f"{_sanitize_dicom_uid(sop_uid)}.dcm"
     
     elif naming == 'instance_number' and ds:
         instance_number = getattr(ds, 'InstanceNumber', None)
@@ -484,7 +509,7 @@ def _get_filename(service, ds, fresh_config=None):
         sop_uid = getattr(ds, 'SOPInstanceUID', datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
     else:
         sop_uid = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-    return f"{sop_uid}.dcm"
+    return f"{_sanitize_dicom_uid(sop_uid)}.dcm"
 
 
 def _sanitize_for_filesystem(value):
@@ -500,6 +525,38 @@ def _sanitize_for_filesystem(value):
     # Strip leading/trailing underscores
     sanitized = sanitized.strip('_')
     return sanitized if sanitized else 'UNKNOWN'
+
+
+def _sanitize_dicom_uid(value):
+    """
+    Sanitize a DICOM UID for use as a single filesystem path component.
+
+    Valid DICOM UIDs contain only digits and dots, so those are preserved
+    (a '..' segment or any path separator is impossible). Values containing
+    anything else fall back to the stricter underscore-based sanitizer.
+    """
+    s = str(value or '').strip()
+    if (
+        s
+        and len(s) <= 256
+        and all(c.isdigit() or c == '.' for c in s)
+        and '..' not in s
+        and s not in ('.',)
+    ):
+        return s
+    return _sanitize_for_filesystem(s)
+
+
+def _path_within(child_path, parent_path):
+    """
+    Return True if the normalized child_path is contained within parent_path.
+    """
+    try:
+        parent = os.path.realpath(parent_path)
+        child = os.path.realpath(child_path)
+        return child == parent or child.startswith(parent + os.sep)
+    except Exception:
+        return False
 
 
 def _track_series_reception_and_trigger(ae_title, series_uid, sop_uid, file_path):
@@ -894,18 +951,32 @@ def _trigger_dicom_handler_integration(service, file_path, ds, ae_title=None):
                 
                 patient_id = _sanitize_for_filesystem(patient_id)
                 
-                dest_dir = os.path.join(handler_folder, patient_id, study_uid, series_uid)
-                os.makedirs(dest_dir, exist_ok=True)
+                dest_dir = os.path.join(
+                    handler_folder,
+                    patient_id,
+                    _sanitize_dicom_uid(study_uid),
+                    _sanitize_dicom_uid(series_uid)
+                )
                 
-                filename = os.path.basename(file_path)
-                dest_path = os.path.join(dest_dir, filename)
+                if not _path_within(dest_dir, handler_folder):
+                    logger.error(
+                        "Skipping handler folder copy: resolved destination "
+                        "escapes configured handler folder"
+                    )
+                    dest_dir = None
                 
-                # Skip copy if source and destination are the same file
-                if os.path.abspath(file_path) == os.path.abspath(dest_path):
-                    logger.debug(f"File already in handler folder, skipping copy: {_mask_sensitive_data(dest_path, 'file_path')}")
-                else:
-                    shutil.copy2(file_path, dest_path)
-                    logger.info(f"Copied DICOM file to handler folder: {_mask_sensitive_data(dest_path, 'file_path')}")
+                if dest_dir:
+                    os.makedirs(dest_dir, exist_ok=True)
+                    
+                    filename = os.path.basename(file_path)
+                    dest_path = os.path.join(dest_dir, filename)
+                    
+                    # Skip copy if source and destination are the same file
+                    if os.path.abspath(file_path) == os.path.abspath(dest_path):
+                        logger.debug(f"File already in handler folder, skipping copy: {_mask_sensitive_data(dest_path, 'file_path')}")
+                    else:
+                        shutil.copy2(file_path, dest_path)
+                        logger.info(f"Copied DICOM file to handler folder: {_mask_sensitive_data(dest_path, 'file_path')}")
         
         if fresh_config.trigger_processing_chain:
             # For C-Store requests, immediately process and track series

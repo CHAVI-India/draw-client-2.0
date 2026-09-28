@@ -41,6 +41,7 @@ from dicom_server.models import RemoteDicomNode
 from dicom_server.cstore_push_service import send_dicom_files_to_node
 from ..utils.pipeline_executor import ProductionPipelineExecutor
 from ..utils.structure_generation import load_ct_series_as_sitk_image
+from ..utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -691,7 +692,7 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
             # Get series root path for RTStructBuilder
             series_root_path = series.series_root_path
             if not series_root_path or not os.path.exists(series_root_path):
-                logger.warning(f"Series root path not found: {series_root_path}")
+                logger.warning(f"Series root path not found: {mask_sensitive_data(series_root_path, 'file_path')}")
                 logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: 0")
                 return
             
@@ -785,7 +786,7 @@ def _export_reidentified_file(ds: pydicom.Dataset, series_data: Dict[str, Any], 
         # Get output directory from series root path
         output_dir = series.series_root_path
         if not output_dir or not os.path.exists(output_dir):
-            logger.error(f"Series root path not found or invalid: {output_dir}")
+            logger.error(f"Series root path not found or invalid: {mask_sensitive_data(output_dir, 'file_path')}")
             return None
         
         # Generate filename: <PATIENT_ID>_DRAW_<DATETIME>_RTSTRUCT.dcm
@@ -907,7 +908,7 @@ def _extract_and_save_voi_data(rtstruct_path: str, rt_import: RTStructureFileImp
             RTStructureFileVOIData.objects.bulk_create(voi_objects)
             logger.info(f"Successfully extracted and saved {len(voi_objects)} VOI entries to database using bulk_create")
         else:
-            logger.warning(f"No VOI names found in RTStructure file: {rtstruct_path}")
+            logger.warning(f"No VOI names found in RTStructure file: {mask_sensitive_data(rtstruct_path, 'file_path')}")
         
     except Exception as e:
         logger.error(f"Error extracting and saving VOI data: {str(e)}")
@@ -1003,7 +1004,7 @@ def _send_rtstruct_to_export_destination(file_path: str, rt_import: RTStructureF
             try:
                 # Send file via C-STORE
                 logger.info(f"Attempting to send RT Structure file to {node_type} destination: {export_node.name}")
-                logger.info(f"File: {os.path.basename(file_path)}")
+                logger.info(f"File: {mask_sensitive_data(file_path, 'file_path')}")
                 
                 cstore_result = send_dicom_files_to_node(
                     remote_node=export_node,
@@ -1071,6 +1072,6 @@ def _cleanup_temp_file(file_path: str) -> None:
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
-            logger.info(f"Cleaned up temporary file: {file_path}")
+            logger.info(f"Cleaned up temporary file: {mask_sensitive_data(file_path, 'file_path')}")
     except Exception as e:
-        logger.warning(f"Failed to clean up temporary file {file_path}: {str(e)}")
+        logger.warning(f"Failed to clean up temporary file {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")

@@ -13,6 +13,8 @@ import logging
 from typing import List, Dict, Any, Tuple
 import numpy as np
 
+from dicom_handler.utils.log_masking import mask_sensitive_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,7 @@ def load_ct_series_as_sitk_image(series_data: Dict[str, Any]) -> sitk.Image:
         if instance.instance_path and os.path.exists(instance.instance_path):
             dicom_files.append(instance.instance_path)
         else:
-            logger.warning(f"Instance path not found or invalid: {instance.instance_path}")
+            logger.warning(f"Instance path not found or invalid: {mask_sensitive_data(instance.instance_path, 'file_path')}")
     
     if not dicom_files:
         raise ValueError("No valid DICOM files found - all instance paths are missing or invalid")

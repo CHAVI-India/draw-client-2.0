@@ -401,17 +401,11 @@ def save_template(request):
             template_description=template_description or ''
         )
         
-        # Debug logging
-        print(f"Template name: {template_name}")
-        print(f"Selected structures count: {len(selected_structures)}")
-        print(f"First structure sample: {selected_structures[0] if selected_structures else 'None'}")
-        
         # Group structures by model
         models_dict = {}
         for structure in selected_structures:
             model_id = structure.get('model_id')
             if not model_id:
-                print(f"Warning: Structure missing model_id: {structure}")
                 continue
                 
             if model_id not in models_dict:
@@ -437,7 +431,6 @@ def save_template(request):
                     trainer_name=model_data.get('model_trainer_name', ''),
                     postprocess=model_data.get('model_postprocess', '')
                 )
-                print(f"Created model: {model.name} with ID: {model.model_id}")
                 
                 # Save structures for this model
                 for structure_data in model_data.get('structures', []):
@@ -460,8 +453,6 @@ def save_template(request):
                             map_id=structure_data.get('mapid') or structure_data.get('id'),
                             name=structure_data.get('map_tg263_primary_name', '')
                         )
-                    print(f"Created structure: {structure.name} with map_id: {structure.map_id}")
-                    
             except Exception as model_error:
                 logger.error(f"Error creating model {model_data.get('model_name')}: {str(model_error)}")
                 return JsonResponse({'success': False, 'error': 'An error occurred while saving model data'})
@@ -545,11 +536,6 @@ def rulegroup_create(request):
             # Parse the POST data to extract rulesets and rules
             # Field naming: ruleset_name___0, ruleset_name___1, etc.
             # Rule naming: rule_order___0___0, dicom_tag_type___0___0, etc.
-            
-            # Debug: Log POST data
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"POST data keys: {[k for k in request.POST.keys() if k.startswith(('ruleset_', 'rule_'))]}")
             
             rulesets_data = {}
             for key, value in request.POST.items():
@@ -700,10 +686,6 @@ def rulegroup_edit(request, rulegroup_id):
             rulegroup_form.save()
             
             # Parse the POST data to extract rulesets and rules
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"POST data keys: {[k for k in request.POST.keys() if k.startswith(('ruleset_', 'rule_'))]}")
-            
             # Get existing rulesets to track deletions
             existing_ruleset_ids = set(str(rs.id) for rs in RuleSet.objects.filter(rulegroup=rulegroup))
             submitted_ruleset_ids = set()
@@ -1368,11 +1350,6 @@ def update_template(request, template_id):
         # Get selected structures from request body (sent by JavaScript)
         selected_structures = data.get('selected_structures', [])
         
-        # Debug logging
-        print(f"DEBUG: Received {len(selected_structures)} structures for template update")
-        for i, structure in enumerate(selected_structures[:3]):  # Log first 3 structures
-            print(f"DEBUG: Structure {i}: {structure}")
-        
         if not template_name:
             return JsonResponse({'success': False, 'error': 'Template name is required'})
         
@@ -1392,7 +1369,6 @@ def update_template(request, template_id):
         for structure in selected_structures:
             model_id = structure.get('model_id')
             if not model_id:
-                print(f"DEBUG: Skipping structure without model_id: {structure}")
                 continue
                 
             if model_id not in models_dict:
@@ -1406,7 +1382,6 @@ def update_template(request, template_id):
                 }
             models_dict[model_id]['structures'].append(structure)
         
-        print(f"DEBUG: Grouped structures into {len(models_dict)} models")
         
         # Save updated models and their structures
         for model_data in models_dict.values():

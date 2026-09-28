@@ -13,6 +13,7 @@ from rt_utils import RTStructBuilder
 
 from dicom_handler.models import DICOMInstance, DICOMSeries
 from dicom_handler.utils.structure_generation import load_ct_series_as_sitk_image
+from dicom_handler.utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +58,13 @@ def load_rtstruct_and_image(
         image = load_ct_series_as_sitk_image({"instances": instances, "series": series})
 
         logger.info(
-            f"Loaded RTStruct {rtstruct_path} with {len(instances)} image instances"
+            f"Loaded RTStruct {mask_sensitive_data(rtstruct_path, 'file_path')} with {len(instances)} image instances"
         )
         return rtstruct, image, series
     except Exception as e:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
-        logger.error(f"Failed to load RTStruct {rtstruct_path}: {e}")
+        logger.error(f"Failed to load RTStruct {mask_sensitive_data(rtstruct_path, 'file_path')}: {e}")
         raise RuntimeError(f"Failed to load RTStruct: {e}") from e
 
 
@@ -95,7 +96,7 @@ def save_rtstruct(rtstruct: RTStructBuilder, output_path: str) -> str:
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     rtstruct.save(output_path)
-    logger.info(f"Saved RTStruct to {output_path}")
+    logger.info(f"Saved RTStruct to {mask_sensitive_data(output_path, 'file_path')}")
     return output_path
 
 
@@ -106,7 +107,7 @@ def _backup_rtstruct(original_path: str) -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = f"{original_path}.backup.{timestamp}.dcm"
     shutil.copy2(original_path, backup_path)
-    logger.info(f"Created backup of original RTStruct at {backup_path}")
+    logger.info(f"Created backup of original RTStruct at {mask_sensitive_data(backup_path, 'file_path')}")
     return backup_path
 
 
