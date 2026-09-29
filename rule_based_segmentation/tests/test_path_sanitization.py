@@ -8,9 +8,10 @@ reach the filesystem unsanitized.
 
 import os
 import tempfile
+from io import BytesIO
 from unittest.mock import MagicMock
 
-from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.test import TestCase
 
 from dicom_handler.models import SystemConfiguration
@@ -91,7 +92,9 @@ class SaveUploadedFilesTests(TestCase):
 
     def test_dangerous_name_gets_fallback(self):
         with tempfile.TemporaryDirectory() as target:
-            upload = SimpleUploadedFile('..', b'dicom-bytes')
+            upload = MagicMock(spec=UploadedFile)
+            upload.name = '..'
+            upload.chunks.return_value = [b'dicom-bytes']
             _save_uploaded_files([upload], target)
             self.assertTrue(os.path.exists(os.path.join(target, 'upload_0000')))
 

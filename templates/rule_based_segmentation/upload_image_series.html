@@ -3,7 +3,11 @@
 {% block content %}
 <div class="container mx-auto px-4 py-8 max-w-2xl">
     <h1 class="text-2xl font-bold text-gray-900 mb-2">Upload Missing Image Series</h1>
+    {% if files_missing %}
+    <p class="text-gray-600 mb-6">The image series exists in the database, but its DICOM files are missing from disk. Please re-upload the complete image files.</p>
+    {% else %}
     <p class="text-gray-600 mb-6">The selected RTStruct references a CT/MR/PT image series that could not be found. Upload the DICOM image files for that series below.</p>
+    {% endif %}
 
     {% if error %}
     <div class="rounded-md bg-red-50 p-4 mb-6">

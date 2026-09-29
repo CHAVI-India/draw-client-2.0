@@ -119,11 +119,14 @@ def create_synthetic_ct_series(
         ds.file_meta.MediaStorageSOPClassUID = ds.SOPClassUID
         ds.file_meta.MediaStorageSOPInstanceUID = sop_uid
         ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
-        ds.is_little_endian = True
-        ds.is_implicit_VR = False
 
         path = os.path.join(temp_dir, f"ct_{i:03d}.dcm")
-        ds.save_as(path, enforce_file_format=True)
+        ds.save_as(
+            path,
+            enforce_file_format=True,
+            little_endian=True,
+            implicit_vr=False,
+        )
         file_paths.append(path)
 
     return file_paths
@@ -369,9 +372,11 @@ def create_minimal_rtstruct_file(roi_names=None, sop_uid=None, colors=None) -> b
     ds.file_meta.MediaStorageSOPInstanceUID = sop_uid
     ds.file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
 
-    ds.is_little_endian = True
-    ds.is_implicit_VR = False
-
     buffer = BytesIO()
-    ds.save_as(buffer, enforce_file_format=True)
+    ds.save_as(
+        buffer,
+        enforce_file_format=True,
+        little_endian=True,
+        implicit_vr=False,
+    )
     return buffer.getvalue()

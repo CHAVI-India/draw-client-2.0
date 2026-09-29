@@ -400,12 +400,20 @@ def job_create(request, pipeline_id):
                     "Please select an RTStruct that contains these structures or adjust the pipeline."
                 )
 
-            if not DICOMSeries.objects.filter(series_instance_uid=series_uid).exists():
+            series_missing = not DICOMSeries.objects.filter(
+                series_instance_uid=series_uid
+            ).exists()
+            files_missing = False
+            if not series_missing:
+                files_missing = _series_files_missing(series_uid)
+
+            if series_missing or files_missing:
                 request.session["pending_rtstruct_path"] = rtstruct_path
                 request.session["pending_series_uid"] = series_uid
                 request.session["pending_pipeline_id"] = str(pipeline.id)
                 request.session["pending_input_type"] = input_type
                 request.session["pending_input_id"] = input_id
+                request.session["pending_files_missing"] = files_missing
                 return redirect("rule_based_segmentation:upload_image_series")
 
             job = create_segmentation_job(pipeline, input_type, input_id, request.user)
@@ -453,7 +461,7 @@ def select_series_for_upload(request):
                     pipeline, input_type, input_id, request.user
                 )
                 _clear_pending_session(request)
-                return redirect("rule_based_segmentation:job_status", job_id=job.id)
+                return redirect("rule_based_segmentation:job_detail", job_id=job.id)
 
             if job_id:
                 job = get_object_or_404(SegmentationJob, id=job_id)
@@ -462,7 +470,7 @@ def select_series_for_upload(request):
                 from .tasks import run_segmentation_job
 
                 run_segmentation_job.delay(str(job.id))
-                return redirect("rule_based_segmentation:job_status", job_id=job.id)
+                return redirect("rule_based_segmentation:job_detail", job_id=job.id)
 
             return redirect("rule_based_segmentation:pipeline_list")
         except Exception as e:
@@ -477,6 +485,7 @@ def select_series_for_upload(request):
                 },
             )
 
+    files_missing = request.session.get("pending_files_missing", False)
     return render(
         request,
         "rule_based_segmentation/upload_image_series.html",
@@ -484,6 +493,7 @@ def select_series_for_upload(request):
             "job_id": job_id,
             "expected_series_uid": expected_series_uid,
             "error": error,
+            "files_missing": files_missing,
         },
     )
 
@@ -1096,6 +1106,22 @@ def _save_uploaded_rtstruct(uploaded_file: UploadedFile, user):
     return "UPLOAD", str(rtstruct_file.id)
 
 
+def _series_files_missing(series_uid: str) -> bool:
+    """Return True if any DICOMInstance file for the series is missing on disk."""
+    try:
+        series = DICOMSeries.objects.get(series_instance_uid=series_uid)
+    except DICOMSeries.DoesNotExist:
+        return True
+
+    for instance in series.dicominstance_set.all():
+        if not instance.instance_path or not os.path.exists(instance.instance_path):
+            logger.warning(
+                f"Missing DICOM instance file for series {series_uid}: {instance.instance_path}"
+            )
+            return True
+    return False
+
+
 def _validate_pipeline_against_rtstruct(pipeline, rtstruct_path):
     """Return a list of structure names referenced by the pipeline but missing from the RTStruct."""
     structures = _read_structures_from_rtstruct(rtstruct_path)
@@ -1178,6 +1204,7 @@ def _clear_pending_session(request):
         "pending_pipeline_id",
         "pending_input_type",
         "pending_input_id",
+        "pending_files_missing",
     ]
     for key in keys:
         request.session.pop(key, None)
