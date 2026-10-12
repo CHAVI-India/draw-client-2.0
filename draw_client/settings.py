@@ -198,6 +198,11 @@ CACHES = {
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 
+# App-specific cookie names: cookies are scoped by host, not port, so other
+# Django apps on the same host with default names would clobber these.
+SESSION_COOKIE_NAME = 'draw_client_sessionid'
+CSRF_COOKIE_NAME = 'draw_client_csrftoken'
+
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
