@@ -400,6 +400,14 @@ class SegmentationJob(models.Model):
         blank=True,
         related_name="segmentation_jobs",
     )
+    destination_node = models.ForeignKey(
+        "dicom_server.RemoteDicomNode",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rule_based_jobs",
+        help_text="Remote DICOM node to C-STORE the processed RTStruct back to",
+    )
     output_file_path = models.CharField(max_length=512, null=True, blank=True)
     backup_file_path = models.CharField(max_length=512, null=True, blank=True)
     status = models.CharField(

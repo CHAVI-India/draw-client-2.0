@@ -52,6 +52,23 @@ urlpatterns = [
         name="upload_image_series",
     ),
 
+    # Remote DICOM retrieve workflow
+    path(
+        "pipelines/<uuid:pipeline_id>/retrieve/",
+        views.remote_retrieve,
+        name="remote_retrieve",
+    ),
+    path(
+        "remote-retrieve/<str:task_id>/",
+        views.remote_retrieve_status,
+        name="remote_retrieve_status",
+    ),
+    path(
+        "api/remote-retrieve/<str:task_id>/",
+        views.remote_retrieve_status_json,
+        name="remote_retrieve_status_json",
+    ),
+
     # APIs
     path("api/structures/", views.api_get_structures, name="api_get_structures"),
     path(

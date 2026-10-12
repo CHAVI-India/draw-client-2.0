@@ -386,6 +386,59 @@ class EndToEndSegmentationTests(TestCase):
         self.assertEqual(roi_names.count("Box"), 1)
         self.assertEqual(roi_names.count("Box_1"), 1)
 
+    def test_regenerates_uids_on_save(self):
+        """Processed output must get new SOP/Series UIDs but keep Study UID."""
+        original_ds = pydicom.dcmread(self.rtstruct_path)
+        original_sop = str(original_ds.SOPInstanceUID)
+        original_series = str(original_ds.SeriesInstanceUID)
+        original_study = str(original_ds.StudyInstanceUID)
+
+        pipeline = create_pipeline_with_rules(
+            rules_data=[
+                {
+                    "rule_type": "MARGIN",
+                    "name": "Expanded",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Box",
+                        "margin_mm": 1.0,
+                        "kernel_type": "ball",
+                    },
+                }
+            ]
+        )
+        engine = self._engine()
+        summary = engine.run_pipeline(pipeline)
+
+        new_ds = pydicom.dcmread(self.rtstruct_path)
+        self.assertNotEqual(str(new_ds.SOPInstanceUID), original_sop)
+        self.assertNotEqual(str(new_ds.SeriesInstanceUID), original_series)
+        self.assertEqual(str(new_ds.StudyInstanceUID), original_study)
+        self.assertEqual(summary["sop_instance_uid"], str(new_ds.SOPInstanceUID))
+        self.assertEqual(summary["series_instance_uid"], str(new_ds.SeriesInstanceUID))
+        if getattr(new_ds, "file_meta", None) is not None:
+            self.assertEqual(
+                str(new_ds.file_meta.MediaStorageSOPInstanceUID),
+                str(new_ds.SOPInstanceUID),
+            )
+        # Image series link must be preserved.
+        self.assertTrue(
+            hasattr(new_ds, "ReferencedFrameOfReferenceSequence")
+        )
+
+    def test_register_rtstruct_file_dedup(self):
+        """Registering the same RTStruct file twice must not duplicate records."""
+        from spatial_overlap.models import RTStructureSetFile
+        from ..utils.rtstruct_registry import register_rtstruct_file
+
+        first = register_rtstruct_file(self.rtstruct_path)
+        second = register_rtstruct_file(self.rtstruct_path)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(RTStructureSetFile.objects.count(), 1)
+        self.assertEqual(
+            first.referenced_series_instance_uid, self.series_uid
+        )
+
     def test_missing_structure_raises_clear_error(self):
         pipeline = create_pipeline_with_rules(
             rules_data=[

@@ -33,6 +33,7 @@ from .rtstruct_io import (
     add_mask_as_roi,
     load_roi_masks,
     load_rtstruct_and_image,
+    regenerate_instance_uids,
     save_rtstruct,
 )
 
@@ -97,6 +98,9 @@ class SegmentationEngine:
                 )
                 raise
 
+        self.summary["sop_instance_uid"], self.summary["series_instance_uid"] = (
+            regenerate_instance_uids(self.rtstruct)
+        )
         save_rtstruct(self.rtstruct, output_path or self.rtstruct_path)
         return self.summary
 

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pydicom
 import SimpleITK as sitk
+from pydicom.uid import generate_uid
 from rt_utils import RTStructBuilder
 
 from dicom_handler.models import DICOMInstance, DICOMSeries
@@ -81,6 +82,34 @@ def _copy_instances_to_directory(
         ext = os.path.splitext(source_path)[1] or ".dcm"
         target_path = os.path.join(target_directory, f"image_{idx:04d}{ext}")
         shutil.copy2(source_path, target_path)
+
+
+def regenerate_instance_uids(rtstruct: RTStructBuilder) -> Tuple[str, str]:
+    """
+    Assign a new SOPInstanceUID and SeriesInstanceUID to the RTStruct dataset.
+
+    A modified RTStruct is a new DICOM instance. Sending it back to the source
+    PACS/TPS with the original SOP Instance UID risks rejection (duplicate UID)
+    or silent overwrite of the original structure set. The StudyInstanceUID and
+    ReferencedFrameOfReferenceSequence are preserved so the processed structure
+    set stays linked to the same study and image series.
+
+    Returns:
+        Tuple of (new_sop_instance_uid, new_series_instance_uid).
+    """
+    ds = rtstruct.ds
+    new_sop_uid = generate_uid()
+    new_series_uid = generate_uid()
+
+    ds.SOPInstanceUID = new_sop_uid
+    ds.SeriesInstanceUID = new_series_uid
+    if getattr(ds, "file_meta", None) is not None:
+        ds.file_meta.MediaStorageSOPInstanceUID = new_sop_uid
+
+    logger.info(
+        f"Assigned new SOPInstanceUID {new_sop_uid[-12:]} and SeriesInstanceUID {new_series_uid[-12:]} to processed RTStruct"
+    )
+    return new_sop_uid, new_series_uid
 
 
 def save_rtstruct(rtstruct: RTStructBuilder, output_path: str) -> str:

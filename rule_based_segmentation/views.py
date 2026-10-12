@@ -414,9 +414,18 @@ def job_create(request, pipeline_id):
                 request.session["pending_input_type"] = input_type
                 request.session["pending_input_id"] = input_id
                 request.session["pending_files_missing"] = files_missing
+                request.session["pending_destination_node_id"] = request.POST.get(
+                    "destination_node_id", ""
+                )
                 return redirect("rule_based_segmentation:upload_image_series")
 
-            job = create_segmentation_job(pipeline, input_type, input_id, request.user)
+            destination_node = _resolve_destination_node(
+                request.POST.get("destination_node_id")
+            )
+            job = create_segmentation_job(
+                pipeline, input_type, input_id, request.user,
+                destination_node=destination_node,
+            )
             _clear_pending_session(request)
             return redirect("rule_based_segmentation:job_detail", job_id=job.id)
         except Exception as e:
@@ -457,8 +466,12 @@ def select_series_for_upload(request):
                 )
                 input_type = request.session.get("pending_input_type")
                 input_id = request.session.get("pending_input_id")
+                destination_node = _resolve_destination_node(
+                    request.session.get("pending_destination_node_id")
+                )
                 job = create_segmentation_job(
-                    pipeline, input_type, input_id, request.user
+                    pipeline, input_type, input_id, request.user,
+                    destination_node=destination_node,
                 )
                 _clear_pending_session(request)
                 return redirect("rule_based_segmentation:job_detail", job_id=job.id)
@@ -736,7 +749,20 @@ def api_validate_pipeline(request):
 
 
 def _render_job_create(request, pipeline, error=None):
-    context = {"pipeline": pipeline, "error": error}
+    from dicom_server.models import RemoteDicomNode
+
+    context = {
+        "pipeline": pipeline,
+        "error": error,
+        "destination_nodes": RemoteDicomNode.objects.filter(
+            is_export_destination=True, is_active=True
+        ),
+        "retrievable_nodes": RemoteDicomNode.objects.filter(
+            is_active=True
+        ).filter(
+            models.Q(supports_c_move=True) | models.Q(supports_c_get=True)
+        ),
+    }
 
     # On POST-error re-render, restore the submitted RTStruct selection.
     selected = request.POST.get("input_id", "") if request.method == "POST" else ""
@@ -1106,6 +1132,15 @@ def _save_uploaded_rtstruct(uploaded_file: UploadedFile, user):
     return "UPLOAD", str(rtstruct_file.id)
 
 
+def _resolve_destination_node(node_id):
+    """Return the RemoteDicomNode for a POSTed node id, or None."""
+    if not node_id:
+        return None
+    from dicom_server.models import RemoteDicomNode
+
+    return RemoteDicomNode.objects.filter(pk=node_id, is_export_destination=True).first()
+
+
 def _series_files_missing(series_uid: str) -> bool:
     """Return True if any DICOMInstance file for the series is missing on disk."""
     try:
@@ -1205,6 +1240,106 @@ def _clear_pending_session(request):
         "pending_input_type",
         "pending_input_id",
         "pending_files_missing",
+        "pending_destination_node_id",
     ]
     for key in keys:
         request.session.pop(key, None)
+
+
+@login_required
+def remote_retrieve(request, pipeline_id):
+    """Retrieve an RTStruct (+ referenced image series) from a remote DICOM node."""
+    from dicom_server.models import DicomQueryResult, RemoteDicomNode
+
+    pipeline = get_object_or_404(SegmentationPipeline, id=pipeline_id)
+    nodes = RemoteDicomNode.objects.filter(is_active=True).filter(
+        models.Q(supports_c_move=True) | models.Q(supports_c_get=True)
+    )
+    context = {"pipeline": pipeline, "nodes": nodes}
+
+    if request.method != "POST":
+        return render(request, "rule_based_segmentation/remote_retrieve.html", context)
+
+    node = get_object_or_404(RemoteDicomNode, pk=request.POST.get("node_id"))
+    action = request.POST.get("action", "find")
+
+    if action == "find":
+        study_uid = request.POST.get("study_uid", "").strip()
+        if not study_uid:
+            context["error"] = "Study Instance UID is required."
+            return render(request, "rule_based_segmentation/remote_retrieve.html", context)
+        try:
+            from dicom_server.query_retrieve_service import get_qr_service_instance
+
+            qr_service = get_qr_service_instance()
+            query_obj = qr_service.query(
+                node,
+                "SERIES",
+                {"StudyInstanceUID": study_uid, "Modality": "RTSTRUCT"},
+                user=request.user,
+            )
+            context["results"] = DicomQueryResult.objects.filter(query=query_obj)
+            context["study_uid"] = study_uid
+            context["selected_node_id"] = node.pk
+        except Exception as e:
+            logger.error(f"C-FIND failed: {e}", exc_info=True)
+            context["error"] = f"Query failed: {e}"
+        return render(request, "rule_based_segmentation/remote_retrieve.html", context)
+
+    # action == 'retrieve'
+    study_uid = request.POST.get("study_uid", "").strip()
+    rtstruct_series_uid = request.POST.get("rtstruct_series_uid", "").strip()
+    image_series_uid = request.POST.get("image_series_uid", "").strip()
+
+    if not study_uid or not rtstruct_series_uid:
+        context["error"] = "Study UID and RTStruct Series UID are required."
+        return render(request, "rule_based_segmentation/remote_retrieve.html", context)
+
+    from .tasks import retrieve_rtstruct_for_pipeline
+
+    task = retrieve_rtstruct_for_pipeline.delay(
+        node.pk,
+        study_uid,
+        rtstruct_series_uid,
+        str(pipeline.id),
+        request.user.pk,
+        image_series_uid,
+    )
+    return redirect(
+        "rule_based_segmentation:remote_retrieve_status", task_id=task.id
+    )
+
+
+@login_required
+def remote_retrieve_status(request, task_id):
+    """Status page for an in-progress remote retrieve + job creation."""
+    return render(
+        request,
+        "rule_based_segmentation/remote_retrieve_status.html",
+        {"task_id": task_id},
+    )
+
+
+@login_required
+def remote_retrieve_status_json(request, task_id):
+    """JSON status of the retrieve_rtstruct_for_pipeline celery task."""
+    from celery.result import AsyncResult
+    from draw_client import celery_app
+
+    result = AsyncResult(task_id, app=celery_app)
+    payload = {"state": result.state}
+    if result.state == "PROGRESS":
+        payload["meta"] = result.info if isinstance(result.info, dict) else {}
+    elif result.state == "SUCCESS":
+        info = result.result if isinstance(result.result, dict) else {}
+        payload["meta"] = info
+        if info.get("job_id"):
+            payload["job_url"] = reverse(
+                "rule_based_segmentation:job_detail", args=[info["job_id"]]
+            )
+        elif info.get("status") == "FAILED":
+            payload["state"] = "FAILURE"
+            payload["meta"] = {"error": info.get("error", "Retrieve failed")}
+    elif result.state == "FAILURE":
+        payload["meta"] = {"error": str(result.info)}
+    return JsonResponse(payload)

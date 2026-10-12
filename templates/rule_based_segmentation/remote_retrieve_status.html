@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-2xl">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Retrieving DICOM Data</h1>
+    <div class="bg-white shadow sm:rounded-md p-6">
+        <div id="status-box" class="flex items-center space-x-3">
+            <svg id="spinner" class="animate-spin h-5 w-5 text-primary-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span id="status-text" class="text-sm text-gray-700">Starting retrieve...</span>
+        </div>
+        <div id="error-box" class="hidden mt-4 rounded-md bg-red-50 p-4">
+            <p id="error-text" class="text-sm text-red-700"></p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const taskId = "{{ task_id }}";
+    const statusUrl = "{% url 'rule_based_segmentation:remote_retrieve_status_json' task_id %}";
+    const statusText = document.getElementById("status-text");
+    const spinner = document.getElementById("spinner");
+    const errorBox = document.getElementById("error-box");
+    const errorText = document.getElementById("error-text");
+
+    const STEP_LABELS = {
+        retrieving_rtstruct: "Retrieving RTStruct from remote node...",
+        retrieving_image_series: "Retrieving referenced image series...",
+        creating_job: "Creating segmentation job...",
+    };
+
+    function poll() {
+        fetch(statusUrl)
+            .then(r => r.json())
+            .then(data => {
+                const step = (data.meta && data.meta.step) || "";
+                statusText.textContent = STEP_LABELS[step] || "Processing...";
+
+                if (data.job_url) {
+                    statusText.textContent = "Done. Redirecting to job...";
+                    window.location.href = data.job_url;
+                    return;
+                }
+                if (data.state === "FAILURE") {
+                    spinner.classList.add("hidden");
+                    statusText.textContent = "Retrieve failed.";
+                    errorText.textContent = (data.meta && data.meta.error) || "Unknown error";
+                    errorBox.classList.remove("hidden");
+                    return;
+                }
+                setTimeout(poll, 2000);
+            })
+            .catch(() => setTimeout(poll, 4000));
+    }
+    poll();
+})();
+</script>
+{% endblock %}

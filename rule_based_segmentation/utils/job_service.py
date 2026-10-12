@@ -95,6 +95,7 @@ def create_segmentation_job(
     input_type: str,
     input_id: str,
     user,
+    destination_node=None,
 ) -> SegmentationJob:
     """Create a pending segmentation job and enqueue the Celery task."""
     from ..tasks import run_segmentation_job
@@ -115,6 +116,7 @@ def create_segmentation_job(
         input_upload=input_upload,
         input_import=input_import,
         created_by=user,
+        destination_node=destination_node,
         status="PENDING",
     )
 
@@ -151,9 +153,16 @@ def run_job(job: SegmentationJob) -> None:
         job.result_summary = summary
         job.save()
 
+        # The engine assigned a new SOPInstanceUID/SeriesInstanceUID to the
+        # modified file; sync the database records so they match the file.
+        _sync_record_uids(job, rtstruct_path, summary)
+
         # Mark the input RTStruct as having been processed by a rule-based
         # pipeline so it shows up clearly in the existing viewer/list.
         _mark_rtstruct_as_rule_based(job, rtstruct_path)
+
+        # Optionally push the processed RTStruct back to a remote node.
+        _push_output_to_destination(job, rtstruct_path)
 
         logger.info(f"Segmentation job {job.id} completed successfully")
     except Exception as e:
@@ -163,6 +172,68 @@ def run_job(job: SegmentationJob) -> None:
         job.error_message = str(e)
         job.save()
         raise
+
+
+def _sync_record_uids(
+    job: SegmentationJob, rtstruct_path: str, summary: dict
+) -> None:
+    """Update the input record's UIDs after the engine regenerated them."""
+    new_sop_uid = summary.get("sop_instance_uid")
+    new_series_uid = summary.get("series_instance_uid")
+    if not new_sop_uid:
+        return
+
+    if job.input_type == "UPLOAD" and job.input_upload:
+        job.input_upload.sop_instance_uid = new_sop_uid
+        if new_series_uid:
+            job.input_upload.series_instance_uid = new_series_uid
+        job.input_upload.save(
+            update_fields=["sop_instance_uid", "series_instance_uid"]
+        )
+    elif job.input_type == "IMPORT" and job.input_import:
+        rt_import = job.input_import
+        rt_import.deidentified_sop_instance_uid = new_sop_uid
+        rt_import.reidentified_rt_structure_file_sop_instance_uid = new_sop_uid
+        if new_series_uid:
+            rt_import.reidentified_rt_structure_file_series_instance_uid = new_series_uid
+        rt_import.save()
+
+
+def _push_output_to_destination(job: SegmentationJob, rtstruct_path: str) -> None:
+    """C-STORE the processed RTStruct back to the configured remote node."""
+    node = job.destination_node
+    if not node:
+        return
+
+    try:
+        from dicom_server.cstore_push_service import send_dicom_files_to_node
+
+        results = send_dicom_files_to_node(node, [rtstruct_path])
+        if results.get("success"):
+            logger.info(
+                f"Job {job.id}: pushed output RTStruct to node '{node.name}'"
+            )
+            job.result_summary = job.result_summary or {}
+            job.result_summary["pushed_to_node"] = node.name
+            job.save(update_fields=["result_summary"])
+        else:
+            logger.error(
+                f"Job {job.id}: C-STORE push to '{node.name}' failed: {results.get('error_message')}"
+            )
+            job.result_summary = job.result_summary or {}
+            job.result_summary["push_error"] = (
+                results.get("error_message") or "C-STORE push failed"
+            )
+            job.save(update_fields=["result_summary"])
+    except Exception as e:
+        # Push failure should not fail the whole job - the output file is valid.
+        logger.error(
+            f"Job {job.id}: error pushing output to '{node.name}': {e}",
+            exc_info=True,
+        )
+        job.result_summary = job.result_summary or {}
+        job.result_summary["push_error"] = str(e)
+        job.save(update_fields=["result_summary"])
 
 
 def _mark_rtstruct_as_rule_based(job: SegmentationJob, rtstruct_path: str) -> None:
@@ -176,16 +247,24 @@ def _mark_rtstruct_as_rule_based(job: SegmentationJob, rtstruct_path: str) -> No
         _extract_and_save_voi_data(rtstruct_path, rt_import)
         return
 
-    # For uploaded inputs, create an RTStructureFileImport record so it
-    # appears in the standard "View RT Structures" list.
-    rt_import = RTStructureFileImport.objects.create(
-        deidentified_series_instance_uid=job.dicom_series,
-        deidentified_rt_structure_file_path=rtstruct_path,
-        reidentified_rt_structure_file_path=rtstruct_path,
-        server_segmentation_status="RULE_BASED_COMPLETED",
-        received_rt_structure_file_download_datetime=timezone.now(),
-        reidentified_rt_structure_file_export_datetime=timezone.now(),
-    )
+    # For uploaded inputs, reuse an existing RTStructureFileImport pointing at
+    # this file when present so reruns do not create duplicate list entries.
+    rt_import = RTStructureFileImport.objects.filter(
+        reidentified_rt_structure_file_path=rtstruct_path
+    ).first() or RTStructureFileImport.objects.filter(
+        deidentified_rt_structure_file_path=rtstruct_path
+    ).first()
+
+    if rt_import is None:
+        rt_import = RTStructureFileImport.objects.create(
+            deidentified_series_instance_uid=job.dicom_series,
+            deidentified_rt_structure_file_path=rtstruct_path,
+            reidentified_rt_structure_file_path=rtstruct_path,
+            received_rt_structure_file_download_datetime=timezone.now(),
+        )
+
+    rt_import.server_segmentation_status = "RULE_BASED_COMPLETED"
+    rt_import.reidentified_rt_structure_file_export_datetime = timezone.now()
 
     try:
         ds = pydicom.dcmread(rtstruct_path, stop_before_pixels=True, force=True)
@@ -198,8 +277,8 @@ def _mark_rtstruct_as_rule_based(job: SegmentationJob, rtstruct_path: str) -> No
             rt_import.reidentified_rt_structure_file_series_instance_uid = str(ds.SeriesInstanceUID)
         if hasattr(ds, "SOPClassUID"):
             rt_import.reidentified_rt_structure_file_sop_class_uid = str(ds.SOPClassUID)
-        rt_import.save()
     except Exception as e:
         logger.warning(f"Could not read RTStruct metadata for job {job.id}: {e}")
 
+    rt_import.save()
     _extract_and_save_voi_data(rtstruct_path, rt_import)

@@ -765,8 +765,19 @@ def _process_cstore_file_to_database(file_path, ds, ae_title=None):
                 logger.warning(f"[C-STORE] Missing required tag {tag}, skipping processing chain trigger")
                 return {"status": "skipped", "reason": f"missing_tag_{tag}"}
         
-        # Only process CT/MR/PT modalities (same as task1)
+        # RT Structure Sets get their own registration path so they are
+        # discoverable for downstream processing (e.g. rule-based segmentation).
         modality = ds.Modality
+        if modality == 'RTSTRUCT' or str(getattr(ds, 'SOPClassUID', '')) == '1.2.840.10008.5.1.4.1.1.481.3':
+            from rule_based_segmentation.utils.rtstruct_registry import register_rtstruct_file
+            record = register_rtstruct_file(file_path, ds)
+            return {
+                "status": "registered",
+                "reason": "rtstruct",
+                "rtstructure_file_id": record.id,
+            }
+
+        # Only process CT/MR/PT modalities (same as task1)
         if modality not in ['CT', 'MR', 'PT']:
             logger.info(f"[C-STORE] Skipping modality {modality} - not CT/MR/PT")
             return {"status": "skipped", "reason": "unsupported_modality"}

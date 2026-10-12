@@ -4,12 +4,13 @@ Provides C-FIND, C-MOVE, and C-GET operations to query and retrieve data from re
 """
 
 import logging
+import os
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 
-from pynetdicom import AE, evt, debug_logger
+from pynetdicom import AE, evt, debug_logger, StoragePresentationContexts
 from pynetdicom.sop_class import (
     Verification,
     PatientRootQueryRetrieveInformationModelFind,
@@ -91,7 +92,58 @@ class DicomQueryRetrieveService:
         self.ae.add_requested_context(PatientRootQueryRetrieveInformationModelGet, transfer_syntaxes)
         self.ae.add_requested_context(StudyRootQueryRetrieveInformationModelGet, transfer_syntaxes)
         
+        # Storage SCP contexts: C-GET delivers instances via C-STORE
+        # sub-operations on the same association, so the SCU must be able to
+        # accept them as a storage SCP.
+        for context in StoragePresentationContexts:
+            self.ae.add_supported_context(context.abstract_syntax, transfer_syntaxes)
+        
         logger.info(f"Query/Retrieve service initialized with AE title: {ae_title}")
+    
+    def _handle_cstore_subop(self, event):
+        """
+        EVT_C_STORE handler for C-GET sub-operations.
+        
+        During C-GET, the remote SCP sends C-STORE requests over the same
+        association. This handler writes each received instance to the
+        configured storage directory and registers it in the database.
+        """
+        try:
+            ds = event.dataset
+            ds.file_meta = event.file_meta
+            
+            from .handlers.c_store_handler import (
+                _get_storage_path, _get_filename, _process_cstore_file_to_database,
+            )
+            
+            try:
+                storage_path = _get_storage_path(None, ds)
+            except Exception:
+                from dicom_handler.models import SystemConfiguration
+                storage_path = SystemConfiguration.load().folder_configuration or os.getcwd()
+            
+            os.makedirs(storage_path, exist_ok=True)
+            
+            try:
+                filename = _get_filename(None, ds)
+            except Exception:
+                sop_uid = getattr(ds, 'SOPInstanceUID', f"instance_{int(time.time()*1000)}")
+                filename = f"{sop_uid}.dcm"
+            
+            file_path = os.path.join(storage_path, filename)
+            ds.save_as(file_path, enforce_file_format=True)
+            
+            calling_ae = event.assoc.requestor.ae_title
+            result = _process_cstore_file_to_database(file_path, ds, ae_title=calling_ae)
+            logger.info(
+                f"[C-GET] Stored sub-operation result to {file_path} "
+                f"(registration: {result.get('status', 'unknown')})"
+            )
+            return 0x0000
+        except Exception as e:
+            logger.error(f"[C-GET] Failed to store received instance: {e}", exc_info=True)
+            return 0xC210  # Cannot understand / out of resources
+
     
     def test_connection(self, remote_node):
         """
@@ -360,12 +412,34 @@ class DicomQueryRetrieveService:
             # Select appropriate SOP class
             sop_class = self._get_get_sop_class(remote_node.query_retrieve_model)
             
+            # C-GET delivers instances via C-STORE sub-operations on the same
+            # association with reversed roles (we are the Storage SCP). We must
+            # therefore propose the storage presentation contexts ourselves and
+            # attach SCP/SCU Role Selection items saying we take the SCP role.
+            from pynetdicom import build_role
+            from pynetdicom.presentation import build_context
+            
+            transfer_syntaxes = [
+                ImplicitVRLittleEndian,
+                ExplicitVRLittleEndian,
+                ExplicitVRBigEndian
+            ]
+            
+            contexts = [build_context(sop_class, transfer_syntaxes)]
+            roles = []
+            for cx in StoragePresentationContexts:
+                contexts.append(build_context(cx.abstract_syntax, transfer_syntaxes))
+                roles.append(build_role(cx.abstract_syntax, scp_role=True))
+            
             # Perform C-GET
             assoc = self.ae.associate(
                 remote_node.host,
                 remote_node.port,
                 ae_title=remote_node.outgoing_ae_title,
-                max_pdu=remote_node.max_pdu_size
+                max_pdu=remote_node.max_pdu_size,
+                contexts=contexts,
+                ext_neg=roles,
+                evt_handlers=[(evt.EVT_C_STORE, self._handle_cstore_subop)],
             )
             
             if assoc.is_established:
