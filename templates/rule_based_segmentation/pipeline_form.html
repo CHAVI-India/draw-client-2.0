@@ -216,8 +216,7 @@
         const formData = new FormData();
         formData.append("rtstruct_file", file);
 
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ||
-            document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+        const csrfToken = window.CSRF.getToken();
 
         fetch(`{% url 'rule_based_segmentation:api_upload_sample_rtstruct' %}`, {
             method: "POST",

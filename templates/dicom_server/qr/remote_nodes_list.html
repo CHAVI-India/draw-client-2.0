@@ -141,7 +141,7 @@ function testConnection(nodeId) {
     fetch(`/dicom-server/qr/nodes/${nodeId}/test/`, {
         method: 'POST',
         headers: {
-            'X-CSRFToken': '{{ csrf_token }}',
+            'X-CSRFToken': window.CSRF.getToken(),
             'Content-Type': 'application/json',
         },
     })

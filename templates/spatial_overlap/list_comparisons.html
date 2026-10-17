@@ -370,8 +370,8 @@ document.addEventListener('DOMContentLoaded', function() {
         progressStatus.textContent = '';
         closeProgressBtn.classList.add('hidden');
         
-        // Get CSRF token
-        const csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        // Get CSRF token (shared helper: hidden input, then csrf_token variable)
+        const csrftoken = window.CSRF.getToken();
         
         // Build form data properly
         const formData = new URLSearchParams();

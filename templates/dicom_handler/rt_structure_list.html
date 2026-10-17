@@ -186,7 +186,7 @@
             const csrf = document.createElement("input");
             csrf.type = "hidden";
             csrf.name = "csrfmiddlewaretoken";
-            csrf.value = "{{ csrf_token }}";
+            csrf.value = window.CSRF.getToken();
             form.appendChild(csrf);
 
             selected.forEach(id => {

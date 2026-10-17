@@ -7,6 +7,8 @@
     <title>{% block title %}DRAW{% endblock %}</title>
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
+    {# Shared CSRF token resolver for all inline fetch/axios code on every page. #}
+    <script src="{% static 'js/csrf.js' %}"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex flex-col">
     {% include 'cotton/navbar/index.html' %}

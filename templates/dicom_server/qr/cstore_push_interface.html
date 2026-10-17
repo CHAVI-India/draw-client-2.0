@@ -229,7 +229,7 @@ function sendSelectedSeries() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': window.CSRF.getToken()
         },
         body: JSON.stringify({
             series_uids: seriesUids

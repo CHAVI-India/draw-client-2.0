@@ -107,6 +107,10 @@ TEMPLATES = [
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                # csrf must be listed explicitly: it makes the {{ csrf_token }}
+                # template variable available. (Django 6.0 injects it as a
+                # built-in anyway, but do not rely on that implicit behavior.)
+                'django.template.context_processors.csrf',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',

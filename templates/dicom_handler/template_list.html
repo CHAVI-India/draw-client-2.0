@@ -119,7 +119,7 @@ function deleteTemplate(templateId, templateName) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                'X-CSRFToken': window.CSRF.getToken()
             }
         })
         .then(response => response.json())

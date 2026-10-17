@@ -561,7 +561,7 @@
             form.method = 'POST';
             form.action = "{% url 'dicom_handler:delete_additional_structure' %}";
             
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const csrfToken = window.CSRF.getToken();
             form.innerHTML = `
                 <input type="hidden" name="csrfmiddlewaretoken" value="${csrfToken}">
                 <input type="hidden" name="structure_id" value="${id}">

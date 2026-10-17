@@ -193,7 +193,7 @@ function saveSelections() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': window.CSRF.getToken()
         },
         body: JSON.stringify({
             selected_structures: structuresArray
@@ -265,7 +265,7 @@ function createTemplate() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': window.CSRF.getToken()
         },
         body: JSON.stringify({
             // Backend will get name/description from session
@@ -376,7 +376,7 @@ function submitTemplate() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': window.CSRF.getToken()
         },
         body: JSON.stringify({
             template_name: templateName,
