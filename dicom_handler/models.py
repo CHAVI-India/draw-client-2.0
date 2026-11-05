@@ -573,6 +573,12 @@ class DICOMStudy(models.Model):
         verbose_name = "DICOM Study"
         verbose_name_plural = "DICOM Studies"
         ordering = ["-study_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["patient", "study_instance_uid"],
+                name="uniq_dicomstudy_patient_study_uid",
+            ),
+        ]
 
 class ProcessingStatus(models.TextChoices):
     '''
@@ -622,6 +628,12 @@ class DICOMSeries(models.Model):
     class Meta:
         verbose_name = "DICOM Series"
         verbose_name_plural = "DICOM Series"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["study", "series_instance_uid"],
+                name="uniq_dicomseries_study_series_uid",
+            ),
+        ]
 
 class DICOMInstance(models.Model):
     '''
@@ -641,6 +653,12 @@ class DICOMInstance(models.Model):
     class Meta:
         verbose_name = "DICOM Instance"
         verbose_name_plural = "DICOM Instances"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["series_instance_uid", "sop_instance_uid"],
+                name="uniq_dicominstance_series_sop_uid",
+            ),
+        ]
 
 class DICOMFileTransferStatus(models.TextChoices):
     '''
