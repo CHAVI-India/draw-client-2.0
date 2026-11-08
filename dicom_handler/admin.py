@@ -12,6 +12,7 @@ from .models import (
     DICOMStudy,
     DICOMSeries,
     DICOMInstance,
+    ExcludedFilePaths,
     DICOMFileExport,
     RTStructureFileImport,
     ContourModificationTypeChoices,
@@ -47,6 +48,33 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(ExcludedFilePaths)
+class ExcludedFilePathsAdmin(admin.ModelAdmin):
+    """Read-only view of the task1 exclusion ledger. Rows are machine-maintained
+    (keyed on path + mtime + file_size). You can delete a row to force that file to be
+    re-evaluated on the next run, but manual add/change would desync the change-detection,
+    so those are disabled."""
+    list_display = ('instance_path', 'reason', 'file_size', 'mtime_dt', 'created_at', 'updated_at')
+    search_fields = ('instance_path', 'reason')
+    list_filter = ('reason',)
+    readonly_fields = ('instance_path', 'mtime', 'file_size', 'reason', 'created_at', 'updated_at')
+    ordering = ('-updated_at',)
+
+    @admin.display(description='File mtime (UTC)', ordering='mtime')
+    def mtime_dt(self, obj):
+        from datetime import datetime, timezone as _tz
+        try:
+            return datetime.fromtimestamp(obj.mtime, _tz.utc)
+        except (ValueError, OSError, OverflowError):
+            return str(obj.mtime)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AutosegmentationTemplate)

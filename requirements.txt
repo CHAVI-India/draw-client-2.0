@@ -69,6 +69,7 @@ rt-utils==1.2.7
 ruamel.yaml==0.19.1
 ruamel.yaml.clib==0.2.15
 ruamel.yaml.clibz==0.3.7
+scandir-rs==2.10.1
 scikit-image==0.26.0
 scikit-learn==1.9.1
 scipy==1.18.1

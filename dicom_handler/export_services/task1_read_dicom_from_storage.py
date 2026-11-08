@@ -53,6 +53,7 @@ CRITICAL BUG FIXES IMPLEMENTED:
 import os
 import logging
 import pydicom
+from scandir_rs import Walk, Scandir, ReturnType
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -60,7 +61,7 @@ import json
 import re
 from ..models import (
     SystemConfiguration, Patient, DICOMStudy, DICOMSeries, 
-    DICOMInstance, ProcessingStatus
+    DICOMInstance, ProcessingStatus, ExcludedFilePaths
 )
 
 # Configure logging with masking for sensitive information
@@ -78,6 +79,19 @@ SECONDARY_CAPTURE_SOP_CLASS_UIDS = {
     '1.2.840.10008.5.1.4.1.1.7.1',     # Multi-frame Secondary Capture Image Storage
     '1.2.840.10008.5.1.4.1.1.7.2',     # Secondary Capture Audio Storage
     '1.2.840.10008.5.1.4.1.1.7.3',     # Multi-frame True Color Secondary Capture Image Storage
+}
+
+# Content-based exclusion reasons that are safe to persist in ExcludedFilePaths so the
+# same files are not re-parsed by pydicom on later runs while they stay inside the pull
+# window. Time-window skips (recently_modified / before_date_filter /
+# study_date_before_filter) and transient file_access_error are intentionally omitted,
+# because they become eligible again as the pull window advances.
+EXCLUDE_REASONS = {
+    'unsupported_modality',
+    'secondary_capture',
+    'localizer_series',
+    'missing_sop_uid',
+    'dicom_read_error',
 }
 
 def mask_sensitive_data(data, field_name=""):
@@ -129,8 +143,8 @@ def process_single_file(file_info):
         
         # Try to read DICOM file
         try:
-            # Read DICOM without format validation to ensure all files are processed
-            dicom_data = pydicom.dcmread(file_path, force=True)
+            # Read DICOM without format validation to ensure all files are processed. Reduce memory requirement by using stop_before_pixels.
+            dicom_data = pydicom.dcmread(file_path, force=True,stop_before_pixels=True)
             
             # Check if file has required modality (CT/MR/PT)
             modality = getattr(dicom_data, 'Modality', None)
@@ -1027,6 +1041,65 @@ def update_data_pull_start_datetime_after_success(current_date_filter):
         logger.error(f"Error updating data_pull_start_datetime: {str(e)}")
         return None
 
+def _ledger_reason_active(reason, config):
+    """Whether a stored exclusion reason still applies under the CURRENT configuration.
+    'localizer_series' / 'secondary_capture' depend on operator toggles, so if the
+    matching flag has been turned off the file must be reconsidered rather than skipped.
+    'unsupported_modality' (fixed CT/MR/PT allow-list), 'missing_sop_uid' and
+    'dicom_read_error' are config-independent and always active."""
+    if reason == 'localizer_series':
+        return config.exclude_localizer_series
+    if reason == 'secondary_capture':
+        return config.exclude_secondary_capture
+    return True
+
+def flush_excluded_ledger(reject_updates, excluded_delete_paths):
+    """Incrementally maintain the ExcludedFilePaths ledger for THIS run.
+
+    - Upsert content-based rejections (path, mtime, size, reason).
+    - Remove ledger rows for files that changed and were imported this run.
+    Cost is O(rejects-this-run + changed-this-run), never O(total table).
+    """
+    try:
+        removed = 0
+        if excluded_delete_paths:
+            _paths = list(excluded_delete_paths)
+            for _i in range(0, len(_paths), 1000):
+                _d, _ = ExcludedFilePaths.objects.filter(
+                    instance_path__in=_paths[_i:_i + 1000]
+                ).delete()
+                removed += _d
+        if reject_updates:
+            objs = [
+                ExcludedFilePaths(instance_path=p, mtime=mt, file_size=sz, reason=rs)
+                for p, (mt, sz, rs) in reject_updates.items()
+            ]
+            ExcludedFilePaths.objects.bulk_create(
+                objs,
+                update_conflicts=True,
+                unique_fields=['instance_path'],
+                update_fields=['mtime', 'file_size', 'reason'],
+                batch_size=1000,
+            )
+        logger.info(f"ExcludedFilePaths ledger updated: {len(reject_updates)} upserted, "
+                    f"{removed} removed")
+    except Exception as e:
+        logger.error(f"Error updating ExcludedFilePaths ledger: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+def prune_excluded_before(pull_floor_epoch):
+    """Delete ExcludedFilePaths rows older than the current pull-window floor. Such files
+    are already excluded by the mtime-window filter at scan time, so keeping them adds
+    rows that can never be consulted again; pruning bounds the table to the active window.
+    """
+    try:
+        deleted, _ = ExcludedFilePaths.objects.filter(mtime__lt=pull_floor_epoch).delete()
+        if deleted:
+            logger.info(f"Pruned {deleted} ExcludedFilePaths rows below the pull-window floor")
+    except Exception as e:
+        logger.error(f"Error pruning ExcludedFilePaths: {str(e)}")
+
 def read_dicom_from_storage():
     """
     Main entry point - calls the optimized series-aware implementation
@@ -1051,6 +1124,11 @@ def read_dicom_from_storage_series_aware():
             return {"status": "error", "message": "Folder configuration not found"}
         
         folder_path = system_config.folder_configuration
+        # Enforce canonical form (no trailing slash). SystemConfiguration.clean()
+        # normalizes on save, but we normalize here too so legacy rows or direct
+        # DB edits that still carry a trailing slash produce identical instance_path
+        # and series_root_path strings (the new-file check is a string-equality diff).
+        folder_path = folder_path.rstrip('/') or '/'
         logger.info(f"Reading DICOM files from folder: {mask_sensitive_data(folder_path, 'folder_path')}")
         
         if not os.path.exists(folder_path):
@@ -1078,43 +1156,85 @@ def read_dicom_from_storage_series_aware():
         logger.info(f"Date filter: {date_filter}, Current time: {current_time}")
         logger.info(f"Study date-based filtering: {'Enabled' if study_date_filtering_enabled else 'Disabled'}")
         
-        # ⭐ PHASE 1: Collect all file paths from filesystem
-        logger.info("Phase 1: Collecting all file paths from filesystem...")
+        # ⭐ PHASE 1 + 2: Scan filesystem with scandir-rs (extended metadata) and resolve
+        # which files are genuinely new. mtime/size come from the scanner for free, so the
+        # recency and pull-window filters run DURING the walk with zero extra stat() calls,
+        # and files already imported or already content-excluded are dropped here, BEFORE
+        # any pydicom.dcmread. scandir_rs returns paths RELATIVE to folder_path, so we
+        # re-prepend the canonical base to keep instance_path strings byte-identical.
+        logger.info("Phase 1+2: Scanning filesystem (scandir-rs Ext) and resolving new files...")
         phase1_start = timezone.now()
-        all_file_paths = {}  # {file_path: root_directory}
+
+        base_path = folder_path  # already canonical (no trailing slash), normalized above
+        recency_floor_epoch = ten_minutes_ago.timestamp()
+        pull_floor_epoch = date_filter.timestamp()
+
+        # Pass A: keep only files inside the pull window and older than the 10-minute
+        # "still being written" guard. Record (root_dir, mtime, size) for each candidate.
+        candidate_meta = {}  # {abs_path: (root_dir, mtime, size)}
         total_files_discovered = 0
-        
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                all_file_paths[file_path] = root
-                total_files_discovered += 1
-                
-                # Log progress every 1000 files
-                if total_files_discovered % 1000 == 0:
-                    logger.info(f"Discovered {total_files_discovered} files...")
-        
+        for entry in Scandir(folder_path, return_type=ReturnType.Ext, skip_hidden=True):
+            if not entry.is_file:
+                continue
+            total_files_discovered += 1
+            mt = entry.mtime
+            if mt >= recency_floor_epoch:      # likely still being written -> retry next run
+                continue
+            if mt < pull_floor_epoch:          # older than the pull window -> out of scope
+                continue
+            abs_path = os.path.join(base_path, entry.path)
+            candidate_meta[abs_path] = (os.path.dirname(abs_path), mt, entry.st_size)
+            if total_files_discovered % 100000 == 0:
+                logger.info(f"Scanned {total_files_discovered} files, "
+                            f"{len(candidate_meta)} in pull window...")
+
         phase1_end = timezone.now()
-        phase1_duration = (phase1_end - phase1_start).total_seconds()
-        logger.info(f"Phase 1 complete: Discovered {total_files_discovered} total files in {phase1_duration:.2f}s")
-        
-        # ⭐ PHASE 2: Query database once for all existing file paths
-        logger.info("Phase 2: Querying database for existing file paths...")
+        logger.info(f"Phase 1 complete: scanned {total_files_discovered} files, "
+                    f"{len(candidate_meta)} inside the pull window "
+                    f"({(phase1_end - phase1_start).total_seconds():.2f}s)")
+
+        # Pass B: resolve exclusions. Load already-imported paths once (as before), and
+        # query the ExcludedFilePaths ledger for THESE candidates ONLY (chunked), so the
+        # ledger's cost stays proportional to the working set, never to its total rows.
         phase2_start = timezone.now()
         existing_file_paths = set(
             DICOMInstance.objects.values_list('instance_path', flat=True)
         )
+
+        cand_paths = list(candidate_meta.keys())
+        excluded_map = {}
+        _chunk = 1000
+        for _i in range(0, len(cand_paths), _chunk):
+            _batch = cand_paths[_i:_i + _chunk]
+            for _p, _mt, _sz, _rs in ExcludedFilePaths.objects.filter(
+                instance_path__in=_batch
+            ).values_list('instance_path', 'mtime', 'file_size', 'reason'):
+                excluded_map[_p] = (_mt, _sz, _rs)
+
+        # Files to actually read: drop imported paths, and drop unchanged-excluded paths
+        # (same mtime AND size) whose reason is STILL an active policy under the current
+        # config. A config-dependent reason (localizer / secondary capture) that has been
+        # turned OFF no longer suppresses the file, so it is re-read (and its stale row
+        # later removed on import). A ledger path whose mtime/size differs is re-read too.
+        new_file_paths = {}
+        for _path, (_root, _mt, _sz) in candidate_meta.items():
+            if _path in existing_file_paths:
+                continue
+            _prev = excluded_map.get(_path)
+            if (_prev is not None and _prev[0] == _mt and _prev[1] == _sz
+                    and _ledger_reason_active(_prev[2], system_config)):
+                continue  # unchanged, still-excluded -> skip the expensive read
+            new_file_paths[_path] = _root
+
         phase2_end = timezone.now()
-        phase2_duration = (phase2_end - phase2_start).total_seconds()
-        logger.info(f"Found {len(existing_file_paths)} existing file paths in database ({phase2_duration:.2f}s)")
-        
-        # ⭐ PHASE 3: Filter to only new files
-        new_file_paths = {path: root for path, root in all_file_paths.items() 
-                          if path not in existing_file_paths}
-        logger.info(f"Phase 2 complete: {len(new_file_paths)} new files to process")
-        
+        logger.info(f"Phase 2 complete: {len(existing_file_paths)} imported, "
+                    f"{len(excluded_map)} unchanged-exclusions, "
+                    f"{len(new_file_paths)} to read "
+                    f"({(phase2_end - phase2_start).total_seconds():.2f}s)")
+
         if not new_file_paths:
             logger.info("No new files to process")
+            prune_excluded_before(pull_floor_epoch)
             return {
                 "status": "success",
                 "processed_files": 0,
@@ -1161,6 +1281,8 @@ def read_dicom_from_storage_series_aware():
         skipped_files = 0
         error_files = 0
         skip_reasons = {}  # Track skip reasons for debugging
+        reject_updates = {}  # {path: (mtime, size, reason)} to upsert into ExcludedFilePaths
+        excluded_delete_paths = set()  # previously-excluded paths that changed and imported now
         directories_processed_count = checkpoint_dirs_processed
         
         # Convert to list for indexed access
@@ -1190,13 +1312,27 @@ def read_dicom_from_storage_series_aware():
                 
                 # Count by status
                 if result['status'] == 'success':
+                    # changed file that was previously excluded but is now imported:
+                    # drop its now-stale ledger row (instance_path is handled by the DB).
+                    if file_path in excluded_map:
+                        excluded_delete_paths.add(file_path)
                     processed_files += 1
                 elif result['status'] == 'skipped':
                     skipped_files += 1
-                    skip_reasons[result.get('reason', 'unknown')] = skip_reasons.get(result.get('reason', 'unknown'), 0) + 1
+                    _reason = result.get('reason', 'unknown')
+                    skip_reasons[_reason] = skip_reasons.get(_reason, 0) + 1
+                    if _reason in EXCLUDE_REASONS:
+                        _m = candidate_meta.get(file_path)
+                        if _m:
+                            reject_updates[file_path] = (_m[1], _m[2], _reason)
                     continue
                 else:
                     error_files += 1
+                    _reason = result.get('reason', 'unknown')
+                    if _reason in EXCLUDE_REASONS:
+                        _m = candidate_meta.get(file_path)
+                        if _m:
+                            reject_updates[file_path] = (_m[1], _m[2], _reason)
                     continue
                 
                 # Group by series
@@ -1284,6 +1420,10 @@ def read_dicom_from_storage_series_aware():
             flush_duration = (flush_end - flush_start).total_seconds()
             logger.info(f"Final flush completed in {flush_duration:.2f}s")
         
+        # ⭐ Persist this run's content-based rejections to the ExcludedFilePaths ledger
+        #    and drop ledger rows for files that changed and were imported this run.
+        flush_excluded_ledger(reject_updates, excluded_delete_paths)
+        
         phase3_end = timezone.now()
         phase3_duration = (phase3_end - phase3_start).total_seconds()
         logger.info(f"Phase 3 complete: Processing finished in {phase3_duration:.2f}s")
@@ -1307,6 +1447,11 @@ def read_dicom_from_storage_series_aware():
         
         # ⭐ Clear checkpoint after successful completion
         clear_checkpoint()
+        
+        # ⭐ Prune ledger rows that have aged below this run's pull-window floor; they can
+        #    never be candidates again (the mtime-window filter drops them at scan time),
+        #    so pruning keeps ExcludedFilePaths bounded to the active window.
+        prune_excluded_before(pull_floor_epoch)
         
         # ⭐ Update data_pull_start_datetime after successful run
         # Advance by 7 days (7*24*60*60 seconds) for next run

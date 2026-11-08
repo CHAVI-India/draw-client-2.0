@@ -36,13 +36,25 @@ class SystemConfiguration(models.Model):
 
     def clean(self):
         """
-        Custom validation to ensure draw_base_url has a trailing slash.
+        Custom validation.
+        - draw_base_url must have a trailing slash (URL convention).
+        - folder_configuration is normalized to a canonical form (NO trailing
+          slash). The trailing slash is enforced at the code level here so every
+          consumer (the C-STORE storage writer and task1's instance_path /
+          series_root_path generation, whose new-file check is a string-equality
+          diff) sees byte-identical base paths regardless of how the admin typed
+          it in the form. save() runs full_clean() so this also self-heals legacy
+          rows to the canonical form on the next write.
         """
         super().clean()
         if self.draw_base_url and not self.draw_base_url.endswith('/'):
             raise ValidationError({
                 'draw_base_url': 'The base URL must end with a trailing slash (/). Please add this / at the end of the URL.'
             })
+        if self.folder_configuration:
+            canonical = self.folder_configuration.rstrip('/')
+            # Preserve a single slash if the value consisted only of slashes.
+            self.folder_configuration = canonical if canonical else '/'
 
     def save(self, *args, **kwargs):
         # Run validation before saving
@@ -658,6 +670,39 @@ class DICOMInstance(models.Model):
                 fields=["series_instance_uid", "sop_instance_uid"],
                 name="uniq_dicominstance_series_sop_uid",
             ),
+        ]
+
+class ExcludedFilePaths(models.Model):
+    '''
+    Ledger of file paths that task1 content-rejected (unsupported modality, secondary
+    capture, localizer/scout/scanogram series, missing SOP UID, or unreadable as DICOM).
+
+    Purpose: on later runs these paths are skipped before pydicom.dcmread so the same
+    files are not re-parsed while they remain inside the active pull window. A row is
+    keyed by the file path and validated against (mtime, file_size); if the file changes
+    it is re-evaluated instead of skipped, and rows are pruned once their mtime falls
+    below the pull-window floor (after which the mtime-window filter already excludes
+    them at scan time).
+
+    Only CONTENT-based rejections are stored here. Time-window skips (recently modified,
+    before date filter, study-date-before-filter) are intentionally NOT stored, because
+    they become eligible again as the pull window advances.
+    '''
+    instance_path = models.CharField(max_length=512, unique=True)
+    mtime = models.FloatField(help_text="File mtime (epoch seconds) recorded at evaluation time; together with file_size it detects file changes that invalidate the exclusion.")
+    file_size = models.BigIntegerField(default=0, help_text="File size in bytes at evaluation time.")
+    reason = models.CharField(max_length=64, help_text="Exclusion reason: unsupported_modality | secondary_capture | localizer_series | missing_sop_uid | dicom_read_error")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Excluded: {self.instance_path} ({self.reason})"
+
+    class Meta:
+        verbose_name = "Excluded File Path"
+        verbose_name_plural = "Excluded File Paths"
+        indexes = [
+            models.Index(fields=['mtime'], name='excl_filepath_mtime_idx'),
         ]
 
 class DICOMFileTransferStatus(models.TextChoices):
