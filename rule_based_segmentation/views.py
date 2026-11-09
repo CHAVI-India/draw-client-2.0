@@ -828,11 +828,21 @@ def _create_or_update_pipeline(data, user, pipeline=None):
 
 def _validate_pipeline_rules(rules):
     """Validate pipeline rule ordering and output name uniqueness."""
+    # ROI output names are persisted in a bounded column; reject an over-long
+    # name here with a clear message instead of letting the save fail deep in
+    # the database with a raw truncation error.
+    name_max_len = PipelineRule._meta.get_field("name").max_length
+
     output_names = set()
     for idx, rule in enumerate(rules, start=1):
         name = rule.get("name", "").strip()
         if not name:
             raise ValueError(f"Rule {idx} has no output ROI name.")
+        if len(name) > name_max_len:
+            raise ValueError(
+                f"Rule {idx} output ROI name '{name}' is too long "
+                f"({len(name)} characters); the maximum is {name_max_len} characters."
+            )
         if name in output_names:
             raise ValueError(
                 f"Rule '{name}' is used more than once. Output ROI names must be unique."
@@ -895,7 +905,7 @@ def _save_rule(pipeline, order, rule_data):
         pipeline=pipeline,
         order=order,
         rule_type=rule_data.get("rule_type"),
-        name=rule_data.get("name"),
+        name=(rule_data.get("name") or "").strip(),
         output_action=rule_data.get("output_action", "CREATE_NEW"),
         output_color=rule_data.get("output_color") or "255\\255\\0",
         output_roi_type=rule_data.get("output_roi_type", "ORGAN"),
