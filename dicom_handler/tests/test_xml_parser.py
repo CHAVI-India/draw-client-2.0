@@ -9,7 +9,7 @@ import sys
 import django
 
 # Setup Django environment
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # repo root
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
 django.setup()
 

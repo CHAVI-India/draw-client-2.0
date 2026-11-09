@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parents[2]  # repo root
 sys.path.insert(0, str(project_root))
 
 # Django setup
@@ -19,7 +19,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
 import django
 django.setup()
 
-from test_pipeline_operations import PipelineExecutor
+from dicom_handler.tests.test_pipeline_operations import PipelineExecutor
 import logging
 
 logging.basicConfig(

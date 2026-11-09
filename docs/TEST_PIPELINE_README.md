@@ -37,7 +37,7 @@ Define the operations you want to test in a JSON file. See `example_pipelines/` 
 source venv/bin/activate
 
 # Run the test
-python test_pipeline_operations.py \
+python dicom_handler/tests/test_pipeline_operations.py \
     --ct-dir /path/to/ct/series \
     --rtstruct /path/to/original_rtstruct.dcm \
     --pipeline example_pipeline.json \

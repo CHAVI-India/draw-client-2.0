@@ -44,7 +44,7 @@ import logging
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parents[2]  # repo root
 sys.path.insert(0, str(project_root))
 
 # Django setup

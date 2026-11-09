@@ -3479,7 +3479,7 @@ XML volume types are automatically mapped to DICOM RT ROI Interpreted Types:
    - CRUD views for AdditionalStructures
    - Add, edit, delete operations
 
-6. **`test_xml_parser.py`**
+6. **`dicom_handler/tests/test_xml_parser.py`**
    - Test script for XML parser functionality
 
 ### Updated Files
@@ -3521,7 +3521,7 @@ XML volume types are automatically mapped to DICOM RT ROI Interpreted Types:
 Run the test script to verify XML parsing:
 
 ```bash
-./venv/bin/python test_xml_parser.py
+./venv/bin/python dicom_handler/tests/test_xml_parser.py
 ```
 
 This tests:
@@ -3674,7 +3674,7 @@ Define the operations you want to test in a JSON file. See `example_pipelines/` 
 source venv/bin/activate
 
 # Run the test
-python test_pipeline_operations.py \
+python dicom_handler/tests/test_pipeline_operations.py \
     --ct-dir /path/to/ct/series \
     --rtstruct /path/to/original_rtstruct.dcm \
     --pipeline example_pipeline.json \
@@ -4178,7 +4178,7 @@ Deidentified values are stored in the database for tracking:
 
 A standalone CLI test script is provided for IT administrators to independently verify the deidentification process:
 
-**Script:** `test_deidentification_cli.py`
+**Script:** `dicom_handler/tests/test_deidentification_cli.py`
 
 #### Purpose
 - Test the actual deidentification implementation without database dependencies
@@ -4235,7 +4235,7 @@ source venv/bin/activate  # On Linux/Mac
 #### Usage
 ```bash
 # From project root directory with venv activated:
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 #### What It Does
@@ -4344,7 +4344,7 @@ See `TEST_DEIDENTIFICATION_README.md` for detailed documentation.
 
 ## Overview
 
-The `test_deidentification_cli.py` script is a standalone CLI tool for IT administrators to independently verify that the DICOM deidentification functionality works correctly.
+The `dicom_handler/tests/test_deidentification_cli.py` script is a standalone CLI tool for IT administrators to independently verify that the DICOM deidentification functionality works correctly.
 
 ## Key Features
 
@@ -4356,13 +4356,13 @@ The `test_deidentification_cli.py` script is a standalone CLI tool for IT admini
 ## Usage
 
 ```bash
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 ### Example
 
 ```bash
-python test_deidentification_cli.py /path/to/dicom/files
+python dicom_handler/tests/test_deidentification_cli.py /path/to/dicom/files
 ```
 
 ## What It Does
@@ -4535,7 +4535,7 @@ The script verifies that the actual `task3_deidentify_series.py` implementation:
 If you get an import error, make sure you're running the script from the project root:
 ```bash
 cd /home/santam/draw-client-2.0
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 ### Path Validation Error

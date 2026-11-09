@@ -35,7 +35,7 @@ from datetime import datetime, date
 from pathlib import Path
 
 # Add the project root to Python path to import Django modules
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
 sys.path.insert(0, project_root)
 
 # Setup Django settings before importing from task3_deidentify_series

@@ -14,7 +14,7 @@ import django
 from pathlib import Path
 
 # Add the project root to Python path
-project_root = Path(__file__).parent
+project_root = Path(__file__).resolve().parents[2]  # repo root
 sys.path.insert(0, str(project_root))
 
 # Setup Django environment

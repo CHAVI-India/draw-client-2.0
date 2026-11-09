@@ -142,7 +142,7 @@ XML volume types are automatically mapped to DICOM RT ROI Interpreted Types:
    - CRUD views for AdditionalStructures
    - Add, edit, delete operations
 
-6. **`test_xml_parser.py`**
+6. **`dicom_handler/tests/test_xml_parser.py`**
    - Test script for XML parser functionality
 
 ### Updated Files
@@ -184,7 +184,7 @@ XML volume types are automatically mapped to DICOM RT ROI Interpreted Types:
 Run the test script to verify XML parsing:
 
 ```bash
-./venv/bin/python test_xml_parser.py
+./venv/bin/python dicom_handler/tests/test_xml_parser.py
 ```
 
 This tests:

@@ -238,7 +238,7 @@ Deidentified values are stored in the database for tracking:
 
 A standalone CLI test script is provided for IT administrators to independently verify the deidentification process:
 
-**Script:** `test_deidentification_cli.py`
+**Script:** `dicom_handler/tests/test_deidentification_cli.py`
 
 #### Purpose
 - Test the actual deidentification implementation without database dependencies
@@ -295,7 +295,7 @@ source venv/bin/activate  # On Linux/Mac
 #### Usage
 ```bash
 # From project root directory with venv activated:
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 #### What It Does

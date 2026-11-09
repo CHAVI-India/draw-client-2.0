@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `test_deidentification_cli.py` script is a standalone CLI tool for IT administrators to independently verify that the DICOM deidentification functionality works correctly.
+The `dicom_handler/tests/test_deidentification_cli.py` script is a standalone CLI tool for IT administrators to independently verify that the DICOM deidentification functionality works correctly.
 
 ## Key Features
 
@@ -14,13 +14,13 @@ The `test_deidentification_cli.py` script is a standalone CLI tool for IT admini
 ## Usage
 
 ```bash
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 ### Example
 
 ```bash
-python test_deidentification_cli.py /path/to/dicom/files
+python dicom_handler/tests/test_deidentification_cli.py /path/to/dicom/files
 ```
 
 ## What It Does
@@ -193,7 +193,7 @@ The script verifies that the actual `task3_deidentify_series.py` implementation:
 If you get an import error, make sure you're running the script from the project root:
 ```bash
 cd /home/santam/draw-client-2.0
-python test_deidentification_cli.py <input_folder>
+python dicom_handler/tests/test_deidentification_cli.py <input_folder>
 ```
 
 ### Path Validation Error
