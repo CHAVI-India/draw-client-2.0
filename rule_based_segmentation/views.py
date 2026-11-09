@@ -97,6 +97,7 @@ def _render_pipeline_form(request, pipeline=None, error=None):
             "pipeline": pipeline,
             "pipeline_data": pipeline_data,
             "error": error,
+            "roi_name_max_length": PipelineRule._meta.get_field("name").max_length,
         },
     )
 

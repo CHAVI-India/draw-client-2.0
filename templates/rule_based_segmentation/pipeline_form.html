@@ -65,7 +65,7 @@
                 <p class="mt-2 text-xs text-gray-500">Select or upload an RTStruct to populate structure dropdowns. You can still type custom names for structures that will exist in your target RTStruct.</p>
             </div>
 
-            <div id="pipeline-builder"></div>
+            <div id="pipeline-builder" data-roi-name-max-length="{{ roi_name_max_length|default:16 }}"></div>
         </div>
 
         <div class="flex justify-end space-x-3">
@@ -247,6 +247,13 @@
     });
 
     document.getElementById("pipeline-form").addEventListener("submit", function(e) {
+        const errors = builder.validate();
+        if (errors.length) {
+            e.preventDefault();
+            builder.showValidationErrors(errors);
+            return;
+        }
+        builder.clearValidationErrors();
         const data = builder.serialize();
         data.name = document.getElementById("pipeline-name").value;
         data.description = document.getElementById("pipeline-description").value;

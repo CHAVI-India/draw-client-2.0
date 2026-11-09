@@ -322,7 +322,7 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-gray-700">Output ROI Name</label>
-              <input type="text" id="rbs-rule-name" value="${this._escapeHtml(rule.name)}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2" maxlength="16">
+              <input type="text" id="rbs-rule-name" value="${this._escapeHtml(rule.name)}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2" maxlength="${this._roiNameMaxLength()}">
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700">Output Action</label>
@@ -370,6 +370,13 @@
       const newName = this.container.querySelector("#rbs-rule-name").value.trim();
       if (!newName) {
         alert("Output ROI name is required");
+        return;
+      }
+      const maxLen = this._roiNameMaxLength();
+      if (newName.length > maxLen) {
+        alert(
+          `Output ROI name '${newName}' is too long (${newName.length} characters); the maximum is ${maxLen} characters.`
+        );
         return;
       }
 
@@ -948,6 +955,61 @@
 
     getRules() {
       return this.state.rules.map((r) => ({ ...r }));
+    }
+
+    _roiNameMaxLength() {
+      const raw = this.container.getAttribute("data-roi-name-max-length");
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n > 0 ? n : 16;
+    }
+
+    validate() {
+      // Mirror the server-side _validate_pipeline_rules name checks so the
+      // user sees problems before the form is submitted (the server is still
+      // the source of truth; this only improves the experience).
+      const errors = [];
+      const maxLen = this._roiNameMaxLength();
+      const firstSeen = new Map();
+      this.state.rules.forEach((rule, idx) => {
+        const name = (rule.name || "").trim();
+        const label = `Rule ${idx + 1}`;
+        if (!name) {
+          errors.push(`${label}: an output ROI name is required.`);
+        } else if (name.length > maxLen) {
+          errors.push(
+            `${label}: output ROI name '${name}' is too long (${name.length} characters); the maximum is ${maxLen} characters.`
+          );
+        } else if (firstSeen.has(name)) {
+          errors.push(
+            `Output ROI name '${name}' is used more than once (rules ${firstSeen.get(name) + 1} and ${idx + 1}). Names must be unique.`
+          );
+        } else {
+          firstSeen.set(name, idx);
+        }
+      });
+      return errors;
+    }
+
+    showValidationErrors(errors) {
+      this.clearValidationErrors();
+      if (!errors.length) return;
+      const box = document.createElement("div");
+      box.id = "rbs-validation-errors";
+      box.className = "rounded-md bg-red-50 border border-red-200 p-4 mb-4";
+      box.setAttribute("role", "alert");
+      box.innerHTML = `
+        <div class="text-sm font-medium text-red-800">Please fix the following before saving:</div>
+        <ul class="mt-2 text-sm text-red-700 list-disc list-inside space-y-1">
+          ${errors.map((e) => `<li>${this._escapeHtml(e)}</li>`).join("")}
+        </ul>
+      `;
+      this.container.insertBefore(box, this.container.firstChild);
+      box.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    clearValidationErrors() {
+      const box = this.container.querySelector("#rbs-validation-errors");
+      if (box) box.remove();
     }
 
     serialize() {

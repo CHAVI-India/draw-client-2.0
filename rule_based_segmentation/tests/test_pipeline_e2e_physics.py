@@ -40,6 +40,7 @@ import pydicom
 import SimpleITK as sitk
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 
 from rule_based_segmentation import views
 from rule_based_segmentation.models import PipelineRule, SegmentationJob
@@ -637,6 +638,26 @@ class PipelineBuilderValidationTests(TestCase):
         }
         pipeline = views._create_or_update_pipeline(data, self._user())
         self.assertEqual(pipeline.rules.get().name, "PADDED")
+
+
+class PipelineFormUITests(TestCase):
+    """The pipeline form must surface the ROI-name limit client-side."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="ui", email="ui@x.y"
+        )
+        self.client.force_login(self.user)
+
+    def test_create_form_exposes_roi_name_max_length(self):
+        # The form reads the limit from the model, so the client-side check can
+        # never drift from the server-side validation.
+        limit = PipelineRule._meta.get_field("name").max_length
+        resp = self.client.get(
+            reverse("rule_based_segmentation:pipeline_create")
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'data-roi-name-max-length="{limit}"')
 
 
 class OperationCoverageTests(TestCase):
