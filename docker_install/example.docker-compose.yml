@@ -32,6 +32,35 @@ services:
       - RABBITMQ_DEFAULT_USER=guest
       - RABBITMQ_DEFAULT_PASS=guest
 
+  # One-shot migration container. It is the ONLY container that runs
+  # collectstatic/migrate/createsuperuser, and it exits when done. The
+  # long-running services below wait for it with
+  # `condition: service_completed_successfully`, so Django never starts
+  # against an un-migrated schema and three siblings never migrate at once.
+  # Safe to re-run: `migrate` is a no-op when the schema is already current.
+  migrate:
+    image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
+    container_name: draw-client-migrate-docker
+    command: ["./entrypoint.docker.sh", "migrate"]
+    env_file:
+      - .env
+    environment:
+      - DOCKER_CONTAINER=true
+      - RUN_MIGRATIONS=true
+      # Upper bound on waiting for the advisory lock in `migrate_locked`.
+      - MIGRATE_LOCK_TIMEOUT=${MIGRATE_LOCK_TIMEOUT:-1800}
+    volumes:
+      - app_data:/app
+      - ./logs:/app/logs
+      - ./staticfiles:/app/staticfiles
+      - "dicomdata:/app/datastore"
+      - ./certs:/usr/local/share/ca-certificates:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    # One-shot by design: `up` runs it, it exits 0, then the services start.
+    restart: "no"
+
   django-web:
     image: public.ecr.aws/g0w3c0z2/draw-client-2.0:latest
     container_name: draw-client-django-docker
@@ -40,6 +69,10 @@ services:
         condition: service_healthy
       memcached:
         condition: service_started
+      # Wait until the one-shot migrator has actually finished, not merely
+      # started (service_started would let Django boot on a stale schema).
+      migrate:
+        condition: service_completed_successfully
     env_file:
       - .env
     ports:
@@ -54,6 +87,8 @@ services:
     restart: unless-stopped
     environment:
       - DOCKER_CONTAINER=true
+      # Handled by the `migrate` service above; see entrypoint.docker.sh.
+      - RUN_MIGRATIONS=false
     ulimits:
       nofile:
         soft: 65536
@@ -78,6 +113,8 @@ services:
       # Cap Celery worker children (see entrypoint.docker.sh). Each worker
       # child holds a DB connection, so this keeps connections bounded.
       - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+      # Handled by the `migrate` service above; see entrypoint.docker.sh.
+      - RUN_MIGRATIONS=false
     # Defense-in-depth: cap visible CPUs so an accidental concurrency default
     # can never spawn more workers/connections than Postgres allows.
     cpus: "2.0"
@@ -89,6 +126,11 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_started
+      # service_started on django-web is satisfied the instant that container
+      # launches, long before its migrations would finish; the migrator's real
+      # completion is what matters here.
+      migrate:
+        condition: service_completed_successfully
     ulimits:
       nofile:
         soft: 65536
@@ -108,6 +150,8 @@ services:
       - .env
     environment:
       - DOCKER_CONTAINER=true
+      # Handled by the `migrate` service above; see entrypoint.docker.sh.
+      - RUN_MIGRATIONS=false
     depends_on:
       db:
         condition: service_healthy
@@ -115,6 +159,8 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped    
     ulimits:
       nofile:

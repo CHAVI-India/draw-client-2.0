@@ -140,6 +140,97 @@ And the port is used then the following will change the external port.
 Here we have mapped the port 5436 on the host machine to the container 5432 port. Note that in the previous section the mapped host port was 5433.
 
 
+# Database migrations and container startup
+
+Only one container migrates the database. The compose file defines a one-shot
+`migrate` service (`./entrypoint.docker.sh migrate`) that runs collectstatic,
+migrations and the superuser creation, then exits. `django-web`, `celery` and
+`celery-beat` set `RUN_MIGRATIONS=false` and wait for it via
+`depends_on: migrate: condition: service_completed_successfully`.
+
+Before this, all three long-running containers called the same entrypoint and
+ran `manage.py migrate` at once, which produced `DuplicateTable` /
+`DuplicateColumn` errors, deadlocks, and lock waits that looked like hangs.
+
+```bash
+docker compose up -d          # migrator runs first, then the services start
+docker compose logs -f migrate
+```
+
+Migrations are also safe to re-run by hand:
+
+```bash
+docker compose run --rm migrate
+docker compose exec django-web python manage.py migrate_locked
+```
+
+`migrate_locked` wraps `migrate` in a Postgres advisory lock, so if two
+containers do arrive together they queue instead of corrupting each other's
+schema work. The wait is bounded by `MIGRATE_LOCK_TIMEOUT` (default 1800s) and
+fails with an explicit message rather than hanging forever. On SQLite the lock
+is skipped and `migrate` runs directly.
+
+## Long migrations and maintenance windows
+
+`dicom_handler` migration `0057` merges duplicate study/series/instance rows and
+`0059` then adds the UID unique constraints with `CREATE UNIQUE INDEX
+CONCURRENTLY`. Concurrent builds take no blocking write lock, but they *wait*
+for other sessions that hold conflicting locks or old snapshots — including
+`idle in transaction` sessions from the web and Celery containers, and
+autovacuum on freshly churned tables. For big databases run it with the
+long-running containers stopped:
+
+```bash
+docker compose stop django-web celery celery-beat
+docker compose run --rm migrate
+docker compose up -d
+```
+
+To see whether such a step is working or merely waiting:
+
+```sql
+SELECT phase, blocks_done, blocks_total, tuples_done, tuples_total,
+       wait_event_type, wait_event
+  FROM pg_stat_progress_create_index;
+
+SELECT pid, pg_blocking_pids(pid) AS blocked_by, wait_event_type, wait_event,
+       state, now() - query_start AS running_for
+  FROM pg_stat_activity
+ WHERE pid <> pg_backend_pid() ORDER BY running_for NULLS LAST;
+```
+
+A `waiting for writers` / `waiting for old snapshots` phase means something else
+is holding it up; a `building index: scanning table` phase whose `blocks_done`
+is climbing is real work. Raising `maintenance_work_mem` (default 64MB) before
+the build avoids a slow external sort. Cancelling is safe: the migration is
+re-runnable and drops any invalid leftover index itself.
+
+## After an image upgrade, check the app_data volume
+
+The services mount the named volume `app_data` at `/app`. Compose copies the
+image's contents into a named volume only when that volume is **first created**;
+it does not refresh it when the image changes. An environment that has been
+upgraded can therefore keep running code from the old image, and a newly added
+migration will simply not exist there. Confirm what the container is really
+running:
+
+```bash
+docker compose run --rm django-web python manage.py showmigrations dicom_handler | tail
+```
+
+If it is stale, recreate the volume. The documented Docker install uses
+Postgres (`DJANGO_DB_HOST=db`), so `app_data` holds only application code: the
+database is in `postgres_data`, DICOM data in `dicomdata`, and `logs` /
+`staticfiles` are bind mounts, all of which survive. **If you changed
+`DJANGO_DB_ENGINE` to SQLite and left `DJANGO_DB_NAME` inside `/app`, the
+database itself lives in `app_data` — back it up before removing the volume.**
+
+```bash
+docker compose down
+docker volume rm <project>_app_data
+docker compose up -d
+```
+
 # Additional Note on Extra Hosts Parameter
 
 There is an extra hosts parameter provided in the docker compose to allow the dicom server to provide C-MOVE services. During C-MOVE service, the server has to negotitate the external IP address. 
