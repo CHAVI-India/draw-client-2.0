@@ -2,6 +2,14 @@ services:
   db:
     image: postgres:17
     container_name: draw-client-postgres-docker
+    # Give Postgres headroom above the default 100 so the (now bounded) web
+    # workers + a capped Celery worker + beat + retries don't exhaust it. Keep
+    # this comfortably above the expected peak connection count, not enormous
+    # (each connection consumes work_mem/shared buffers).
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
     ports:
       - "5433:5432"
     volumes:
@@ -64,6 +72,10 @@ services:
       - .env.docker
     environment:
       - DOCKER_CONTAINER=true
+      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+    # Defense-in-depth: cap visible CPUs so an accidental concurrency default
+    # can never spawn more workers/connections than Postgres allows.
+    cpus: "2.0"
     restart: unless-stopped      
     depends_on:
       db:

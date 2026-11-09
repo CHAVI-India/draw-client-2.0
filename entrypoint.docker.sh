@@ -22,7 +22,17 @@ python manage.py createsuperuser --noinput --username $DJANGO_SUPERUSER_USERNAME
 
 # Check if we're running Celery worker
 if [ "$1" = "celery" ]; then
-    exec celery -A draw_client worker -l INFO
+    # Bound worker concurrency explicitly. Without -c/-P, Celery defaults
+    # concurrency to the host CPU count, so in Docker (which sees every host
+    # core unless capped) it would spawn far more worker processes than
+    # Postgres max_connections allows. Each prefork child holds one DB
+    # connection, so we cap children and recycle them to release connections
+    # and memory. All tunable via env, with conservative defaults.
+    exec celery -A draw_client worker -l INFO \
+        --pool=prefork \
+        --concurrency="${CELERY_CONCURRENCY:-2}" \
+        --prefetch-multiplier=1 \
+        --max-tasks-per-child="${CELERY_MAX_TASKS_PER_CHILD:-20}"
 # Check if we're running Celery beat
 elif [ "$1" = "celery-beat" ]; then
     exec celery -A draw_client beat -l INFO

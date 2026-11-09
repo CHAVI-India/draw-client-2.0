@@ -14,6 +14,42 @@ app = Celery('draw_client')
 #   should have a `CELERY_` prefix.
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
+# Connection-safety and reliability defaults for long-running jobs.
+# - prefetch multiplier 1: a worker only grabs one task at a time, so a slow
+#   segmentation job does not lock up many queued messages.
+# - acks_late: the message is acked after the task finishes; if a worker is
+#   killed (e.g. OOM during heavy SimpleITK work) the task is redelivered
+#   instead of silently lost.
+app.conf.worker_prefetch_multiplier = 1
+app.conf.task_acks_late = True
+app.conf.task_reject_on_worker_lost = True
+
+
+from celery.signals import task_postrun, worker_process_init, worker_shutting_down  # noqa: E402
+from django.db import connections  # noqa: E402
+
+
+@worker_process_init.connect(weak=False)
+def _reset_db_connections_after_fork(*args, **kwargs):
+    """Fork-safety: the prefork child inherits the parent's DB socket. Drop it
+    so this child opens its own connection instead of sharing (and corrupting)
+    the parent's."""
+    connections.close_all()
+
+
+@task_postrun.connect(weak=False)
+def _close_db_connections_after_task(*args, **kwargs):
+    """Celery does not fire Django's request_finished signal, so without this a
+    worker holds its Postgres connection open for its entire life. Releasing it
+    after every task keeps the steady-state connection count near zero and
+    prevents Postgres max_connections exhaustion under load."""
+    connections.close_all()
+
+
+@worker_shutting_down.connect(weak=False)
+def _close_db_connections_on_shutdown(*args, **kwargs):
+    connections.close_all()
+
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
 

@@ -144,6 +144,24 @@ DATABASES = {
     }
 }
 
+# Postgres-specific connection options. connect_timeout stops a worker/web
+# process from hanging indefinitely when the DB is temporarily saturated,
+# so a connection failure surfaces quickly instead of piling up more attempts.
+if 'postgre' in os.getenv("DJANGO_DB_ENGINE", "django.db.backends.sqlite3"):
+    DATABASES['default'].setdefault('OPTIONS', {})['connect_timeout'] = int(
+        os.getenv("DJANGO_DB_CONNECT_TIMEOUT", "10")
+    )
+
+# Persistent-connection policy. Default 0 closes the connection after each
+# request (and Celery closes it after each task), which keeps the number of
+# concurrent Postgres connections low. Only raise DJANGO_DB_CONN_MAX_AGE if
+# you have also raised Postgres max_connections to match; CONN_HEALTH_CHECKS
+# (Django 5+) ensures a reused connection is still alive before use.
+CONN_MAX_AGE = int(os.getenv("DJANGO_DB_CONN_MAX_AGE", "0"))
+CONN_HEALTH_CHECKS = os.getenv("DJANGO_DB_CONN_HEALTH_CHECKS", "true").lower() in (
+    "1", "true", "yes", "on"
+)
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

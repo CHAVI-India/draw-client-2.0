@@ -4,6 +4,7 @@ import logging
 import time
 
 from celery import shared_task
+from django.db import connections
 
 from .models import SegmentationJob
 from .utils.job_service import run_job
@@ -47,6 +48,11 @@ def _wait_for(query_fn, timeout_seconds: int = 120, interval: float = 2.0):
         if result:
             return result
         time.sleep(interval)
+        # Release the DB connection while we sleep. The image-series wait runs
+        # up to 600s; holding one idle Postgres connection per polling worker
+        # for that long is a large share of max_connections under load. The
+        # next query_fn() transparently opens a fresh connection.
+        connections.close_all()
     return None
 
 

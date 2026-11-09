@@ -2,6 +2,13 @@ services:
   db:
     image: postgres:17
     container_name: draw-client-postgres-docker
+    # Raise Postgres' default 100 connections so the web workers + Celery
+    # worker + beat + retries don't exhaust it during pipeline execution.
+    # Keep comfortably above the expected peak, not enormous.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
     ports:
       - "5433:5432" # External port for postgres may need to be changed.
     volumes:
@@ -68,6 +75,12 @@ services:
       - .env
     environment:
       - DOCKER_CONTAINER=true
+      # Cap Celery worker children (see entrypoint.docker.sh). Each worker
+      # child holds a DB connection, so this keeps connections bounded.
+      - CELERY_CONCURRENCY=${CELERY_CONCURRENCY:-2}
+    # Defense-in-depth: cap visible CPUs so an accidental concurrency default
+    # can never spawn more workers/connections than Postgres allows.
+    cpus: "2.0"
     restart: unless-stopped      
     depends_on:
       db:
