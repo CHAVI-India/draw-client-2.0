@@ -14,6 +14,18 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
 django.setup()
 
 from dicom_handler.xml_template_parser import XMLTemplateParser
+from dicom_handler.parsers.varian_parser import VarianEclipseParser
+
+
+def _resolve_sample(filename):
+    """Locate an optional external sample template file, checking CWD then the
+    repo root.  Returns the path or None if not present (sample templates are
+    not committed to the repo)."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for cand in (filename, os.path.join(repo_root, filename)):
+        if os.path.exists(cand):
+            return cand
+    return None
 
 
 def test_parse_hn_xml():
@@ -22,11 +34,11 @@ def test_parse_hn_xml():
     print("Testing HN.xml parsing")
     print("=" * 80)
     
-    xml_file_path = 'HN.xml'
+    xml_file_path = _resolve_sample('HN.xml')
     
-    if not os.path.exists(xml_file_path):
-        print(f"Error: {xml_file_path} not found")
-        return False
+    if xml_file_path is None:
+        print("SKIP: HN.xml sample template not found (external file, not in repo)")
+        return None
     
     with open(xml_file_path, 'r', encoding='utf-8') as f:
         xml_content = f.read()
@@ -67,11 +79,11 @@ def test_parse_uro_xml():
     print("Testing URO_Prostate_SBRT.xml parsing")
     print("=" * 80)
     
-    xml_file_path = 'URO_Prostate_SBRT.xml'
+    xml_file_path = _resolve_sample('URO_Prostate_SBRT.xml')
     
-    if not os.path.exists(xml_file_path):
-        print(f"Error: {xml_file_path} not found")
-        return False
+    if xml_file_path is None:
+        print("SKIP: URO_Prostate_SBRT.xml sample template not found (external file, not in repo)")
+        return None
     
     with open(xml_file_path, 'r', encoding='utf-8') as f:
         xml_content = f.read()
@@ -120,12 +132,16 @@ def test_color_parsing():
         ("Skin Rendering", "255\\224\\189"),
     ]
     
+    parser = VarianEclipseParser()
+    all_pass = True
     for color_input, expected in test_cases:
-        result = XMLTemplateParser.parse_color(color_input)
-        status = "✓" if result == expected else "✗"
+        result = parser._parse_color(color_input)
+        ok = result == expected
+        all_pass = all_pass and ok
+        status = "✓" if ok else "✗"
         print(f"{status} '{color_input}' -> '{result}' (expected: '{expected}')")
-    
-    return True
+
+    return all_pass
 
 
 def test_validation():
@@ -183,13 +199,20 @@ if __name__ == '__main__':
     print("Test Summary")
     print("=" * 80)
     
+    skipped = [name for name, r in results if r is None]
+    executed = [r for name, r in results if r is not None]
     for test_name, passed in results:
-        status = "✓ PASSED" if passed else "✗ FAILED"
+        if passed is None:
+            status = "– SKIPPED"
+        else:
+            status = "✓ PASSED" if passed else "✗ FAILED"
         print(f"{status}: {test_name}")
     
-    all_passed = all(result[1] for result in results)
+    all_passed = all(executed) if executed else True
     
     print("\n" + "=" * 80)
+    if skipped:
+        print(f"(skipped {len(skipped)} test(s) needing external sample files: {', '.join(skipped)})")
     if all_passed:
         print("✓ All tests passed!")
     else:

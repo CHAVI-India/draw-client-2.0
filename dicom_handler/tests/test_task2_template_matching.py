@@ -648,8 +648,8 @@ def test_complete_workflow():
         for i, match in enumerate(matched_series[:5]):  # Show first 5
             print(f"  Match {i+1}:")
             print(f"    Series UID: {match['series_instance_uid'][:30]}...")
-            print(f"    Ruleset: {match['matched_ruleset_name']}")
-            print(f"    Template: {match['associated_template_name']}")
+            print(f"    RuleGroup: {match.get('matched_rulegroup_name')}")
+            print(f"    Template: {match.get('associated_template_name')}")
         
         if len(matched_series) > 5:
             print(f"  ... and {len(matched_series) - 5} more matches")

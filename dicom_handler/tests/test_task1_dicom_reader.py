@@ -20,6 +20,8 @@ django.setup()
 # Now import Django models and the function to test
 from dicom_handler.models import SystemConfiguration, Patient, DICOMStudy, DICOMSeries, DICOMInstance
 from dicom_handler.export_services.task1_read_dicom_from_storage import read_dicom_from_storage
+from dicom_handler.tests._test_db import run_on_test_db
+from dicom_handler.tests._prompt import ask
 import json
 from datetime import datetime
 from django.utils import timezone
@@ -188,6 +190,7 @@ def test_folder_structure(folder_path):
     print(f"\nTotal files found: {file_count}")
     return file_count > 0
 
+@run_on_test_db
 def main():
     """
     Main test function
@@ -211,7 +214,7 @@ def main():
             return
         
         # Ask if user wants to clear existing data
-        clear_data = input("Clear existing DICOM data from database? (y/N): ").strip().lower()
+        clear_data = ask("Clear existing DICOM data from database? (y/N): ", default="n").lower()
         if clear_data in ['y', 'yes']:
             clear_test_data()
         

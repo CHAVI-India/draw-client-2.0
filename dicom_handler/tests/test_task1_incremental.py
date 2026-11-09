@@ -24,6 +24,7 @@ django.setup()
 
 # Now import Django models and test utilities
 from dicom_handler.models import SystemConfiguration, Patient, DICOMStudy, DICOMSeries, DICOMInstance
+from dicom_handler.tests._prompt import ask
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db import connection
@@ -280,7 +281,7 @@ def test_study_date_filtering(original_date_filter):
     print("  2. Enter specific date (YYYY-MM-DD format)")
     print("  3. Press Enter to use 7 months ago (210 days)")
     
-    user_input = input("\nYour choice: ").strip()
+    user_input = ask("\nYour choice: ", default="")
     
     if not user_input:
         # Default: 7 months ago
@@ -601,7 +602,7 @@ def main():
         print("This will test the new study_date_based_filtering feature.")
         print("(Sets date filter to 5 weeks ago and compares results)")
         
-        response = input("\nRun study date filtering test? (y/n): ").strip().lower()
+        response = ask("\nRun study date filtering test? (y/n): ", default="n").lower()
         
         if response == 'y' or response == 'yes':
             test_study_date_filtering(original_date_filter)

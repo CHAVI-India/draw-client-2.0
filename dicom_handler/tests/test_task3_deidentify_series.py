@@ -34,6 +34,7 @@ from dicom_handler.export_services.task3_deidentify_series import (
 )
 import json
 import shutil
+from dicom_handler.tests._prompt import ask
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.test.utils import setup_test_environment, teardown_test_environment
@@ -538,7 +539,7 @@ def main():
     
     finally:
         # Ask if user wants to keep deidentified files
-        keep_files = input("\nKeep deidentified files for inspection? (y/N): ").strip().lower()
+        keep_files = ask("\nKeep deidentified files for inspection? (y/N): ", default="n").lower()
         if keep_files not in ['y', 'yes']:
             cleanup_deidentified_data()
             print("✓ Cleaned up deidentified files")

@@ -2,8 +2,13 @@
 """Functional test for ExcludedFilePaths ledger + scandir-rs Ext scan in task1.
 Runs read_dicom_from_storage() twice over the datastore with an early pull date so all
 files are in-window; verifies run 2 skips already-imported (instance_path) AND
-already-excluded (ledger) files without re-reading them. Dev DB only."""
-import os, logging, collections
+already-excluded (ledger) files without re-reading them. Runs against a dedicated test database."""
+import os, sys, logging, collections
+from pathlib import Path
+
+# Add the project root to Python path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'draw_client.settings')
 import django; django.setup()
 from datetime import datetime, timezone as pytz
@@ -11,6 +16,7 @@ from django.utils import timezone
 from dicom_handler.models import (SystemConfiguration, Patient, DICOMStudy, DICOMSeries,
                                   DICOMInstance, ExcludedFilePaths)
 from dicom_handler.export_services.task1_read_dicom_from_storage import read_dicom_from_storage
+from dicom_handler.tests._test_db import use_test_database
 
 # quiet the noise (pydicom warnings + task INFO spam)
 for n in ('dicom_handler', 'pydicom'):
@@ -19,7 +25,7 @@ for n in ('dicom_handler', 'pydicom'):
 DATASTORE = "/mnt/share/dicom_processing_test/datastore"
 
 def reset_config():
-    c = SystemConfiguration.get_singleton()
+    c, _ = SystemConfiguration.objects.get_or_create(pk=1)
     c.folder_configuration = DATASTORE
     c.data_pull_start_datetime = datetime(2020, 1, 1, tzinfo=pytz.utc)
     c.study_date_based_filtering = False
@@ -49,25 +55,28 @@ def run(label):
     return res, dt
 
 if __name__ == "__main__":
-    print("Cleaning DB for a clean functional test...")
-    wipe()
+    # All DB access below runs against a dedicated test database so the dev/prod
+    # database is never wiped or written to.
+    with use_test_database():
+        print("Cleaning DB for a clean functional test...")
+        wipe()
 
-    r1, d1 = run("RUN 1 (cold): import + record rejections")
-    # undo the auto-advance so RUN 2 uses the same early window -> exercises the ledger,
-    # not the mtime window. Imported rows stay (exercise instance_path exclusion).
-    print("\nRe-setting pull date (undo auto-advance) + clearing checkpoint, keeping imported rows...")
-    reset_config()
-    from dicom_handler.export_services.task1_read_dicom_from_storage import clear_checkpoint
-    clear_checkpoint()
+        r1, d1 = run("RUN 1 (cold): import + record rejections")
+        # undo the auto-advance so RUN 2 uses the same early window -> exercises the ledger,
+        # not the mtime window. Imported rows stay (exercise instance_path exclusion).
+        print("\nRe-setting pull date (undo auto-advance) + clearing checkpoint, keeping imported rows...")
+        reset_config()
+        from dicom_handler.export_services.task1_read_dicom_from_storage import clear_checkpoint
+        clear_checkpoint()
 
-    r2, d2 = run("RUN 2 (warm): same window -> nothing should be re-read")
+        r2, d2 = run("RUN 2 (warm): same window -> nothing should be re-read")
 
-    print("\n" + "="*60)
-    print("VERDICT")
-    print("="*60)
-    rej1 = ExcludedFilePaths.objects.count()
-    reprocessed = r2.get('processed_files', 0)
-    print(f"Rejections recorded by RUN 1 : {rej1}")
-    print(f"Files (re)processed by RUN 2 : {reprocessed}")
-    print("OK: ledger + instance_path prevented re-read" if reprocessed == 0
-          else "CHECK: RUN 2 reprocessed files that should have been skipped")
+        print("\n" + "="*60)
+        print("VERDICT")
+        print("="*60)
+        rej1 = ExcludedFilePaths.objects.count()
+        reprocessed = r2.get('processed_files', 0)
+        print(f"Rejections recorded by RUN 1 : {rej1}")
+        print(f"Files (re)processed by RUN 2 : {reprocessed}")
+        print("OK: ledger + instance_path prevented re-read" if reprocessed == 0
+              else "CHECK: RUN 2 reprocessed files that should have been skipped")

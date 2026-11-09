@@ -19,6 +19,7 @@ django.setup()
 
 # Now import Django models
 from dicom_handler.models import AutosegmentationTemplate, AutosegmentationModel, AutosegmentationStructure
+from dicom_handler.tests._test_db import run_on_test_db
 import json
 
 
@@ -162,6 +163,7 @@ def test_specific_template_data():
         return False
 
 
+@run_on_test_db
 def run_all_tests():
     """
     Run all tests

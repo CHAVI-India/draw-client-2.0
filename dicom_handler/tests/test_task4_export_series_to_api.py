@@ -35,7 +35,7 @@ from dicom_handler.models import (
 from dicom_handler.export_services.task4_export_series_to_api import (
     export_series_to_api, check_api_health, refresh_bearer_token,
     upload_file_to_api, calculate_file_checksum, cleanup_zip_file,
-    update_export_record_status, update_series_status
+    update_export_record_status, update_series_status, ALLOWED_BASE_DIR
 )
 from django.utils import timezone
 from django.db import transaction
@@ -99,8 +99,11 @@ def create_test_zip_file():
     Create a test ZIP file for upload testing
     Returns: Path to the created ZIP file
     """
-    # Create a temporary directory and ZIP file
-    temp_dir = tempfile.mkdtemp()
+    # Create a temporary directory and ZIP file. It must live under
+    # ALLOWED_BASE_DIR, otherwise upload_file_to_api rejects it as a path-traversal
+    # attempt before it ever reaches the mocked HTTP layer.
+    os.makedirs(ALLOWED_BASE_DIR, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(dir=ALLOWED_BASE_DIR)
     zip_path = os.path.join(temp_dir, "test_series.zip")
     
     # Create some test files to zip

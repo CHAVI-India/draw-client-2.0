@@ -22,6 +22,7 @@ django.setup()
 
 # Now import Django models
 from dicom_handler.models import SystemConfiguration, Patient, DICOMStudy, DICOMSeries, DICOMInstance
+from dicom_handler.tests._test_db import run_on_test_db
 from datetime import datetime
 from django.utils import timezone
 from django.db import connection
@@ -311,6 +312,7 @@ def test_localizer_series_exclusion(config, original_date_filter):
         print("\n✅ Original folder configuration restored")
 
 
+@run_on_test_db
 def main():
     """
     Main test function
