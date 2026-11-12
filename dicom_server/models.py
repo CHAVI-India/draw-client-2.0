@@ -1019,23 +1019,23 @@ class RemoteDicomNode(models.Model):
     
     def clean(self):
         """
-        Custom validation to ensure only one remote node can be marked as export destination.
+        Custom validation to ensure at most one remote node is marked as the primary export destination.
         """
         super().clean()
         
-        # If this node is being marked as export destination
-        if self.is_export_destination:
-            # Check if another node is already marked as export destination
-            existing_export_destination = RemoteDicomNode.objects.filter(
-                is_export_destination=True
+        # If this node is being marked as the primary export destination,
+        # no other node may already be the primary destination.
+        if self.is_primary_export_destination:
+            existing_primary = RemoteDicomNode.objects.filter(
+                is_primary_export_destination=True
             ).exclude(pk=self.pk)
             
-            if existing_export_destination.exists():
-                existing_node = existing_export_destination.first()
+            if existing_primary.exists():
+                existing_node = existing_primary.first()
                 raise ValidationError({
-                    'is_export_destination': f'Only one remote node can be marked as export destination. '
-                                           f'"{existing_node.name}" is already set as the export destination. '
-                                           f'Please uncheck that node first before setting this one.'
+                    'is_primary_export_destination': f'Only one remote node can be marked as the primary export destination. '
+                                                   f'"{existing_node.name}" is already set as the primary export destination. '
+                                                   f'Please uncheck that node first before setting this one.'
                 })
         
         # Constraint 0: Primary/Fallback can only be set if is_export_destination is True
@@ -1066,26 +1066,9 @@ class RemoteDicomNode(models.Model):
                     'Please set another remote DICOM node as the primary export destination first, or keep this node as primary.'
                 )
         
-        # Constraint 2b: Prevent removing the last primary destination
-        # If this node WAS a primary destination and is being changed to NOT primary
-        if self.pk:  # Only check for existing nodes (not new ones)
-            try:
-                old_instance = RemoteDicomNode.objects.get(pk=self.pk)
-                # If changing from primary to non-primary
-                if old_instance.is_primary_export_destination and not self.is_primary_export_destination:
-                    # Check if there are other primary destinations
-                    other_primary_exists = RemoteDicomNode.objects.filter(
-                        is_primary_export_destination=True
-                    ).exclude(pk=self.pk).exists()
-                    
-                    if not other_primary_exists:
-                        raise ValidationError(
-                            'Cannot remove the last primary export destination. '
-                            'Please designate another remote DICOM node as the primary export destination first.'
-                        )
-            except RemoteDicomNode.DoesNotExist:
-                # New instance, no need to check
-                pass
+        # Constraint 2b removed: the primary export destination may be unset entirely.
+        # The export pipeline (_get_export_destination_nodes) handles the no-primary
+        # case gracefully, falling back to configured fallback destinations.
         
         # Constraint 3: If it is a fallback export destination, priority must be set
         if self.is_fallback_export_destination and self.fallback_export_destination_priority is None:

@@ -82,18 +82,14 @@ def remote_node_edit(request, node_id):
     else:
         form = RemoteDicomNodeForm(instance=node)
     
-    # Check if any OTHER primary export destination exists (excluding current node)
-    # This allows editing a primary node to become fallback if other primaries exist
+    # Check if any OTHER primary export destination exists (excluding current node).
+    # The template JS separately handles the case where this node is currently
+    # primary (initial load) without needing the flag forced to true.
     has_primary_export_node = RemoteDicomNode.objects.filter(
         is_primary_export_destination=True,
         is_active=True
     ).exclude(pk=node_id).exists()
-    
-    # If this node itself is primary, we should allow fallback selection
-    # (though validation will prevent it, this is for UI logic)
-    if node.is_primary_export_destination:
-        has_primary_export_node = True
-    
+
     context = {
         'form': form,
         'node': node,
