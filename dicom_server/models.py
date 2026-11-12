@@ -111,12 +111,12 @@ class DicomServerConfig(models.Model):
     max_storage_size_gb = models.IntegerField(
         default=100,
         validators=[MinValueValidator(1), MaxValueValidator(10000)],
-        help_text="Maximum storage size in GB. Service will reject new files when limit is reached."
+        help_text="Storage quota in GB shown for statistics only. C-STORE never rejects files based on this limit."
     )
     
     enable_storage_cleanup = models.BooleanField(
         default=False,
-        help_text="Enable automatic cleanup of old files when storage limit is reached."
+        help_text="Enable manual/retention cleanup utilities. Automatic cleanup on limit breach is no longer performed."
     )
     
     storage_retention_days = models.IntegerField(
@@ -137,7 +137,7 @@ class DicomServerConfig(models.Model):
     )
     storage_limit_exceeded = models.BooleanField(
         default=False,
-        help_text="Flag indicating if storage limit has been exceeded. Updated by periodic task."
+        help_text="Legacy flag (no longer enforced during C-STORE). Kept as False by the periodic statistics task."
     )
     
     # Security & Access Control

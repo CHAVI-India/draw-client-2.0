@@ -13,10 +13,8 @@ from pydicom import dcmread
 from pydicom.errors import InvalidDicomError
 from django.utils import timezone
 from django.db import transaction as db_transaction
-from django.core.cache import cache
 
 from ..models import DicomTransaction
-from ..storage_cleanup import check_and_cleanup_if_needed, get_storage_usage
 from dicom_handler.models import SystemConfiguration
 from dicom_handler.utils.log_masking import mask_sensitive_data
 
@@ -39,10 +37,6 @@ def _mask_sensitive_data(data, field_name=""):
 
     return str(data)
 
-
-# Cache configuration for storage checks
-STORAGE_CACHE_KEY = 'dicom_storage_usage_gb'
-STORAGE_CACHE_TIMEOUT = 30  # Cache storage usage for 30 seconds
 
 # Series reception tracking for detecting series completion
 # Structure: {ae_title: {'current_series_uid': str, 'instance_count': int, 'sop_uids': set, 'last_received': datetime}}
@@ -173,25 +167,11 @@ def handle_c_store(service, event):
         else:
             logger.info(f"[TIMING] Skipped decoding (took {(time.time() - t4)*1000:.2f}ms to check)")
         
-        # Check storage limits - simple flag check (updated by periodic task every 10 min)
-        t6 = time.time()
-        if fresh_config.storage_limit_exceeded:
-            logger.info(f"[TIMING] Storage limits check took {(time.time() - t6)*1000:.2f}ms")
-            logger.error("C-STORE rejected: Storage limit reached (checked by periodic task)")
-            service._log_transaction(
-                'C-STORE',
-                'REJECTED',
-                event,
-                patient_id=patient_id,
-                study_instance_uid=study_uid,
-                series_instance_uid=series_uid,
-                sop_instance_uid=sop_instance_uid,
-                sop_class_uid=sop_class_uid,
-                error_message="Storage limit reached"
-            )
-            return 0xA700  # Refused: Out of Resources
-        
-        logger.info(f"[TIMING] Storage limits check took {(time.time() - t6)*1000:.2f}ms")
+        # NOTE: Storage limit enforcement was removed on purpose. The datastore
+        # is typically a multi-terabyte network share and the max_storage_size_gb
+        # quota is informational only - C-STORE must NEVER reject instances
+        # because of it (previously returned 0xA700 "Refused: Out of Resources",
+        # which peers report as "insufficient resources on remote node").
 
         # Determine storage path (pass ds which may be None)
         t7 = time.time()
@@ -268,11 +248,8 @@ def handle_c_store(service, event):
         })
         
         # Incrementally update storage cache asynchronously (non-blocking)
+        # Statistics only - used by the dashboard, never gates reception.
         update_storage_cache_async.delay(file_size)
-        
-        # NOTE: We do NOT delete the cache here to avoid expensive filesystem scans
-        # The cache will expire naturally after 30 seconds, which is acceptable
-        # for performance. Storage usage will be slightly stale but accurate enough.
         
         # Trigger DICOM Handler integration for immediate processing (when ds is available)
         # This enables immediate processing for C-Store requests, bypassing the 10-minute delay
@@ -320,90 +297,6 @@ def _validate_dicom_dataset(ds):
         if not hasattr(ds, tag):
             logger.warning(f"DICOM validation failed: Missing required tag {tag}")
             return False
-    
-    return True
-
-
-def _check_storage_limits(service):
-    """
-    Check if storage limits have been reached.
-    Uses memcached to avoid expensive filesystem scans on every file.
-    Cache is valid for 30 seconds, then refreshed on next check.
-    
-    OPTIMIZATION: Uses cached config from service to avoid repeated DB queries
-    """
-    try:
-        from django.core.cache import cache as django_cache
-        
-        # Use cached config from service to avoid DB query on every file
-        dicom_config = service.config
-        
-        # Cache SystemConfiguration to avoid DB query on every file
-        system_config_cache_key = 'system_configuration_storage_path'
-        storage_path = django_cache.get(system_config_cache_key)
-        
-        if storage_path is None:
-            # Cache miss - query database
-            system_config = SystemConfiguration.objects.get(pk=1)
-            storage_path = system_config.folder_configuration
-            # Cache for 60 seconds
-            django_cache.set(system_config_cache_key, storage_path, 60)
-        
-        max_storage_gb = dicom_config.max_storage_size_gb
-        
-        if not storage_path:
-            return True
-        
-        # Try to get cached storage usage
-        t_cache = time.time()
-        current_usage_gb = cache.get(STORAGE_CACHE_KEY)
-        logger.info(f"[TIMING] Cache lookup took {(time.time() - t_cache)*1000:.2f}ms, result: {current_usage_gb}")
-        
-        if current_usage_gb is None:
-            # Cache miss - perform actual filesystem scan
-            logger.warning(f"[PERFORMANCE] Cache miss for storage usage - performing expensive filesystem scan")
-            t_scan = time.time()
-            usage = get_storage_usage(storage_path)
-            logger.warning(f"[PERFORMANCE] Filesystem scan took {(time.time() - t_scan)*1000:.2f}ms for {usage['total_files']} files")
-            current_usage_gb = usage['total_gb']
-            
-            # Cache the result for 30 seconds
-            t_set = time.time()
-            cache.set(STORAGE_CACHE_KEY, current_usage_gb, STORAGE_CACHE_TIMEOUT)
-            logger.info(f"[TIMING] Cache set took {(time.time() - t_set)*1000:.2f}ms")
-            logger.debug(f"Storage check (cached): {current_usage_gb}GB used / {max_storage_gb}GB max")
-        else:
-            # Cache hit - use cached value (no filesystem scan)
-            logger.info(f"[PERFORMANCE] Cache HIT - using cached storage value: {current_usage_gb}GB")
-            logger.debug(f"Storage check (from cache): {current_usage_gb}GB used / {max_storage_gb}GB max")
-        
-        # Check if limit reached
-        if current_usage_gb >= max_storage_gb:
-            if dicom_config.enable_storage_cleanup:
-                # Attempt automatic cleanup
-                logger.warning(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB. Attempting cleanup...")
-                cleanup_performed = check_and_cleanup_if_needed(service)
-                
-                if cleanup_performed:
-                    # Re-check storage after cleanup and update cache
-                    usage = get_storage_usage(storage_path)
-                    current_usage_gb = usage['total_gb']
-                    cache.set(STORAGE_CACHE_KEY, current_usage_gb, STORAGE_CACHE_TIMEOUT)
-                    
-                    if current_usage_gb >= max_storage_gb:
-                        logger.error("Storage still full after cleanup")
-                        return False
-                    else:
-                        logger.info(f"Cleanup successful, storage now at {current_usage_gb}GB / {max_storage_gb}GB")
-                else:
-                    logger.error("Cleanup failed or not enough old files to delete")
-                    return False
-            else:
-                logger.error(f"Storage limit reached: {current_usage_gb}GB / {max_storage_gb}GB")
-                return False
-                
-    except Exception as e:
-        logger.warning(f"Error checking storage limits: {str(e)}")
     
     return True
 

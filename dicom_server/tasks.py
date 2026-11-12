@@ -121,21 +121,26 @@ def update_remote_node_connection_async(node_id):
 @shared_task(ignore_result=True)
 def check_storage_limits_periodic():
     """
-    Periodic task to check storage limits and update the storage_limit_exceeded flag.
-    Runs every 10 minutes to avoid expensive filesystem scans on every C-STORE operation.
-    
-    This task:
+    Periodic task to refresh cached storage usage statistics.
+    Runs every 10 minutes to avoid expensive filesystem scans elsewhere.
+
+    NOTE: Storage-limit ENFORCEMENT has been removed. The datastore is
+    typically a multi-terabyte network share and max_storage_size_gb is
+    an informational quota only: C-STORE never rejects files based on it
+    (the old 0xA700 "Refused: Out of Resources" rejection caused peers to
+    report "insufficient resources on remote node").
+
+    This task now only:
     1. Scans the storage directory to calculate total usage
-    2. Updates cached_storage_usage_bytes
-    3. Sets storage_limit_exceeded flag if limit is reached
-    4. Optionally triggers cleanup if enabled
+    2. Updates cached_storage_usage_bytes (dashboard statistics)
+    3. Clears the legacy storage_limit_exceeded flag
     """
     try:
         from .models import DicomServerConfig
-        from .storage_cleanup import get_storage_usage, check_and_cleanup_if_needed
+        from .storage_cleanup import get_storage_usage
         from dicom_handler.models import SystemConfiguration
         
-        logger.info("[STORAGE CHECK] Starting periodic storage check...")
+        logger.info("[STORAGE CHECK] Starting periodic storage usage refresh...")
         
         # Get configuration
         config = DicomServerConfig.objects.get(pk=1)
@@ -157,39 +162,20 @@ def check_storage_limits_periodic():
         
         logger.info(
             f"[STORAGE CHECK] Completed in {scan_duration:.2f}s: "
-            f"{usage['total_files']} files, {current_usage_gb}GB / {max_storage_gb}GB "
-            f"({(current_usage_gb/max_storage_gb*100):.1f}%)"
+            f"{usage['total_files']} files, {current_usage_gb}GB "
+            f"(informational quota: {max_storage_gb}GB)"
         )
         
-        # Update cached values
+        # Update cached values (statistics for the dashboard only)
         config.cached_storage_usage_bytes = usage['total_bytes']
         config.cached_storage_last_updated = timezone.now()
         
-        # Check if limit exceeded
-        if current_usage_gb >= max_storage_gb:
-            logger.warning(f"[STORAGE CHECK] Storage limit exceeded: {current_usage_gb}GB / {max_storage_gb}GB")
-            
-            # Attempt cleanup if enabled
-            if config.enable_storage_cleanup:
-                logger.info("[STORAGE CHECK] Attempting automatic cleanup...")
-                from .dicom_scp_service import get_service_instance
-                service = get_service_instance()
-                cleanup_performed = check_and_cleanup_if_needed(service)
-                
-                if cleanup_performed:
-                    # Re-scan after cleanup
-                    usage = get_storage_usage(storage_path)
-                    current_usage_gb = usage['total_gb']
-                    config.cached_storage_usage_bytes = usage['total_bytes']
-                    logger.info(f"[STORAGE CHECK] Cleanup completed, new usage: {current_usage_gb}GB")
-            
-            # Set flag if still over limit
-            config.storage_limit_exceeded = (current_usage_gb >= max_storage_gb)
-        else:
-            config.storage_limit_exceeded = False
+        # Clear legacy enforcement flag (kept for backwards compatibility,
+        # but nothing reads it during C-STORE anymore)
+        config.storage_limit_exceeded = False
         
         config.save()
-        logger.info(f"[STORAGE CHECK] storage_limit_exceeded flag set to: {config.storage_limit_exceeded}")
+        logger.info("[STORAGE CHECK] Storage usage cache refreshed")
         
     except Exception as e:
         logger.error(f"[STORAGE CHECK] Failed: {str(e)}", exc_info=True)
