@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from ..models import PipelineRule, SegmentationPipeline
+from ..models import PipelineRule, RuleStep, SegmentationJob, SegmentationPipeline
 from .helpers import create_minimal_rtstruct_file, make_in_memory_file
 
 User = get_user_model()
@@ -290,3 +290,80 @@ class RTStructSearchTests(TestCase):
         imports = self._children(data, "Auto-segmented")
         entry = next(c for c in imports if c["id"] == f"import:{orphan.id}")
         self.assertIn("orphan_rt.dcm", entry["text"])
+
+
+class JobStatusStepsTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="steps_user", password="x")
+        self.client.force_login(self.user)
+        self.pipeline = SegmentationPipeline.objects.create(name="P")
+        self.rule = PipelineRule.objects.create(
+            pipeline=self.pipeline, order=1, rule_type="MARGIN", name="PTV"
+        )
+        self.job = SegmentationJob.objects.create(
+            pipeline=self.pipeline, input_type="UPLOAD", status="STARTED",
+            created_by=self.user,
+        )
+        RuleStep.objects.create(job=self.job, rule=self.rule, order=1, status="FAILED", error="boom")
+
+    def test_job_status_includes_steps(self):
+        resp = self.client.get(
+            reverse("rule_based_segmentation:job_status", args=[self.job.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(len(data["steps"]), 1)
+        self.assertEqual(data["steps"][0]["order"], 1)
+        self.assertEqual(data["steps"][0]["rule_name"], "PTV")
+        self.assertEqual(data["steps"][0]["status"], "FAILED")
+        self.assertEqual(data["steps"][0]["error"], "boom")
+        self.assertIsNone(data["current_step"])
+
+    def test_job_status_current_step_when_running(self):
+        RuleStep.objects.filter(job=self.job, order=1).update(status="RUNNING")
+        data = self.client.get(
+            reverse("rule_based_segmentation:job_status", args=[self.job.id])
+        ).json()
+        self.assertEqual(data["current_step"], 1)
+
+
+class JobRetryTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="retry_user", password="x")
+        self.client.force_login(self.user)
+        self.pipeline = SegmentationPipeline.objects.create(name="P")
+        self.rule = PipelineRule.objects.create(
+            pipeline=self.pipeline, order=1, rule_type="MARGIN", name="PTV"
+        )
+        self.job = SegmentationJob.objects.create(
+            pipeline=self.pipeline, input_type="UPLOAD", status="FAILED",
+            created_by=self.user,
+        )
+        RuleStep.objects.create(job=self.job, rule=self.rule, order=1, status="FAILED", error="boom")
+
+    def test_retry_rejects_success_job(self):
+        self.job.status = "SUCCESS"
+        self.job.save()
+        resp = self.client.post(
+            reverse("rule_based_segmentation:job_retry", args=[self.job.id])
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    @patch("rule_based_segmentation.tasks.resume_job")
+    def test_retry_failed_job_resumes(self, mock_resume):
+        resp = self.client.post(
+            reverse("rule_based_segmentation:job_retry", args=[self.job.id])
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True})
+        mock_resume.assert_called_once_with(self.job)
+
+    def test_retry_requires_post(self):
+        resp = self.client.get(
+            reverse("rule_based_segmentation:job_retry", args=[self.job.id])
+        )
+        self.assertEqual(resp.status_code, 405)

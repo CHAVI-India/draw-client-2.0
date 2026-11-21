@@ -39,6 +39,7 @@ urlpatterns = [
         views.download_output,
         name="download_output",
     ),
+    path("jobs/<uuid:job_id>/retry/", views.job_retry, name="job_retry"),
 
     # RTStruct downloads
     path("rtstructs/<uuid:rtstruct_id>/download/", views.download_rtstruct, name="download_rtstruct"),

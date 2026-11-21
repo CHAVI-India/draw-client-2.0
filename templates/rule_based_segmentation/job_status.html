@@ -33,7 +33,7 @@
         </div>
 
         <div id="progress-container" class="{% if job.status == 'SUCCESS' or job.status == 'FAILED' %}hidden{% endif %}">
-            <p class="text-sm text-gray-600 mb-2">Processing…</p>
+            <p id="progress-label" class="text-sm text-gray-600 mb-2">Waiting…</p>
             <div class="w-full bg-gray-200 rounded-full h-2.5">
                 <div id="progress-bar" class="bg-primary-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
             </div>
@@ -43,6 +43,22 @@
         <div class="rounded-md bg-red-50 p-4">
             <h3 class="text-sm font-medium text-red-800">Error</h3>
             <pre class="mt-2 text-sm text-red-700 whitespace-pre-wrap">{{ job.error_message }}</pre>
+        </div>
+        {% endif %}
+
+        {% if job.steps.exists %}
+        <div class="rounded-md border p-4">
+            <h3 class="text-sm font-medium text-gray-700 mb-2">Steps</h3>
+            <ul class="text-sm space-y-1">
+                {% for step in job.steps.all %}
+                <li>
+                    {% if step.status == "SUCCESS" %}✅{% elif step.status == "FAILED" %}❌{% elif step.status == "RUNNING" %}⏳{% else %}•{% endif %}
+                    {{ step.order }}. {{ step.rule.name }}
+                    {% if step.output_roi_name %}<span class="text-gray-500">→ {{ step.output_roi_name }}</span>{% endif %}
+                    {% if step.error %}<span class="text-red-600">— {{ step.error }}</span>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
         </div>
         {% endif %}
 
@@ -60,6 +76,12 @@
             {% if job.status == "SUCCESS" and job.output_file_path %}
             <a href="{% url 'rule_based_segmentation:download_output' job.id %}" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">Download RTStruct</a>
             {% endif %}
+            {% if job.status == "FAILED" %}
+            <form method="post" action="{% url 'rule_based_segmentation:job_retry' job.id %}">
+                {% csrf_token %}
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700">Retry from failed step</button>
+            </form>
+            {% endif %}
             <a href="{% url 'rule_based_segmentation:job_list' %}" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Back to Jobs</a>
         </div>
     </div>
@@ -69,15 +91,36 @@
 {% block extra_js %}
 <script>
 (function() {
-    const jobId = "{{ job.id }}";
     const statusUrl = "{% url 'rule_based_segmentation:job_status' job.id %}";
     const initialStatus = "{{ job.status }}";
+
+    function updateProgress(data) {
+        const steps = data.steps || [];
+        const bar = document.getElementById("progress-bar");
+        const label = document.getElementById("progress-label");
+        if (bar && steps.length) {
+            const done = steps.filter(s => s.status === "SUCCESS").length;
+            bar.style.width = Math.round((done / steps.length) * 100) + "%";
+        }
+        if (label && steps.length) {
+            const failed = steps.find(s => s.status === "FAILED");
+            const running = steps.find(s => s.status === "RUNNING");
+            if (failed) {
+                label.textContent = "Failed at step " + failed.order + ": " + failed.rule_name;
+            } else if (running) {
+                label.textContent = "Processing step " + running.order + "/" + steps.length + ": " + running.rule_name;
+            } else {
+                label.textContent = "Finishing…";
+            }
+        }
+    }
 
     if (initialStatus === "PENDING" || initialStatus === "STARTED") {
         const interval = setInterval(() => {
             fetch(statusUrl)
                 .then(r => r.json())
                 .then(data => {
+                    updateProgress(data);
                     if (data.status === "SUCCESS" || data.status === "FAILED") {
                         clearInterval(interval);
                         location.reload();

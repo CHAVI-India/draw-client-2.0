@@ -271,8 +271,10 @@ def job_detail(request, job_id):
 
 @login_required
 def job_status(request, job_id):
-    """Return job status as JSON for polling."""
+    """Return job status as JSON for polling (includes per-rule step progress)."""
     job = get_object_or_404(SegmentationJob, id=job_id)
+    steps = job.steps.select_related("rule").all()
+    running = next((s for s in steps if s.status == "RUNNING"), None)
     return JsonResponse(
         {
             "id": str(job.id),
@@ -283,8 +285,34 @@ def job_status(request, job_id):
             "backup_file_path": job.backup_file_path,
             "started_at": job.started_at.isoformat() if job.started_at else None,
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "current_step": running.order if running else None,
+            "steps": [
+                {
+                    "order": s.order,
+                    "rule_name": s.rule.name,
+                    "status": s.status,
+                    "error": s.error,
+                    "output_roi_name": s.output_roi_name,
+                }
+                for s in steps
+            ],
         }
     )
+
+
+@login_required
+@require_POST
+def job_retry(request, job_id):
+    """Re-enqueue the remaining chain steps of a failed (or stuck pending) job."""
+    job = get_object_or_404(SegmentationJob, id=job_id)
+    if job.status not in ("FAILED", "PENDING"):
+        return JsonResponse(
+            {"error": "Only failed or pending jobs can be retried."}, status=409
+        )
+    from .tasks import resume_job
+
+    resume_job(job)
+    return JsonResponse({"ok": True})
 
 
 @login_required
