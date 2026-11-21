@@ -14,7 +14,7 @@
 
 - Test command (no broker needed — tests call service functions and task wrappers in-process, and build chain signatures without dispatching):
   `venv/bin/python manage.py test rule_based_segmentation.tests.<module> -v 2`
-- `SegmentationEngine.run_pipeline` must keep its current external behavior — the existing suites `tests/test_engine.py`, `tests/test_end_to_end.py`, `tests/test_pipeline_e2e_physics.py` must pass **unmodified**.
+- `SegmentationEngine.run_pipeline` must keep its current external behavior — the existing suites `tests/test_engine.py`, `tests/test_end_to_end.py`, `tests/test_pipeline_e2e_physics.py` must pass with **all assertions unchanged** (Task 5 Step 3 re-points the physics suite's execution driver from the removed `run_job` to the new chain-step functions; no test logic or assertions are modified).
 - Do NOT touch the mask axis conventions in `utils/rtstruct_io.py` (`transpose(2, 1, 0)` calls) — a known separate issue, out of scope for this plan.
 - When logging file paths, use `mask_sensitive_data` from `dicom_handler.utils.log_masking` (existing pattern).
 - A pipeline is immutable while one of its jobs runs (pre-existing assumption; rule edits mid-run are out of scope).
@@ -1314,7 +1314,7 @@ Chain contract (critical): each step returns `job_id` (str); Celery injects the 
 
 - [ ] **Step 1: Rewrite `tasks.py`**
 
-Replace the entire content of `rule_based_segmentation/tasks.py`:
+Replace the `run_segmentation_job` task (lines 1–41 of the current file) and its now-unused imports with the chain code below. **Keep verbatim** the existing `_wait_for` helper and `retrieve_rtstruct_for_pipeline` task (plus the `import time` / `from django.db import connections` imports they need) — they appear in the final file after the new chain code, unchanged. The final file content is the new code below followed by those kept sections:
 
 ```python
 """Celery tasks for rule-based segmentation (chain-based execution).
@@ -1451,7 +1451,24 @@ and update the docstring's last line to: `"""Create a pending segmentation job a
 
 - [ ] **Step 3: Remove legacy `run_job` from `job_service.py`**
 
-Delete the whole `def run_job(job: SegmentationJob) -> None:` function (it is now unused — verify with `rg "run_job\\(" rule_based_segmentation/ | grep -v tests | grep -v "_job"` after the edit; only `prepare_job`/`execute_rule_step`/`finalize_job` should remain).
+First, re-point the one test that calls `run_job` — the physics mega-suite's driver. In `rule_based_segmentation/tests/test_pipeline_e2e_physics.py`, inside `_run_pipeline`, replace the single line
+
+```python
+        job_service.run_job(job)
+```
+
+with
+
+```python
+        job_service.prepare_job(job)
+        for rule in job.pipeline.rules.order_by("order"):
+            job_service.execute_rule_step(job, rule.order)
+        job_service.finalize_job(job)
+```
+
+Also update the docstring/comment references to `run_job` in that file (module docstring, `_fresh_rt_path` docstring, `_run_pipeline` docstring, `test_mega_pipeline_runs_and_verifies_rtstruct` docstring) to say "the chain-step functions (prepare/execute/finalize)" instead of "run_job". **No assertions or test logic may change.**
+
+Then delete the whole `def run_job(job: SegmentationJob) -> None:` function (it is now unused — verify with `rg "run_job\\(" rule_based_segmentation/ | grep -v tests | grep -v "_job"` after the edit; only `prepare_job`/`execute_rule_step`/`finalize_job` should remain).
 
 - [ ] **Step 4: Swap the view call site**
 
@@ -1624,6 +1641,9 @@ class ResumeJobTests(TestCase):
 
 Run: `venv/bin/python manage.py test rule_based_segmentation.tests.test_tasks -v 2`
 Expected: PASS (chain shape, wrappers, and resume tests)
+
+Also run the re-pointed physics mega-suite before committing: `venv/bin/python manage.py test rule_based_segmentation.tests.test_pipeline_e2e_physics` (≈165 s)
+Expected: PASS — 15 tests, all assertions unchanged.
 
 - [ ] **Step 7: Verify no legacy references remain**
 
