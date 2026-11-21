@@ -1283,7 +1283,7 @@ def finalize_job(job: SegmentationJob) -> dict:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `venv/bin/python manage.py test rule_based_segmentation.tests.test_pipeline_steps -v 2`
-Expected: PASS (10 tests). Also run `venv/bin/python manage.py test rule_based_segmentation -v 1` — all previously green tests still pass.
+Expected: PASS (9 tests). Also run `venv/bin/python manage.py test rule_based_segmentation -v 1` — all previously green tests still pass.
 
 - [ ] **Step 5: Commit**
 
