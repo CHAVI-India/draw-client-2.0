@@ -709,6 +709,7 @@ c) Add `run_rule` after `_evaluate_cleanup_rule` (or anywhere among the rule met
         Returns the (possibly dedup-suffixed) output ROI name. Does not save
         the RTStruct — persistence is the caller's job (see JobWorkdir).
         """
+        self._validate_rule_inputs([rule])
         mask = self._evaluate_rule(rule)
         self.available_masks[rule.name] = mask
         return self._add_rule_output_to_rtstruct(rule, mask)
