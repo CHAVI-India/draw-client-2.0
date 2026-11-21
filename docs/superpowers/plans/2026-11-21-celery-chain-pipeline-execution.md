@@ -2164,7 +2164,7 @@ Expected: PASS — including `ReapStuckJobsTests` (4 tests).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rule_based_segmentation/tasks.py draw_client/settings.py
+git add rule_based_segmentation/tasks.py rule_based_segmentation/tests/test_tasks.py draw_client/settings.py
 git commit -m "feat(rbs): add periodic reap task for stuck chain steps and stale work dirs"
 ```
 
