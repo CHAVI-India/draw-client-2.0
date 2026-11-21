@@ -639,7 +639,13 @@ def load_rtstruct_and_image(
     try:
         if instances_dir:
             os.makedirs(instances_dir, exist_ok=True)
-        copy_instances_to_directory(instances, work_dir)
+        # Copy only when the destination does not already hold all
+        # instances. A prepared job work dir is re-loaded on every rule
+        # step; re-copying hundreds of files each time would dominate
+        # runtime. A partially populated dir (crash mid-copy) is
+        # re-copied, since copy2 overwrites by name.
+        if len(os.listdir(work_dir)) < len(instances):
+            copy_instances_to_directory(instances, work_dir)
 
         rtstruct = RTStructBuilder.create_from(
             dicom_series_path=work_dir,
@@ -1259,6 +1265,12 @@ def finalize_job(job: SegmentationJob) -> dict:
             ).order_by("order")
             if s.output_roi_name
         ],
+        # Same shape as the legacy engine summary; always [] on the success
+        # path (a failed step marks the job FAILED before finalize runs).
+        "failed_rules": [
+            {"order": s.order, "name": s.rule.name, "error": s.error or ""}
+            for s in job.steps.filter(status="FAILED").order_by("order")
+        ],
         "sop_instance_uid": new_sop_uid,
         "series_instance_uid": new_series_uid,
     }
@@ -1358,6 +1370,18 @@ def _get_job(job_id: str) -> SegmentationJob:
         raise
 
 
+def _close_db_connections() -> None:
+    """Close real DB connections after a task (long-lived worker hygiene).
+
+    Skipped while a connection is inside an atomic block — e.g. under Django
+    test cases, where closing would poison the test transaction.
+    """
+    for alias in connections:
+        conn = connections[alias]
+        if conn.connection is not None and not conn.in_atomic_block:
+            conn.close()
+
+
 def build_job_chain(job: SegmentationJob):
     """Build the prepare -> rules -> finalize chain for a (new) job."""
     job_id = str(job.id)
@@ -1397,7 +1421,7 @@ def prepare_job(job_id: str) -> str:
         job_service.prepare_job(job)
         return job_id
     finally:
-        connections.close_all()
+        _close_db_connections()
 
 
 @shared_task(
@@ -1411,7 +1435,7 @@ def run_rule_step(job_id: str, order: int) -> str:
         job_service.execute_rule_step(job, order)
         return job_id
     finally:
-        connections.close_all()
+        _close_db_connections()
 
 
 @shared_task(
@@ -1424,7 +1448,7 @@ def finalize_job(job_id: str) -> dict:
         job = _get_job(job_id)
         return job_service.finalize_job(job)
     finally:
-        connections.close_all()
+        _close_db_connections()
 ```
 
 - [ ] **Step 2: Swap the enqueue call site in `job_service.py`**
