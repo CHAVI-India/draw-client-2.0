@@ -495,3 +495,128 @@ class DICOMImporterTests(TestCase):
         self.assertEqual(series.series_instance_uid, self.series_uid)
         self.assertEqual(series.dicominstance_set.count(), 5)
         self.assertTrue(DICOMStudy.objects.filter(study_instance_uid=self.study_uid).exists())
+
+
+class EngineStepTests(TestCase):
+    """Per-rule engine interface used by the Celery chain (Task 3)."""
+
+    def setUp(self):
+        # Mirrors EndToEndSegmentationTests.setUp (kept separate so the base
+        # suite's tests are not re-run under this class).
+        self.temp_dir = tempfile.mkdtemp(prefix="rbs_step_")
+        self.series_uid = "1.2.3.4.5.6.7.8.9"
+        self.study_uid = "1.2.3.4.5.6.7.8.10"
+        self.ct_files = create_synthetic_ct_series(
+            self.temp_dir,
+            num_slices=10,
+            rows=64,
+            cols=64,
+            spacing=(1.0, 1.0, 1.0),
+            series_uid=self.series_uid,
+            study_uid=self.study_uid,
+        )
+        self.series = create_dicom_models(
+            self.ct_files, self.series_uid, self.study_uid
+        )
+        self.mask_array = np.zeros((10, 64, 64), dtype=bool)
+        self.mask_array[3:7, 28:36, 28:36] = True
+        self.rtstruct_path = os.path.join(self.temp_dir, "test_rtstruct.dcm")
+        create_synthetic_rtstruct(
+            self.rtstruct_path,
+            self.ct_files,
+            roi_name="Box",
+            mask_array=self.mask_array,
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _engine(self):
+        return SegmentationEngine(self.rtstruct_path, self.series_uid)
+
+    def test_run_rule_single_rule_matches_run_pipeline(self):
+        pipeline = create_pipeline_with_rules(
+            rules_data=[
+                {
+                    "rule_type": "MARGIN",
+                    "name": "BoxExpanded",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Box",
+                        "margin_mm": 2.0,
+                        "kernel_type": "ball",
+                    },
+                }
+            ]
+        )
+        stepped = self._engine()
+        output_name = stepped.run_rule(pipeline.rules.first())
+        self.assertEqual(output_name, "BoxExpanded")
+        self.assertIn("BoxExpanded", stepped.rtstruct.get_roi_names())
+
+        monolithic = self._engine()
+        summary = monolithic.run_pipeline(pipeline)
+        self.assertEqual(summary["created_rois"], ["BoxExpanded"])
+        self.assertTrue(
+            np.array_equal(
+                sitk.GetArrayFromImage(stepped.available_masks["BoxExpanded"]),
+                sitk.GetArrayFromImage(monolithic.available_masks["BoxExpanded"]),
+            )
+        )
+
+    def test_run_rule_missing_structure_raises(self):
+        from ..utils.expression_evaluator import RuleEvaluationError
+
+        pipeline = create_pipeline_with_rules(
+            rules_data=[
+                {
+                    "rule_type": "MARGIN",
+                    "name": "Bad",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "NoSuchStructure",
+                        "margin_mm": 2.0,
+                        "kernel_type": "ball",
+                    },
+                }
+            ]
+        )
+        engine = self._engine()
+        with self.assertRaises(RuleEvaluationError):
+            engine.run_rule(pipeline.rules.first())
+
+    def test_load_with_instances_dir_persists_copy(self):
+        inst_dir = os.path.join(self.temp_dir, "inst")
+        rtstruct, image, series = load_rtstruct_and_image(
+            self.rtstruct_path, self.series_uid, instances_dir=inst_dir
+        )
+        self.assertTrue(os.path.isdir(inst_dir))
+        self.assertEqual(len(os.listdir(inst_dir)), 10)
+        self.assertIn("Box", rtstruct.get_roi_names())
+        self.assertEqual(series.series_instance_uid, self.series_uid)
+
+    def test_from_workdir_roundtrip(self):
+        from ..utils.job_workdir import JobWorkdir
+
+        base = os.path.join(self.temp_dir, "work")
+        wd = JobWorkdir("22222222-2222-2222-2222-222222222222", base_dir=base)
+        wd.create()
+        # Build the work dir contents the way prepare_job will (Task 4).
+        rtstruct, image, _series = load_rtstruct_and_image(
+            self.rtstruct_path, self.series_uid, instances_dir=wd.images_dir
+        )
+        wd.save_image_cache(image)
+        wd.write_initial_working(rtstruct)
+
+        restored = SegmentationEngine.from_workdir(wd.root)
+        self.assertIsNone(restored.series)
+        self.assertIn("Box", restored.rtstruct.get_roi_names())
+        self.assertEqual(
+            restored.image.GetSize(), image.GetSize()
+        )
+        # masks loaded from the persisted state
+        self.assertIn("Box", restored.available_masks)
+        self.assertEqual(
+            np.sum(sitk.GetArrayFromImage(restored.available_masks["Box"])),
+            np.sum(self.mask_array),
+        )

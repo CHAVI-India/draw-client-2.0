@@ -1,6 +1,7 @@
 """Pipeline execution engine for rule-based segmentation."""
 
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -57,6 +58,36 @@ class SegmentationEngine:
             "failed_rules": [],
         }
 
+    @classmethod
+    def from_workdir(cls, workdir_root: str) -> "SegmentationEngine":
+        """
+        Load engine state from a job work dir (see utils/job_workdir.py).
+
+        Loads working.dcm (all previously completed rules applied) against the
+        persisted instance copies in <workdir_root>/images, and the reference
+        image from the NifTI cache. self.series is None — no rule evaluation
+        path requires the DICOMSeries object.
+        """
+        images_dir = os.path.join(workdir_root, "images")
+        working_path = os.path.join(workdir_root, "working.dcm")
+        rtstruct = RTStructBuilder.create_from(
+            dicom_series_path=images_dir,
+            rt_struct_path=working_path,
+        )
+        image = sitk.ReadImage(os.path.join(workdir_root, "image.nii.gz"))
+        engine = cls.__new__(cls)
+        engine.rtstruct_path = working_path
+        engine.rtstruct = rtstruct
+        engine.image = image
+        engine.series = None
+        engine.available_masks = load_roi_masks(rtstruct, image)
+        engine.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "failed_rules": [],
+        }
+        return engine
+
     def run_pipeline(
         self,
         pipeline,
@@ -84,9 +115,7 @@ class SegmentationEngine:
                 progress_callback(idx, total, f"Processing rule {idx}/{total}: {rule.name}")
 
             try:
-                mask = self._evaluate_rule(rule)
-                self.available_masks[rule.name] = mask
-                output_name = self._add_rule_output_to_rtstruct(rule, mask)
+                output_name = self.run_rule(rule)
                 if rule.output_action == "REPLACE_EXISTING":
                     self.summary["replaced_rois"].append(output_name)
                 else:
@@ -239,6 +268,18 @@ class SegmentationEngine:
             return keep_largest_component(source_mask)
 
         raise RuleEvaluationError(f"Unknown cleanup operation: {operation}")
+
+    def run_rule(self, rule: PipelineRule) -> str:
+        """
+        Evaluate a single rule and append its output to the in-memory RTStruct.
+
+        Returns the (possibly dedup-suffixed) output ROI name. Does not save
+        the RTStruct — persistence is the caller's job (see JobWorkdir).
+        """
+        self._validate_rule_inputs([rule])
+        mask = self._evaluate_rule(rule)
+        self.available_masks[rule.name] = mask
+        return self._add_rule_output_to_rtstruct(rule, mask)
 
     def _ensure_mask_not_empty(self, mask: sitk.Image, name: str) -> None:
         """Raise a clear error if a referenced structure mask contains no voxels."""

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 def load_rtstruct_and_image(
     rtstruct_path: str,
     series_instance_uid: str,
+    instances_dir: Optional[str] = None,
 ) -> Tuple[RTStructBuilder, sitk.Image, DICOMSeries]:
     """
     Load an RTStruct and its referenced image series.
@@ -29,6 +30,9 @@ def load_rtstruct_and_image(
     Args:
         rtstruct_path: Path to the RTStruct DICOM file.
         series_instance_uid: Series Instance UID of the referenced CT/MR/PT series.
+        instances_dir: If provided, DICOM instances are copied into this
+            directory (created if missing) and left in place for the caller;
+            otherwise a temporary directory is created and removed on failure.
 
     Returns:
         Tuple of (RTStructBuilder, SimpleITK image, DICOMSeries).
@@ -46,13 +50,15 @@ def load_rtstruct_and_image(
     if not instances:
         raise ValueError(f"No DICOM instances found for series {series_instance_uid}")
 
-    temp_dir = None
+    owns_dir = instances_dir is None
+    work_dir = instances_dir or tempfile.mkdtemp(prefix="rbs_rtstruct_work_")
     try:
-        temp_dir = tempfile.mkdtemp(prefix="rbs_rtstruct_work_")
-        _copy_instances_to_directory(instances, temp_dir)
+        if instances_dir:
+            os.makedirs(instances_dir, exist_ok=True)
+        copy_instances_to_directory(instances, work_dir)
 
         rtstruct = RTStructBuilder.create_from(
-            dicom_series_path=temp_dir,
+            dicom_series_path=work_dir,
             rt_struct_path=rtstruct_path,
         )
 
@@ -63,13 +69,13 @@ def load_rtstruct_and_image(
         )
         return rtstruct, image, series
     except Exception as e:
-        if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        if owns_dir and os.path.exists(work_dir):
+            shutil.rmtree(work_dir, ignore_errors=True)
         logger.error(f"Failed to load RTStruct {mask_sensitive_data(rtstruct_path, 'file_path')}: {e}")
         raise RuntimeError(f"Failed to load RTStruct: {e}") from e
 
 
-def _copy_instances_to_directory(
+def copy_instances_to_directory(
     instances: List[DICOMInstance],
     target_directory: str,
 ) -> None:
