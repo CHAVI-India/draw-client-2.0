@@ -481,9 +481,9 @@ def select_series_for_upload(request):
                 job = get_object_or_404(SegmentationJob, id=job_id)
                 job.dicom_series = series
                 job.save(update_fields=["dicom_series"])
-                from .tasks import run_segmentation_job
+                from .tasks import resume_job
 
-                run_segmentation_job.delay(str(job.id))
+                resume_job(job)
                 return redirect("rule_based_segmentation:job_detail", job_id=job.id)
 
             return redirect("rule_based_segmentation:pipeline_list")

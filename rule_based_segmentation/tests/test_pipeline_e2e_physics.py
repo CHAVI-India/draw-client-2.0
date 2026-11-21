@@ -10,10 +10,10 @@ This exercises the *real* application code paths, not synthetic stand-ins:
   ``DICOMSeries`` / ``DICOMInstance`` rows the engine reads are created by the
   app itself.
 * The input RTStruct is registered through ``rtstruct_registry.register_rtstruct_file``.
-* Execution runs through ``job_service.run_job`` — the body of the Celery task
-  that production runs — which loads the RTStruct with
-  ``SegmentationEngine``/``rtstruct_io``, applies every rule, regenerates the
-  output UIDs and records the result.
+* Execution runs through the chain-step functions (prepare/execute/finalize)
+  in ``job_service`` — the bodies of the Celery tasks that production runs —
+  which load the RTStruct with ``SegmentationEngine``/``rtstruct_io``, apply
+  every rule, regenerate the output UIDs and record the result.
 
 The dataset is the de-identified CT + RTStruct under ``tests/dicom_data``.
 
@@ -323,6 +323,23 @@ def _find_dataset():
 class PhysicsMegaPipelineTests(TestCase):
     """Build a large pipeline through the real builder and run it for real."""
 
+    def setUp(self):
+        super().setUp()
+        # prepare_job creates a per-job work dir under the system folder
+        # configuration; isolate it from the (container-default) production
+        # path in the test environment.
+        self.workdir_base = tempfile.mkdtemp(prefix="rbs_physics_work_")
+        self._wd_patch = mock.patch(
+            "rule_based_segmentation.utils.job_service.get_job_workdir_base",
+            return_value=self.workdir_base,
+        )
+        self._wd_patch.start()
+
+    def tearDown(self):
+        self._wd_patch.stop()
+        shutil.rmtree(self.workdir_base, ignore_errors=True)
+        super().tearDown()
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -368,15 +385,17 @@ class PhysicsMegaPipelineTests(TestCase):
         super().tearDownClass()
 
     def _fresh_rt_path(self):
-        """A throwaway copy of the source RTStruct (run_job mutates in place)."""
+        """A throwaway copy of the source RTStruct (the chain-step functions
+        (prepare/execute/finalize) mutate in place)."""
         rt_path = os.path.join(self.work_dir, f"rt_{os.urandom(4).hex()}.dcm")
         shutil.copy2(self.src_rtstruct, rt_path)
         return rt_path
 
     def _run_pipeline(self):
-        """Copy the RTStruct, register it as a job input and execute run_job."""
-        # run_job processes the RTStruct IN PLACE, so operate on a fresh copy
-        # per test to keep tests independent and never touch the dataset.
+        """Copy the RTStruct, register it as a job input and execute the
+        chain-step functions (prepare/execute/finalize)."""
+        # the chain-step functions process the RTStruct IN PLACE, so operate
+        # on a fresh copy per test to keep tests independent.
         rt_path = self._fresh_rt_path()
 
         rt_record = rtstruct_registry.register_rtstruct_file(rt_path)
@@ -388,7 +407,10 @@ class PhysicsMegaPipelineTests(TestCase):
             status="PENDING",
         )
 
-        job_service.run_job(job)
+        job_service.prepare_job(job)
+        for rule in job.pipeline.rules.order_by("order"):
+            job_service.execute_rule_step(job, rule.order)
+        job_service.finalize_job(job)
 
         job.refresh_from_db()
         return job, rt_path
@@ -403,7 +425,8 @@ class PhysicsMegaPipelineTests(TestCase):
         self.assertEqual(set(by_type), {"BOOLEAN", "INTENSITY", "MARGIN", "CROP", "CLEANUP"})
 
     def test_mega_pipeline_runs_and_verifies_rtstruct(self):
-        """Full production job path: job_service.run_job over the real data.
+        """Full production job path: the chain-step functions
+        (prepare/execute/finalize) over the real data.
 
         Verifies the produced RTStruct structurally (ROI presence, count,
         regenerated UIDs) and the job bookkeeping. Raw voxel geometry is

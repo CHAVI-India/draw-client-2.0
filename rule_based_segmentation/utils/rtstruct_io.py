@@ -55,7 +55,13 @@ def load_rtstruct_and_image(
     try:
         if instances_dir:
             os.makedirs(instances_dir, exist_ok=True)
-        copy_instances_to_directory(instances, work_dir)
+        # Copy only when the destination does not already hold all
+        # instances. A prepared job work dir is re-loaded on every rule
+        # step; re-copying hundreds of files each time would dominate
+        # runtime. A partially populated dir (crash mid-copy) is
+        # re-copied, since copy2 overwrites by name.
+        if len(os.listdir(work_dir)) < len(instances):
+            copy_instances_to_directory(instances, work_dir)
 
         rtstruct = RTStructBuilder.create_from(
             dicom_series_path=work_dir,

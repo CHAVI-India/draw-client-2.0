@@ -104,8 +104,8 @@ def create_segmentation_job(
     user,
     destination_node=None,
 ) -> SegmentationJob:
-    """Create a pending segmentation job and enqueue the Celery task."""
-    from ..tasks import run_segmentation_job
+    """Create a pending segmentation job and enqueue its execution chain."""
+    from ..tasks import build_job_chain
 
     input_upload = None
     input_import = None
@@ -127,7 +127,7 @@ def create_segmentation_job(
         status="PENDING",
     )
 
-    run_segmentation_job.delay(str(job.id))
+    build_job_chain(job).apply_async()
     return job
 
 
@@ -306,6 +306,12 @@ def finalize_job(job: SegmentationJob) -> dict:
             ).order_by("order")
             if s.output_roi_name
         ],
+        # Same shape as the legacy engine summary; always [] on the success
+        # path (a failed step marks the job FAILED before finalize runs).
+        "failed_rules": [
+            {"order": s.order, "name": s.rule.name, "error": s.error or ""}
+            for s in job.steps.filter(status="FAILED").order_by("order")
+        ],
         "sop_instance_uid": new_sop_uid,
         "series_instance_uid": new_series_uid,
     }
@@ -325,56 +331,6 @@ def finalize_job(job: SegmentationJob) -> dict:
 
     logger.info(f"Segmentation job {job.id} completed successfully")
     return summary
-
-
-def run_job(job: SegmentationJob) -> None:
-    """Execute the segmentation job synchronously."""
-    rtstruct_path, series_uid = get_rtstruct_path_and_series_uid(job)
-
-    job.status = "STARTED"
-    job.started_at = timezone.now()
-    job.dicom_series = DICOMSeries.objects.filter(
-        series_instance_uid=series_uid
-    ).first()
-    job.save()
-
-    backup_path = _backup_rtstruct(rtstruct_path)
-    job.backup_file_path = backup_path
-    job.save()
-
-    try:
-        engine = SegmentationEngine(rtstruct_path, series_uid)
-
-        def progress_callback(current: int, total: int, message: str) -> None:
-            logger.info(f"Job {job.id}: {message}")
-
-        summary = engine.run_pipeline(job.pipeline, progress_callback=progress_callback)
-
-        job.status = "SUCCESS"
-        job.completed_at = timezone.now()
-        job.output_file_path = rtstruct_path
-        job.result_summary = summary
-        job.save()
-
-        # The engine assigned a new SOPInstanceUID/SeriesInstanceUID to the
-        # modified file; sync the database records so they match the file.
-        _sync_record_uids(job, rtstruct_path, summary)
-
-        # Mark the input RTStruct as having been processed by a rule-based
-        # pipeline so it shows up clearly in the existing viewer/list.
-        _mark_rtstruct_as_rule_based(job, rtstruct_path)
-
-        # Optionally push the processed RTStruct back to a remote node.
-        _push_output_to_destination(job, rtstruct_path)
-
-        logger.info(f"Segmentation job {job.id} completed successfully")
-    except Exception as e:
-        logger.error(f"Segmentation job {job.id} failed: {e}", exc_info=True)
-        job.status = "FAILED"
-        job.completed_at = timezone.now()
-        job.error_message = str(e)
-        job.save()
-        raise
 
 
 def _sync_record_uids(

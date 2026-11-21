@@ -1,43 +1,124 @@
-"""Celery tasks for rule-based segmentation."""
+"""Celery tasks for rule-based segmentation (chain-based execution).
+
+One job runs as a sequential chain:
+
+    prepare_job -> run_rule_step(order=1..N) -> finalize_job
+
+Every step reloads persisted state from the job work dir (see
+utils/job_workdir.py), so a step that is redelivered after a worker crash
+re-does at most one rule instead of the whole pipeline. Chain contract: each
+step returns the job_id string, which Celery injects into the next task.
+"""
 
 import logging
 import time
 
-from celery import shared_task
+from celery import chain, shared_task
 from django.db import connections
 
 from .models import SegmentationJob
-from .utils.job_service import run_job
+from .utils import job_service
 
 logger = logging.getLogger(__name__)
 
+# Per-step time limits (seconds). Soft limit raises SoftTimeLimitExceeded,
+# which the service layer turns into a clean step/job FAILED; the hard limit
+# SIGKILLs the worker, and acks_late redelivers the step (idempotent by design).
+RULE_STEP_SOFT_TIME_LIMIT = 600
+RULE_STEP_HARD_TIME_LIMIT = 900
+PREPARE_SOFT_TIME_LIMIT = 900
+PREPARE_HARD_TIME_LIMIT = 1200
+FINALIZE_SOFT_TIME_LIMIT = 600
+FINALIZE_HARD_TIME_LIMIT = 900
 
-@shared_task(bind=True, name="rule_based_segmentation.run_segmentation_job")
-def run_segmentation_job(self, job_id: str) -> dict:
+
+def _close_db_connections() -> None:
+    """Close real DB connections after a task (long-lived worker hygiene).
+
+    Skipped while a connection is inside an atomic block — e.g. under Django
+    test cases, where closing would poison the test transaction.
     """
-    Celery task to run a segmentation job.
+    for alias in connections:
+        conn = connections[alias]
+        if conn.connection is not None and not conn.in_atomic_block:
+            conn.close()
 
-    Args:
-        job_id: UUID string of the SegmentationJob.
 
-    Returns:
-        Dictionary with job status and summary.
-    """
+def _get_job(job_id: str) -> SegmentationJob:
     try:
-        job = SegmentationJob.objects.get(id=job_id)
+        return SegmentationJob.objects.get(id=job_id)
     except SegmentationJob.DoesNotExist:
         logger.error(f"SegmentationJob {job_id} not found")
-        return {"status": "FAILED", "error": f"Job {job_id} not found"}
+        raise
 
-    logger.info(f"Starting segmentation job {job_id}")
-    run_job(job)
 
-    return {
-        "status": job.status,
-        "job_id": job_id,
-        "summary": job.result_summary,
-        "error": job.error_message,
-    }
+def build_job_chain(job: SegmentationJob):
+    """Build the prepare -> rules -> finalize chain for a (new) job."""
+    job_id = str(job.id)
+    rule_sigs = [
+        run_rule_step.s(job_id, rule.order)
+        for rule in job.pipeline.rules.all().order_by("order")
+    ]
+    return chain(prepare_job.s(job_id), *rule_sigs, finalize_job.s(job_id))
+
+
+def resume_job(job: SegmentationJob) -> None:
+    """Re-enqueue the remaining chain steps for a job (retry after failure).
+
+    Steps already SUCCESS are skipped; PENDING/RUNNING/FAILED steps (in
+    order) are enqueued, followed by finalize. A job that never reached
+    prepare (no steps) gets the full chain.
+    """
+    job_id = str(job.id)
+    steps = list(job.steps.select_related("rule").order_by("order"))
+    if not steps:
+        build_job_chain(job).apply_async()
+        return
+    remaining = [
+        run_rule_step.s(job_id, s.order) for s in steps if s.status != "SUCCESS"
+    ]
+    chain(*remaining, finalize_job.s(job_id)).apply_async()
+
+
+@shared_task(
+    name="rule_based_segmentation.prepare_job",
+    soft_time_limit=PREPARE_SOFT_TIME_LIMIT,
+    time_limit=PREPARE_HARD_TIME_LIMIT,
+)
+def prepare_job(job_id: str) -> str:
+    try:
+        job = _get_job(job_id)
+        job_service.prepare_job(job)
+        return job_id
+    finally:
+        _close_db_connections()
+
+
+@shared_task(
+    name="rule_based_segmentation.run_rule_step",
+    soft_time_limit=RULE_STEP_SOFT_TIME_LIMIT,
+    time_limit=RULE_STEP_HARD_TIME_LIMIT,
+)
+def run_rule_step(job_id: str, order: int) -> str:
+    try:
+        job = _get_job(job_id)
+        job_service.execute_rule_step(job, order)
+        return job_id
+    finally:
+        _close_db_connections()
+
+
+@shared_task(
+    name="rule_based_segmentation.finalize_job",
+    soft_time_limit=FINALIZE_SOFT_TIME_LIMIT,
+    time_limit=FINALIZE_HARD_TIME_LIMIT,
+)
+def finalize_job(job_id: str) -> dict:
+    try:
+        job = _get_job(job_id)
+        return job_service.finalize_job(job)
+    finally:
+        _close_db_connections()
 
 
 def _wait_for(query_fn, timeout_seconds: int = 120, interval: float = 2.0):
