@@ -5,6 +5,7 @@ import os
 import shutil
 from typing import Optional, Tuple
 
+from django.db import transaction
 from django.utils import timezone
 
 import pydicom
@@ -13,9 +14,15 @@ from dicom_handler.models import DICOMSeries, RTStructureFileImport
 from dicom_handler.import_services.task2_reidentify_rtstruct import _extract_and_save_voi_data
 from spatial_overlap.models import RTStructureSetFile
 
-from ..models import SegmentationJob, SegmentationPipeline
+from ..models import RuleStep, SegmentationJob, SegmentationPipeline
 from .engine import SegmentationEngine
-from .rtstruct_io import _backup_rtstruct
+from .job_workdir import JobWorkdir, get_job_workdir_base
+from .rtstruct_io import (
+    _backup_rtstruct,
+    load_rtstruct_and_image,
+    regenerate_instance_uids,
+    save_rtstruct,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +129,202 @@ def create_segmentation_job(
 
     run_segmentation_job.delay(str(job.id))
     return job
+
+
+def _fail_job(job: SegmentationJob, message: str) -> None:
+    """Mark a job FAILED with a reason; used by every chain-step failure path."""
+    job.status = "FAILED"
+    job.completed_at = timezone.now()
+    job.error_message = message
+    job.save()
+
+
+def _job_input_rtstruct_path(job: SegmentationJob) -> str:
+    """Filesystem path of the RTStruct this job processes (input file)."""
+    if job.input_type == "UPLOAD" and job.input_upload:
+        return job.input_upload.rtstructure_file_path
+    if job.input_type == "IMPORT" and job.input_import:
+        return (
+            job.input_import.reidentified_rt_structure_file_path
+            or job.input_import.deidentified_rt_structure_file_path
+        )
+    raise ValueError(f"Job {job.id} has no input")
+
+
+def prepare_job(job: SegmentationJob) -> None:
+    """
+    Chain step 0 — resolve inputs, create the work dir, cache the series,
+    seed one PENDING RuleStep per rule.
+
+    Every failure path marks the job FAILED before re-raising, so a failed
+    prepare never leaves the job stuck in PENDING.
+    """
+    try:
+        rtstruct_path, series_uid = get_rtstruct_path_and_series_uid(job)
+    except Exception as e:
+        logger.error(f"Job {job.id} input resolution failed: {e}", exc_info=True)
+        _fail_job(job, f"Could not resolve job inputs: {e}")
+        raise
+
+    job.status = "STARTED"
+    job.started_at = timezone.now()
+    job.dicom_series = DICOMSeries.objects.filter(
+        series_instance_uid=series_uid
+    ).first()
+    job.save()
+
+    wd = JobWorkdir(job.id, base_dir=get_job_workdir_base())
+    try:
+        wd.create()
+        job.backup_file_path = _backup_rtstruct(rtstruct_path)
+        job.save()
+        rtstruct, image, _series = load_rtstruct_and_image(
+            rtstruct_path, series_uid, instances_dir=wd.images_dir
+        )
+        wd.save_image_cache(image)
+        wd.write_initial_working(rtstruct)
+    except Exception as e:
+        logger.error(f"Job {job.id} preparation failed: {e}", exc_info=True)
+        _fail_job(job, f"Could not prepare job inputs: {e}")
+        raise
+
+    for rule in job.pipeline.rules.all().order_by("order"):
+        RuleStep.objects.create(
+            job=job, rule=rule, order=rule.order, status="PENDING"
+        )
+    logger.info(f"Job {job.id} prepared: {job.pipeline.rules.count()} steps queued")
+
+
+def _claim_step(job: SegmentationJob, order: int) -> RuleStep:
+    """Claim a step for execution (RUNNING) in a short transaction.
+
+    Returns None if the step already completed (duplicate delivery).
+    The transaction commits before evaluation starts so no row lock is held
+    during the (potentially long) rule computation.
+    """
+    with transaction.atomic():
+        step = RuleStep.objects.select_for_update().get(job=job, order=order)
+        if step.status == "SUCCESS":
+            return None
+        step.status = "RUNNING"
+        step.started_at = timezone.now()
+        step.error = None
+        step.save()
+    return step
+
+
+def execute_rule_step(job: SegmentationJob, order: int) -> None:
+    """
+    Chain step N — evaluate one rule and commit its output to the work dir.
+
+    Idempotent under redelivery: SUCCESS steps are skipped; steps whose disk
+    commit already applied (worker died before the step UPDATE) complete
+    without re-adding the ROI.
+    """
+    step = _claim_step(job, order)
+    if step is None:
+        logger.info(f"Job {job.id} step {order} already completed; skipping")
+        return
+
+    wd = JobWorkdir(job.id, base_dir=get_job_workdir_base())
+    rule = step.rule
+
+    try:
+        engine = SegmentationEngine.from_workdir(wd.root)
+    except Exception as e:
+        logger.error(f"Job {job.id} step {order} failed to reload state: {e}", exc_info=True)
+        step.status = "FAILED"
+        step.error = str(e)
+        step.completed_at = timezone.now()
+        step.save()
+        _fail_job(job, f"Could not reload job state for step {order}: {e}")
+        raise
+
+    if wd.rule_already_committed(engine.rtstruct, order):
+        # Commit already applied (crash between disk commit and step update).
+        manifest = wd.read_step_manifest(order)
+        step.status = "SUCCESS"
+        step.output_roi_name = manifest.get("output_name") if manifest else None
+        step.completed_at = timezone.now()
+        step.save()
+        return
+
+    try:
+        output_name = engine.run_rule(rule)
+        wd.commit_rule_output(engine.rtstruct, order, output_name)
+    except Exception as e:
+        logger.error(f"Job {job.id} rule {order} ({rule.name}) failed: {e}", exc_info=True)
+        step.status = "FAILED"
+        step.error = str(e)
+        step.completed_at = timezone.now()
+        step.save()
+        _fail_job(job, f"Rule '{rule.name}' (step {order}) failed: {e}")
+        raise
+
+    step.status = "SUCCESS"
+    step.output_roi_name = output_name
+    step.completed_at = timezone.now()
+    step.save()
+    logger.info(f"Job {job.id} step {order} ({rule.name}) committed as '{output_name}'")
+
+
+def finalize_job(job: SegmentationJob) -> dict:
+    """
+    Chain final step — write the processed RTStruct, sync DB records, push to
+    the destination node, mark the job SUCCESS, and clean up the work dir.
+
+    Idempotent: a redelivered finalize on an already-SUCCESS job is a no-op.
+    """
+    if job.status == "SUCCESS":
+        logger.warning(f"Job {job.id} finalize is a duplicate; skipping")
+        return job.result_summary or {}
+
+    rtstruct_path = _job_input_rtstruct_path(job)
+    wd = JobWorkdir(job.id, base_dir=get_job_workdir_base())
+
+    try:
+        engine = SegmentationEngine.from_workdir(wd.root)
+        new_sop_uid, new_series_uid = regenerate_instance_uids(engine.rtstruct)
+        save_rtstruct(engine.rtstruct, rtstruct_path)
+    except Exception as e:
+        logger.error(f"Job {job.id} finalization failed: {e}", exc_info=True)
+        _fail_job(job, f"Finalization failed: {e}")
+        raise
+
+    summary = {
+        "created_rois": [
+            s.output_roi_name
+            for s in job.steps.filter(
+                status="SUCCESS", rule__output_action="CREATE_NEW"
+            ).order_by("order")
+            if s.output_roi_name
+        ],
+        "replaced_rois": [
+            s.output_roi_name
+            for s in job.steps.filter(
+                status="SUCCESS", rule__output_action="REPLACE_EXISTING"
+            ).order_by("order")
+            if s.output_roi_name
+        ],
+        "sop_instance_uid": new_sop_uid,
+        "series_instance_uid": new_series_uid,
+    }
+
+    job.status = "SUCCESS"
+    job.completed_at = timezone.now()
+    job.output_file_path = rtstruct_path
+    job.result_summary = summary
+    job.error_message = None
+    job.save()
+
+    # Same post-processing as the legacy single-task run.
+    _sync_record_uids(job, rtstruct_path, summary)
+    _mark_rtstruct_as_rule_based(job, rtstruct_path)
+    _push_output_to_destination(job, rtstruct_path)
+    wd.cleanup()
+
+    logger.info(f"Segmentation job {job.id} completed successfully")
+    return summary
 
 
 def run_job(job: SegmentationJob) -> None:
