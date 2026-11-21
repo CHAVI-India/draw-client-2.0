@@ -432,3 +432,52 @@ class SegmentationJob(models.Model):
 
     def __str__(self):
         return f"Job {self.id} - {self.pipeline.name} ({self.status})"
+
+
+class RuleStep(models.Model):
+    """Execution record for one pipeline rule within a job (one chain step)."""
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("RUNNING", "Running"),
+        ("SUCCESS", "Success"),
+        ("FAILED", "Failed"),
+    ]
+
+    job = models.ForeignKey(
+        SegmentationJob,
+        on_delete=models.CASCADE,
+        related_name="steps",
+    )
+    rule = models.ForeignKey(
+        PipelineRule,
+        on_delete=models.CASCADE,
+    )
+    order = models.PositiveIntegerField()
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+    )
+    output_roi_name = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="ROI name actually written (may carry a dedup suffix).",
+    )
+    error = models.TextField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["job", "order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "order"],
+                name="uniq_rulestep_job_order",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Job {self.job_id} step {self.order} ({self.status})"

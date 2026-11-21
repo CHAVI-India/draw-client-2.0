@@ -9,6 +9,7 @@ from .models import (
     IntensityRuleConfig,
     MarginRuleConfig,
     PipelineRule,
+    RuleStep,
     SegmentationJob,
     SegmentationPipeline,
 )
@@ -98,3 +99,10 @@ admin.site.register(MarginRuleConfig)
 admin.site.register(CropRuleConfig)
 admin.site.register(CropBoundary)
 admin.site.register(CleanupRuleConfig)
+
+
+@admin.register(RuleStep)
+class RuleStepAdmin(admin.ModelAdmin):
+    list_display = ("job", "order", "rule", "status", "output_roi_name", "started_at", "completed_at")
+    list_filter = ("status",)
+    search_fields = ("job__id", "rule__name")
