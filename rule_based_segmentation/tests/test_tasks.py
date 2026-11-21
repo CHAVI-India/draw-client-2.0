@@ -1,15 +1,20 @@
 """Tests for the Celery chain tasks (chain shape, wrappers, resume; reap tests land in Task 7)."""
 
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from ..models import RuleStep, SegmentationJob, SegmentationPipeline
 from ..tasks import (
+    REAP_PENDING_GRACE_SECONDS,
+    REAP_RUNNING_GRACE_SECONDS,
     build_job_chain,
     finalize_job,
     prepare_job,
+    reap_stuck_jobs,
     resume_job,
     run_rule_step,
 )
@@ -128,3 +133,77 @@ class ResumeJobTests(TestCase):
         self.assertEqual(len(sigs), 4)
         self.assertEqual(sigs[0].name, "rule_based_segmentation.prepare_job")
         self.assertEqual(sigs[1].args, (str(job.id), 1))
+
+
+class ReapStuckJobsTests(TestCase):
+    def _job_with_running_step(self, age_seconds):
+        user = User.objects.create_user(username="reapuser", password="x")
+        pipeline = create_pipeline_with_rules(name="Reap", rules_data=RULES)
+        job = SegmentationJob.objects.create(
+            pipeline=pipeline, input_type="UPLOAD", status="STARTED", created_by=user
+        )
+        rule = job.pipeline.rules.first()
+        RuleStep.objects.create(
+            job=job,
+            rule=rule,
+            order=1,
+            status="RUNNING",
+            started_at=timezone.now() - timedelta(seconds=age_seconds),
+        )
+        return job
+
+    def test_old_running_step_marks_step_and_job_failed(self):
+        job = self._job_with_running_step(REAP_RUNNING_GRACE_SECONDS + 60)
+        reap_stuck_jobs()
+        step = RuleStep.objects.get(job=job, order=1)
+        self.assertEqual(step.status, "FAILED")
+        self.assertIn("did not complete", step.error)
+        job.refresh_from_db()
+        self.assertEqual(job.status, "FAILED")
+        self.assertIn("Step 1", job.error_message)
+
+    def test_recent_running_step_untouched(self):
+        job = self._job_with_running_step(60)
+        reap_stuck_jobs()
+        self.assertEqual(RuleStep.objects.get(job=job, order=1).status, "RUNNING")
+        job.refresh_from_db()
+        self.assertEqual(job.status, "STARTED")
+
+    def test_old_pending_job_without_steps_failed(self):
+        user = User.objects.create_user(username="reapuser2", password="x")
+        pipeline = SegmentationPipeline.objects.create(name="P")
+        job = SegmentationJob.objects.create(
+            pipeline=pipeline, input_type="UPLOAD", status="PENDING", created_by=user
+        )
+        # backdate created_at (auto_now_add can't be set at create time)
+        SegmentationJob.objects.filter(id=job.id).update(
+            created_at=timezone.now() - timedelta(seconds=REAP_PENDING_GRACE_SECONDS + 60)
+        )
+        reap_stuck_jobs()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "FAILED")
+        self.assertIn("not started", job.error_message)
+
+    def test_old_failed_job_workdir_removed(self):
+        import os
+        import tempfile
+
+        base = tempfile.mkdtemp(prefix="rbs_reap_")
+        user = User.objects.create_user(username="reapuser3", password="x")
+        pipeline = create_pipeline_with_rules(name="Reap2", rules_data=RULES)
+        job = SegmentationJob.objects.create(
+            pipeline=pipeline,
+            input_type="UPLOAD",
+            status="FAILED",
+            created_by=user,
+            completed_at=timezone.now() - timedelta(days=8),
+        )
+        workdir = os.path.join(base, str(job.id))
+        os.makedirs(workdir)
+        with patch(
+            "rule_based_segmentation.utils.job_workdir.get_job_workdir_base",
+            return_value=base,
+        ):
+            result = reap_stuck_jobs()
+        self.assertEqual(result["cleaned_workdirs"], 1)
+        self.assertFalse(os.path.exists(workdir))

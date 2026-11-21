@@ -11,13 +11,18 @@ step returns the job_id string, which Celery injects into the next task.
 """
 
 import logging
+import os
+import shutil
 import time
+from datetime import timedelta
 
 from celery import chain, shared_task
 from django.db import connections
+from django.utils import timezone
 
-from .models import SegmentationJob
+from .models import RuleStep, SegmentationJob
 from .utils import job_service
+from .utils import job_workdir
 
 logger = logging.getLogger(__name__)
 
@@ -246,3 +251,72 @@ def retrieve_rtstruct_for_pipeline(
     except Exception as e:
         logger.error(f"retrieve_rtstruct_for_pipeline failed: {e}", exc_info=True)
         return {"status": "FAILED", "error": str(e)}
+
+
+# Safety-net thresholds (seconds) for the periodic reap task.
+REAP_RUNNING_GRACE_SECONDS = 1800
+REAP_PENDING_GRACE_SECONDS = 600
+JOB_WORKDIR_TTL_DAYS = 7
+
+
+@shared_task(name="rule_based_segmentation.reap_stuck_jobs")
+def reap_stuck_jobs() -> dict:
+    """
+    Safety net for lost messages / hard-timeout kills:
+
+    - RUNNING steps older than the grace window -> FAILED (and job FAILED).
+    - PENDING jobs with no steps older than the grace window -> FAILED.
+    - Work dirs of FAILED jobs older than JOB_WORKDIR_TTL_DAYS -> removed.
+    """
+    now = timezone.now()
+    reaped = 0
+
+    stuck_steps = RuleStep.objects.filter(
+        status="RUNNING",
+        started_at__lt=now - timedelta(seconds=REAP_RUNNING_GRACE_SECONDS),
+    ).select_related("job")
+    for step in stuck_steps:
+        step.status = "FAILED"
+        step.error = "Step did not complete (worker lost or timed out)"
+        step.completed_at = now
+        step.save()
+        if step.job.status == "STARTED":
+            step.job.status = "FAILED"
+            step.job.error_message = (
+                f"Step {step.order} did not complete (worker lost or timed out)"
+            )
+            step.job.completed_at = now
+            step.job.save()
+        reaped += 1
+        logger.warning(f"Reaped stuck step {step.pk} (job {step.job_id})")
+
+    stale_pending = SegmentationJob.objects.filter(
+        status="PENDING",
+        created_at__lt=now - timedelta(seconds=REAP_PENDING_GRACE_SECONDS),
+    )
+    for job in stale_pending:
+        if job.steps.exists():
+            continue
+        job.status = "FAILED"
+        job.error_message = "Job was not started (task lost or inputs unresolved)"
+        job.completed_at = now
+        job.save()
+        reaped += 1
+        logger.warning(f"Reaped stuck pending job {job.id}")
+
+    cleaned = 0
+    base = job_workdir.get_job_workdir_base()
+    if os.path.isdir(base):
+        for name in os.listdir(base):
+            path = os.path.join(base, name)
+            try:
+                job = SegmentationJob.objects.get(id=name, status="FAILED")
+            except SegmentationJob.DoesNotExist:
+                continue
+            if job.completed_at and (now - job.completed_at).days >= JOB_WORKDIR_TTL_DAYS:
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                    cleaned += 1
+                    logger.info(f"Removed stale work dir for job {name}")
+
+    return {"reaped": reaped, "cleaned_workdirs": cleaned}

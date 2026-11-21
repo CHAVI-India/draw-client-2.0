@@ -278,6 +278,11 @@ CELERY_BEAT_SCHEDULE = {
             'expires': 60 * 30, # Task expiry after 30 min if not picked up
         },
     },
+    'rbs-reap-stuck-jobs': {
+        'task': 'rule_based_segmentation.reap_stuck_jobs',
+        'schedule': crontab(minute='*/5'),  # every 5 minutes
+        'options': {'expires': 60 * 4},
+    },
 }
 
 # Redirects after login and logout
