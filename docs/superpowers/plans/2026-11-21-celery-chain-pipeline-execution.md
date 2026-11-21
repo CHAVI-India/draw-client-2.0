@@ -19,7 +19,7 @@
 - When logging file paths, use `mask_sensitive_data` from `dicom_handler.utils.log_masking` (existing pattern).
 - A pipeline is immutable while one of its jobs runs (pre-existing assumption; rule edits mid-run are out of scope).
 - One commit per task. Conventional-style messages (`feat:` / `refactor:` / `test:` / `chore:`).
-- New DB models require `makemigrations` + `migrate` (dev DB is sqlite by default; the test runner builds its own schema, so only `makemigrations` matters for CI, but run `migrate` for the dev DB).
+- New DB models require `makemigrations` + `migrate` (dev DB on this machine is Postgres via `.env`; the test runner builds its own schema, so only `makemigrations` matters for CI, but run `migrate` for the dev DB).
 - Celery 5.6 quirk: `chain(...)` returns a signature whose constituent tasks live in `.tasks` (iterating the chain object yields signature field names, NOT the tasks). Tests must use `c.tasks`.
 
 ## Design notes (crash semantics)
@@ -75,7 +75,7 @@ Failure semantics: a rule step that raises marks its `RuleStep` FAILED and the j
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `rule_based_segmentation/tests/test_models.py` (add `RuleStep` and `IntegrityError` to the imports at the top: extend the existing `from ..models import (...)` block and add `from django.db import IntegrityError`):
+Append to `rule_based_segmentation/tests/test_models.py` (add `RuleStep` and `IntegrityError` to the imports at the top: extend the existing `from ..models import (...)` block and add `from django.db import IntegrityError, transaction`):
 
 ```python
 class RuleStepTests(TestCase):
@@ -91,8 +91,9 @@ class RuleStepTests(TestCase):
         self.assertIsNone(step.output_roi_name)
         self.assertIsNone(step.started_at)
 
-        with self.assertRaises(IntegrityError):
-            RuleStep.objects.create(job=job, rule=rule, order=1)
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                RuleStep.objects.create(job=job, rule=rule, order=1)
 
         # Same job + order is unique, but a different order is fine.
         second = RuleStep.objects.create(job=job, rule=rule, order=2)
