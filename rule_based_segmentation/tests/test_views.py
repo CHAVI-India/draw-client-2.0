@@ -25,6 +25,36 @@ class ViewTests(TestCase):
         response = self.client.get(reverse("rule_based_segmentation:pipeline_list"))
         self.assertEqual(response.status_code, 200)
 
+    def test_pipeline_edit_injects_backend_rule_types(self):
+        """The add-rule dropdown must be driven by the backend model choices
+        (single source of truth), not a hardcoded JS list — so newly added
+        spatial rule types appear automatically."""
+        import re
+
+        pipeline = SegmentationPipeline.objects.create(name="P", created_by=self.user)
+        response = self.client.get(
+            reverse("rule_based_segmentation:pipeline_edit", args=[pipeline.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('id="rule-types"', content)
+
+        match = re.search(
+            r'id="rule-types"[^>]*>(.*?)</script>', content, re.DOTALL
+        )
+        self.assertIsNotNone(match, "rule-types payload missing from page")
+        injected = json.loads(match.group(1))
+        injected_values = {value for value, _ in injected}
+
+        # Exactly matches the model choices (the source of truth).
+        self.assertEqual(
+            injected_values,
+            {value for value, _ in PipelineRule.RULE_TYPE_CHOICES},
+        )
+        # The new spatial rule types are present.
+        for rule_type in ("RING", "OVERLAP", "EXPAND_SUBTRACT", "AVOID_MARGIN"):
+            self.assertIn(rule_type, injected_values)
+
     def test_pipeline_create_view(self):
         data = {
             "pipeline_data": json.dumps({

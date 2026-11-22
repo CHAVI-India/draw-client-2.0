@@ -58,6 +58,19 @@
     );
   }
 
+  // Build a {value: label} map from the backend's RULE_TYPE_CHOICES
+  // (an array of [value, label] pairs). Returns null when absent/empty so the
+  // caller can fall back to the built-in list.
+  function buildRuleTypeMap(pairs) {
+    if (!Array.isArray(pairs) || pairs.length === 0) return null;
+    const map = {};
+    for (const pair of pairs) {
+      const [value, label] = pair;
+      if (value != null) map[value] = label != null ? label : value;
+    }
+    return Object.keys(map).length ? map : null;
+  }
+
   class RuleBasedPipelineBuilder {
     constructor(containerId, options) {
       this.container = document.getElementById(containerId);
@@ -68,6 +81,9 @@
       this.options = options || {};
       this.existingRules = this.options.existingRules || [];
       this.availableStructures = this.options.availableStructures || [];
+      // Prefer the backend-provided rule types (single source of truth);
+      // fall back to the built-in list if none were supplied.
+      this.ruleTypes = buildRuleTypeMap(this.options.ruleTypes) || RULE_TYPES;
       this.sampleRtstructUrl = this.options.sampleRtstructUrl || null;
 
       this.state = {
@@ -85,7 +101,7 @@
             <div class="flex items-center gap-2">
               <label for="rbs-add-rule-type" class="text-sm font-medium text-gray-700 whitespace-nowrap">Operation</label>
               <select id="rbs-add-rule-type" class="form-select h-10 px-3 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
-                ${Object.entries(RULE_TYPES)
+                ${Object.entries(this.ruleTypes)
                   .map(([key, label]) => `<option value="${key}">${label}</option>`)
                   .join("")}
               </select>
@@ -239,7 +255,7 @@
                   <div class="flex items-center space-x-2">
                     <span class="text-xs font-mono text-gray-500">${index + 1}</span>
                     <span class="font-medium">${this._escapeHtml(rule.name || "Unnamed")}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">${RULE_TYPES[rule.rule_type]}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">${this.ruleTypes[rule.rule_type] || rule.rule_type}</span>
                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${rule.output_action === "CREATE_NEW" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}">${rule.output_action === "CREATE_NEW" ? "Create" : "Replace"}</span>
                   </div>
                   <div class="text-sm text-gray-600 mt-1">${this._escapeHtml(summary)}</div>

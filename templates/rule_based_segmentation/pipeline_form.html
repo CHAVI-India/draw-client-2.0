@@ -79,7 +79,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/rule_based_pipeline_builder.js' %}"></script>
+<script src="{% static 'js/rule_based_pipeline_builder.js' %}?v={{ js_cache_bust }}"></script>
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" integrity="sha384-OXVF05DQEe311p6ohU11NwlnX08FzMCsyoXzGOaL+83dKAb3qS17yZJxESl8YrJQ" crossorigin="anonymous" />
 <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js" integrity="sha384-d3UHjPdzJkZuk5H3qKYMLRyWLAQBJbby2yr2Q58hXXtAGF8RSNO9jpLDlKKPv5v3" crossorigin="anonymous"></script>
@@ -109,13 +109,18 @@
     }
 </style>
 {{ pipeline_data|json_script:"pipeline-data" }}
+{{ rule_type_choices|json_script:"rule-types" }}
 <script>
 (function() {
     const existingPipeline = JSON.parse(document.getElementById("pipeline-data").textContent);
+    // Rule types are read off the backend (PipelineRule.RULE_TYPE_CHOICES) so
+    // the dropdown always matches what the server accepts.
+    const ruleTypes = JSON.parse(document.getElementById("rule-types").textContent);
 
     const builder = new RuleBasedPipelineBuilder("pipeline-builder", {
         existingRules: existingPipeline.rules || [],
         availableStructures: [],
+        ruleTypes: ruleTypes,
     });
 
     const $sampleSelect = $("#sample-rtstruct");

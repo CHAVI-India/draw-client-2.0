@@ -103,8 +103,31 @@ def _render_pipeline_form(request, pipeline=None, error=None):
             "pipeline_data": pipeline_data,
             "error": error,
             "roi_name_max_length": PipelineRule._meta.get_field("name").max_length,
+            # Single source of truth for the rule-type dropdown: read off the
+            # model so the UI never drifts from what the backend accepts.
+            "rule_type_choices": PipelineRule.RULE_TYPE_CHOICES,
+            "js_cache_bust": _builder_js_cache_bust(),
         },
     )
+
+
+def _builder_js_cache_bust() -> str:
+    """Short content hash of the pipeline builder JS, used as a cache-buster.
+
+    Appended to the static <script> URL so that any change to the builder JS
+    automatically invalidates the browser cache (no manual version bumps).
+    Returns "" if the file is missing (dev / edge case).
+    """
+    import hashlib
+
+    js_path = os.path.join(
+        settings.STATICFILES_DIRS[0], "js", "rule_based_pipeline_builder.js"
+    )
+    try:
+        with open(js_path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        return ""
 
 
 def _rtstruct_choice_label(rtstruct):
@@ -301,11 +324,106 @@ def pipeline_duplicate(request, pipeline_id):
     return redirect("rule_based_segmentation:pipeline_edit", pipeline_id=pipeline.id)
 
 
+JOB_LIST_PAGE_SIZE = 15
+
+
 @login_required
 def job_list(request):
-    """List segmentation jobs."""
-    jobs = SegmentationJob.objects.filter(created_by=request.user).order_by("-created_at")
-    return render(request, "rule_based_segmentation/job_list.html", {"jobs": jobs})
+    """List segmentation jobs with filtering and pagination."""
+    jobs = (
+        SegmentationJob.objects.filter(created_by=request.user)
+        .select_related(
+            "pipeline",
+            "input_upload",
+            "input_import",
+            "input_import__deidentified_series_instance_uid",
+            "input_import__deidentified_series_instance_uid__study__patient",
+        )
+        .order_by("-created_at")
+    )
+
+    status = request.GET.get("status", "").strip()
+    search = request.GET.get("search", "").strip()
+    pipeline_id = request.GET.get("pipeline", "").strip()
+
+    if status in dict(SegmentationJob.STATUS_CHOICES):
+        jobs = jobs.filter(status=status)
+    if pipeline_id:
+        jobs = jobs.filter(pipeline_id=pipeline_id)
+    if search:
+        series_prefix = "input_import__deidentified_series_instance_uid__"
+        jobs = jobs.filter(
+            models.Q(pipeline__name__icontains=search)
+            | models.Q(input_upload__patient_name__icontains=search)
+            | models.Q(input_upload__patient_id__icontains=search)
+            | models.Q(input_upload__structure_set_label__icontains=search)
+            | models.Q(**{f"{series_prefix}study__patient__patient_name__icontains": search})
+            | models.Q(**{f"{series_prefix}study__patient__patient_id__icontains": search})
+            | models.Q(**{f"{series_prefix}series_description__icontains": search})
+        ).distinct()
+
+    from django.core.paginator import Paginator
+
+    paginator = Paginator(jobs, JOB_LIST_PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+
+    rows = [
+        {
+            "job": job,
+            "patient": _job_patient_label(job),
+            "structure": _job_structure_label(job),
+        }
+        for job in page_obj.object_list
+    ]
+
+    pipelines = SegmentationPipeline.objects.filter(
+        models.Q(created_by=request.user) | models.Q(is_public=True)
+    ).order_by("name")
+
+    return render(
+        request,
+        "rule_based_segmentation/job_list.html",
+        {
+            "page_obj": page_obj,
+            "rows": rows,
+            "pipelines": pipelines,
+            "status_choices": SegmentationJob.STATUS_CHOICES,
+            "filters": {
+                "status": status,
+                "search": search,
+                "pipeline": pipeline_id,
+            },
+        },
+    )
+
+
+def _job_patient_label(job):
+    """Human-readable patient label for a segmentation job."""
+    if job.input_upload:
+        up = job.input_upload
+        name = up.patient_name or "Unknown Patient"
+        return f"{name} ({up.patient_id})" if up.patient_id else name
+    import_model = job.input_import
+    if import_model and import_model.deidentified_series_instance_uid:
+        patient = import_model.deidentified_series_instance_uid.study.patient
+        name = patient.patient_name or "Unknown Patient"
+        return f"{name} ({patient.patient_id})" if patient.patient_id else name
+    return "Unknown Patient"
+
+
+def _job_structure_label(job):
+    """Human-readable structure set label for a segmentation job."""
+    if job.input_upload:
+        up = job.input_upload
+        label = up.structure_set_label or "RTStruct"
+        if up.structure_set_date:
+            return f"{label} ({up.structure_set_date})"
+        return label
+    import_model = job.input_import
+    if import_model and import_model.deidentified_series_instance_uid:
+        series = import_model.deidentified_series_instance_uid
+        return series.series_description or "Auto-segmented"
+    return "—"
 
 
 @login_required
