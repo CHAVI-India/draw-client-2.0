@@ -28,5 +28,11 @@
         {% endif %}
     {% elif rule.rule_type == "OVERLAP" %}
         Overlap {{ rule.overlap_config.source }} with {% for o in rule.overlap_config.others.all %}{{ o.other_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
+    {% elif rule.rule_type == "EXPAND_SUBTRACT" %}
+        {% if rule.expand_subtract_config.variant == "UNIFORM" %}
+            Expand {{ rule.expand_subtract_config.source }} by {{ rule.expand_subtract_config.distance_mm }} mm, subtract {{ rule.expand_subtract_config.subtract }}
+        {% else %}
+            Anisotropic expand {{ rule.expand_subtract_config.source }} (x={{ rule.expand_subtract_config.distance_x_mm }} y={{ rule.expand_subtract_config.distance_y_mm }} z={{ rule.expand_subtract_config.distance_z_mm }} mm), subtract {{ rule.expand_subtract_config.subtract }}
+        {% endif %}
     {% endif %}
 </div>

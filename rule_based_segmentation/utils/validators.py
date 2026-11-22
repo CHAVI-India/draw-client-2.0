@@ -190,3 +190,36 @@ def validate_overlap_rule(rule):
 
     if config.others.count() == 0:
         raise ValidationError({"others": "At least one other structure is required."})
+
+
+def validate_expand_subtract_rule(rule):
+    """Validate an EXPAND_SUBTRACT rule."""
+    try:
+        config = rule.expand_subtract_config
+    except Exception:
+        return
+
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Expand & Subtract variant must be Uniform or Anisotropic."})
+
+    if not config.source:
+        raise ValidationError({"source": "Source structure is required."})
+
+    if not config.subtract:
+        raise ValidationError({"subtract": "Structure to subtract is required."})
+
+    if config.variant == "UNIFORM":
+        if config.distance_mm is None:
+            raise ValidationError({"distance_mm": "Uniform expand & subtract requires distance_mm."})
+    else:
+        missing = []
+        if config.distance_x_mm is None:
+            missing.append("distance_x_mm")
+        if config.distance_y_mm is None:
+            missing.append("distance_y_mm")
+        if config.distance_z_mm is None:
+            missing.append("distance_z_mm")
+        if missing:
+            raise ValidationError(
+                {f: "Anisotropic expand & subtract requires this value." for f in missing}
+            )

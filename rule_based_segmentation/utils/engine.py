@@ -191,6 +191,13 @@ class SegmentationEngine:
                     names.add(config.source)
                 for other in config.others.all():
                     names.add(other.other_roi)
+        elif rule.rule_type == "EXPAND_SUBTRACT":
+            config = getattr(rule, "expand_subtract_config", None)
+            if config:
+                if config.source:
+                    names.add(config.source)
+                if config.subtract:
+                    names.add(config.subtract)
 
         return names
 
@@ -209,6 +216,8 @@ class SegmentationEngine:
             return self._evaluate_ring_rule(rule)
         if rule.rule_type == "OVERLAP":
             return self._evaluate_overlap_rule(rule)
+        if rule.rule_type == "EXPAND_SUBTRACT":
+            return self._evaluate_expand_subtract_rule(rule)
         raise RuleEvaluationError(f"Unknown rule type: {rule.rule_type}")
 
     def _evaluate_boolean_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -297,6 +306,22 @@ class SegmentationEngine:
         for name in others[1:]:
             combined = boolean_union(combined, self.available_masks[name])
         return boolean_intersection(result, combined)
+
+    def _evaluate_expand_subtract_rule(self, rule: PipelineRule) -> sitk.Image:
+        """Expand & Subtract: expand(source, distance) - subtract."""
+        config = rule.expand_subtract_config
+        source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
+        expanded = self._expand_mask_by_variant(
+            source_mask,
+            config.variant,
+            uniform_mm=config.distance_mm,
+            x_mm=config.distance_x_mm,
+            y_mm=config.distance_y_mm,
+            z_mm=config.distance_z_mm,
+            kernel_type=config.kernel_type,
+        )
+        return boolean_subtraction(expanded, self.available_masks[config.subtract])
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config

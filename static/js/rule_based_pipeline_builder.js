@@ -19,6 +19,7 @@
     CLEANUP: "Cleanup / Refinement",
     RING: "Ring / Shell",
     OVERLAP: "Overlap",
+    EXPAND_SUBTRACT: "Expand & Subtract",
   };
 
   const BOOLEAN_OPERATIONS = {
@@ -156,6 +157,17 @@
           };
         case "OVERLAP":
           return { source: "", others: [""] };
+        case "EXPAND_SUBTRACT":
+          return {
+            variant: "UNIFORM",
+            source: "",
+            subtract: "",
+            distance_mm: 5.0,
+            distance_x_mm: 0.0,
+            distance_y_mm: 0.0,
+            distance_z_mm: 0.0,
+            kernel_type: "ball",
+          };
         default:
           return {};
       }
@@ -296,6 +308,10 @@
           const n = (cfg.others || []).length;
           return `Overlap ${cfg.source} with ${n} structure(s)`;
         }
+        case "EXPAND_SUBTRACT": {
+          const d = cfg.variant === "ANISOTROPIC" ? `${cfg.distance_x_mm}/${cfg.distance_y_mm}/${cfg.distance_z_mm} mm` : `${cfg.distance_mm} mm`;
+          return `Expand ${cfg.source} by ${d}, subtract ${cfg.subtract}`;
+        }
         default:
           return "";
       }
@@ -336,6 +352,9 @@
           break;
         case "OVERLAP":
           configHtml = this._renderOverlapEditor(rule.config);
+          break;
+        case "EXPAND_SUBTRACT":
+          configHtml = this._renderExpandSubtractEditor(rule.config);
           break;
       }
 
@@ -635,6 +654,44 @@
       `;
     }
 
+    _renderExpandSubtractEditor(config) {
+      return `
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Variant</label>
+            <select id="rbs-es-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
+              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Structure to Expand</label>
+            ${this._renderStructureSelect("rbs-es-source", config.source)}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Structure to Subtract</label>
+            ${this._renderStructureSelect("rbs-es-subtract", config.subtract, true)}
+          </div>
+          <div id="rbs-es-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Expansion distance (mm)</label>
+            <input type="number" step="any" id="rbs-es-mm" value="${config.distance_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
+            <select id="rbs-es-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
+            </select>
+          </div>
+          <div id="rbs-es-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Distance X (mm)</label>
+            <input type="number" step="any" id="rbs-es-x" value="${config.distance_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Distance Y (mm)</label>
+            <input type="number" step="any" id="rbs-es-y" value="${config.distance_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Distance Z (mm)</label>
+            <input type="number" step="any" id="rbs-es-z" value="${config.distance_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+          </div>
+        </div>
+      `;
+    }
+
     _renderCropEditor(config) {
       const boundariesHtml = config.boundaries
         .map(
@@ -891,6 +948,16 @@
             if (select.value) cfg.others.push(select.value);
           });
           break;
+        case "EXPAND_SUBTRACT":
+          cfg.variant = this.container.querySelector("#rbs-es-variant").value;
+          cfg.source = this._getValue("#rbs-es-source");
+          cfg.subtract = this._getValue("#rbs-es-subtract");
+          cfg.distance_mm = parseFloat(this._getValue("#rbs-es-mm")) || 0;
+          cfg.distance_x_mm = parseFloat(this._getValue("#rbs-es-x")) || 0;
+          cfg.distance_y_mm = parseFloat(this._getValue("#rbs-es-y")) || 0;
+          cfg.distance_z_mm = parseFloat(this._getValue("#rbs-es-z")) || 0;
+          cfg.kernel_type = this._getValue("#rbs-es-kernel");
+          break;
         case "CLEANUP":
           cfg.operation = this.container.querySelector("#rbs-cleanup-operation").value;
           cfg.source = this.container.querySelector("#rbs-cleanup-source").value;
@@ -966,6 +1033,14 @@
           this._attachOverlapRemoveListeners();
         });
         this._attachOverlapRemoveListeners();
+      }
+      if (ruleType === "EXPAND_SUBTRACT") {
+        const variant = this.container.querySelector("#rbs-es-variant");
+        variant.addEventListener("change", () => {
+          const isUniform = variant.value === "UNIFORM";
+          this.container.querySelector("#rbs-es-uniform").classList.toggle("hidden", !isUniform);
+          this.container.querySelector("#rbs-es-anisotropic").classList.toggle("hidden", isUniform);
+        });
       }
 
       if (ruleType === "CROP") {

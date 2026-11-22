@@ -20,6 +20,7 @@ from rule_based_segmentation.models import (
     CleanupRuleConfig,
     CropBoundary,
     CropRuleConfig,
+    ExpandSubtractRuleConfig,
     IntensityRange,
     IntensityRuleConfig,
     MarginRuleConfig,
@@ -258,6 +259,8 @@ def create_pipeline_with_rules(user=None, name="Test Pipeline", rules_data=None)
             _create_ring_config(rule, config)
         elif rule.rule_type == "OVERLAP":
             _create_overlap_config(rule, config)
+        elif rule.rule_type == "EXPAND_SUBTRACT":
+            _create_expand_subtract_config(rule, config)
 
     return pipeline
 
@@ -338,6 +341,20 @@ def _create_overlap_config(rule, config):
             order=idx,
         )
     return overlap
+
+
+def _create_expand_subtract_config(rule, config):
+    return ExpandSubtractRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        subtract=config.get("subtract", ""),
+        distance_mm=config.get("distance_mm"),
+        distance_x_mm=config.get("distance_x_mm"),
+        distance_y_mm=config.get("distance_y_mm"),
+        distance_z_mm=config.get("distance_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
 
 
 def _create_crop_config(rule, config):

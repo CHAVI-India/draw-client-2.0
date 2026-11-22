@@ -28,6 +28,7 @@ from .models import (
     CleanupRuleConfig,
     CropBoundary,
     CropRuleConfig,
+    ExpandSubtractRuleConfig,
     IntensityRange,
     IntensityRuleConfig,
     MarginRuleConfig,
@@ -210,6 +211,18 @@ def _rule_to_json(rule):
         data["config"] = {
             "source": cfg.source,
             "others": [o.other_roi for o in cfg.others.all().order_by("order")],
+        }
+    elif rule.rule_type == "EXPAND_SUBTRACT":
+        cfg = rule.expand_subtract_config
+        data["config"] = {
+            "variant": cfg.variant,
+            "source": cfg.source,
+            "subtract": cfg.subtract,
+            "distance_mm": cfg.distance_mm,
+            "distance_x_mm": cfg.distance_x_mm,
+            "distance_y_mm": cfg.distance_y_mm,
+            "distance_z_mm": cfg.distance_z_mm,
+            "kernel_type": cfg.kernel_type,
         }
 
     return data
@@ -944,6 +957,11 @@ def _collect_required_structure_names(rule):
         for other in config.get("others", []):
             if other:
                 names.add(other)
+    elif rule_type == "EXPAND_SUBTRACT":
+        if config.get("source"):
+            names.add(config["source"])
+        if config.get("subtract"):
+            names.add(config["subtract"])
 
     return names
 
@@ -984,6 +1002,8 @@ def _save_rule(pipeline, order, rule_data):
         _save_ring_config(rule, config)
     elif rule.rule_type == "OVERLAP":
         _save_overlap_config(rule, config)
+    elif rule.rule_type == "EXPAND_SUBTRACT":
+        _save_expand_subtract_config(rule, config)
 
     return rule
 
@@ -1097,6 +1117,21 @@ def _save_overlap_config(rule, config):
             )
 
 
+def _save_expand_subtract_config(rule, config):
+    """Save EXPAND_SUBTRACT rule configuration."""
+    ExpandSubtractRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        subtract=config.get("subtract", ""),
+        distance_mm=config.get("distance_mm"),
+        distance_x_mm=config.get("distance_x_mm"),
+        distance_y_mm=config.get("distance_y_mm"),
+        distance_z_mm=config.get("distance_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
+
+
 def _duplicate_rule(pipeline, rule):
     """Duplicate a rule and its related configuration."""
     rule.pk = None
@@ -1185,6 +1220,19 @@ def _duplicate_rule(pipeline, rule):
                 other_roi=other.other_roi,
                 order=other.order,
             )
+    elif rule.rule_type == "EXPAND_SUBTRACT":
+        old_config = rule.expand_subtract_config
+        ExpandSubtractRuleConfig.objects.create(
+            pipeline_rule=rule,
+            variant=old_config.variant,
+            source=old_config.source,
+            subtract=old_config.subtract,
+            distance_mm=old_config.distance_mm,
+            distance_x_mm=old_config.distance_x_mm,
+            distance_y_mm=old_config.distance_y_mm,
+            distance_z_mm=old_config.distance_z_mm,
+            kernel_type=old_config.kernel_type,
+        )
 
 
 def _duplicate_boolean_tree(rule, node, parent=None):
@@ -1332,6 +1380,13 @@ def _collect_rule_structure_names(rule):
                 names.add(config.source)
             for other in config.others.all():
                 names.add(other.other_roi)
+    elif rule.rule_type == "EXPAND_SUBTRACT":
+        config = getattr(rule, "expand_subtract_config", None)
+        if config:
+            if config.source:
+                names.add(config.source)
+            if config.subtract:
+                names.add(config.subtract)
     return names
 
 

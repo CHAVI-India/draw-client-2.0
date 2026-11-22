@@ -10,6 +10,7 @@ from django.test import TestCase
 
 from dicom_handler.utils.structure_generation.operations import (
     apply_uniform_margin,
+    boolean_subtraction,
 )
 
 from ..utils.engine import SegmentationEngine
@@ -146,3 +147,30 @@ class OverlapRuleTests(SpatialRulesBase):
             ]
         )
         self.assertEqual(self._volume(engine.available_masks["Ovl2"]), 64)
+
+
+class ExpandSubtractRuleTests(SpatialRulesBase):
+    def test_expand_subtract_matches_primitives(self):
+        engine = self._run_single_rule(
+            [
+                {
+                    "rule_type": "EXPAND_SUBTRACT",
+                    "name": "ES",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Box",
+                        "subtract": "Box2",
+                        "distance_mm": 1.0,
+                        "kernel_type": "ball",
+                    },
+                }
+            ]
+        )
+        es = engine.available_masks["ES"]
+        box = engine.available_masks["Box"]
+        box2 = engine.available_masks["Box2"]
+        expected = boolean_subtraction(apply_uniform_margin(box, 1.0, "ball"), box2)
+        self.assertTrue(np.array_equal(sitk.GetArrayFromImage(es), sitk.GetArrayFromImage(expected)))
+        # The result is a subset of the expanded source.
+        expanded = apply_uniform_margin(box, 1.0, "ball")
+        self.assertEqual(self._volume(sitk.And(es, sitk.Not(expanded))), 0)
