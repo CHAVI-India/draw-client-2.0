@@ -35,6 +35,11 @@ class SegmentationPipeline(models.Model):
         help_text="Public pipelines are visible to all authenticated users.",
     )
     is_active = models.BooleanField(default=True)
+    # Snapshot of the ROI structures (name, color, roi_type) that were available
+    # when the pipeline was created/edited, so the structure dropdowns can be
+    # re-populated later without the original RTStruct. Stored as a list of
+    # {"name": ..., "color": ..., "roi_type": ...}.
+    structures = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -126,6 +126,100 @@ class ViewTests(TestCase):
         self.assertEqual(by_type["EXPAND_SUBTRACT"]["subtract"], "Other1")
         self.assertEqual(by_type["AVOID_MARGIN"]["avoid"], "Other1")
 
+    def test_pipeline_create_persists_structures(self):
+        """The structure snapshot (name/color/roi_type) is saved with the
+        pipeline and returned to the editor on later edit."""
+        structures = [
+            {"name": "CTV", "color": "#ff0000", "roi_type": "CTV"},
+            {"name": "Lung", "color": "#00ff00", "roi_type": "ORGAN"},
+        ]
+        payload = {
+            "name": "Struct Pipeline", "description": "", "is_public": False,
+            "structures": structures,
+            "rules": [{
+                "rule_type": "MARGIN", "name": "PTV", "output_action": "CREATE_NEW",
+                "output_color": "#FFFF00", "output_roi_type": "PTV",
+                "config": {"variant": "UNIFORM", "source": "CTV", "margin_mm": 5.0,
+                           "margin_x_mm": 0.0, "margin_y_mm": 0.0, "margin_z_mm": 0.0,
+                           "kernel_type": "ball"},
+            }],
+        }
+        response = self.client.post(
+            reverse("rule_based_segmentation:pipeline_create"),
+            {"pipeline_data": json.dumps(payload)},
+        )
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        pipeline = SegmentationPipeline.objects.get()
+        self.assertEqual(pipeline.structures, structures)
+
+        # Round-trip: the edit page returns the persisted structures.
+        import re
+        edit = self.client.get(
+            reverse("rule_based_segmentation:pipeline_edit", args=[pipeline.id])
+        )
+        match = re.search(
+            r'id="pipeline-data"[^>]*>(.*?)</script>', edit.content.decode(), re.DOTALL
+        )
+        data = json.loads(match.group(1))
+        self.assertEqual(data["structures"], structures)
+
+    def test_pipeline_rejects_forward_reference(self):
+        """A rule may not reference an ROI produced by a LATER rule. Here rule 1
+        (EXPAND_SUBTRACT) subtracts 'Y', which is only produced by rule 2."""
+        payload = {
+            "name": "Bad Order", "description": "", "is_public": False,
+            "structures": [],
+            "rules": [
+                {
+                    "rule_type": "EXPAND_SUBTRACT", "name": "X", "output_action": "CREATE_NEW",
+                    "output_color": "#FFFF00", "output_roi_type": "ORGAN",
+                    "config": {"variant": "UNIFORM", "source": "Base", "subtract": "Y",
+                               "distance_mm": 5.0, "distance_x_mm": 0.0, "distance_y_mm": 0.0,
+                               "distance_z_mm": 0.0, "kernel_type": "ball"},
+                },
+                {
+                    "rule_type": "MARGIN", "name": "Y", "output_action": "CREATE_NEW",
+                    "output_color": "#FFFF00", "output_roi_type": "ORGAN",
+                    "config": {"variant": "UNIFORM", "source": "Base", "margin_mm": 5.0,
+                               "margin_x_mm": 0.0, "margin_y_mm": 0.0, "margin_z_mm": 0.0,
+                               "kernel_type": "ball"},
+                },
+            ],
+        }
+        response = self.client.post(
+            reverse("rule_based_segmentation:pipeline_create"),
+            {"pipeline_data": json.dumps(payload)},
+        )
+        # Rejected: the form is re-rendered (200) with an error, not saved (302).
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(SegmentationPipeline.objects.count(), 0)
+        self.assertIn("produced by rule", response.content.decode())
+
+    def test_pipeline_allows_custom_structure_names(self):
+        """Free-text structure names that are neither in the catalog nor produced
+        by any rule are accepted (they may exist only in the target RTStruct)."""
+        payload = {
+            "name": "Custom Names", "description": "", "is_public": False,
+            "structures": [],
+            "rules": [
+                {
+                    "rule_type": "AVOID_MARGIN", "name": "Avoided", "output_action": "CREATE_NEW",
+                    "output_color": "#FFFF00", "output_roi_type": "AVOIDANCE",
+                    "config": {"variant": "UNIFORM", "source": "KeepMe",
+                               "avoid": "A Structure Not In The Sample", "margin_mm": 3.0,
+                               "margin_x_mm": 0.0, "margin_y_mm": 0.0, "margin_z_mm": 0.0,
+                               "kernel_type": "ball"},
+                },
+            ],
+        }
+        response = self.client.post(
+            reverse("rule_based_segmentation:pipeline_create"),
+            {"pipeline_data": json.dumps(payload)},
+        )
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        rule = SegmentationPipeline.objects.get().rules.get()
+        self.assertEqual(rule.avoid_margin_config.avoid, "A Structure Not In The Sample")
+
     def test_pipeline_create_view(self):
         data = {
             "pipeline_data": json.dumps({

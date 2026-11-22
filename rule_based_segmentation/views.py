@@ -91,9 +91,14 @@ def pipeline_edit(request, pipeline_id):
 
 def _render_pipeline_form(request, pipeline=None, error=None):
     pipeline_data = (
-        {"rules": [_rule_to_json(r) for r in pipeline.rules.all().order_by("order")]}
+        {
+            "rules": [_rule_to_json(r) for r in pipeline.rules.all().order_by("order")],
+            # Persisted structure snapshot so the editor's structure inputs can
+            # be re-populated without the original RTStruct.
+            "structures": list(pipeline.structures or []),
+        }
         if pipeline
-        else {"rules": []}
+        else {"rules": [], "structures": []}
     )
     return render(
         request,
@@ -999,17 +1004,20 @@ def _create_or_update_pipeline(data, user, pipeline=None):
     _validate_pipeline_rules(rules)
 
     with transaction.atomic():
+        structures = data.get("structures", [])
         if pipeline is None:
             pipeline = SegmentationPipeline.objects.create(
                 name=data.get("name", "Unnamed Pipeline"),
                 description=data.get("description", ""),
                 is_public=data.get("is_public", False),
                 created_by=user,
+                structures=structures,
             )
         else:
             pipeline.name = data.get("name", pipeline.name)
             pipeline.description = data.get("description", pipeline.description)
             pipeline.is_public = data.get("is_public", pipeline.is_public)
+            pipeline.structures = structures
             pipeline.save()
             pipeline.rules.all().delete()
 
