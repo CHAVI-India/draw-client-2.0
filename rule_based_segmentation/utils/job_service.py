@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shutil
 from typing import Optional, Tuple
 
 from django.db import transaction
@@ -10,19 +9,14 @@ from django.utils import timezone
 
 import pydicom
 
-from dicom_handler.models import DICOMSeries, RTStructureFileImport
-from dicom_handler.import_services.task2_reidentify_rtstruct import _extract_and_save_voi_data
+from dicom_handler.models import DICOMSeries
 from spatial_overlap.models import RTStructureSetFile
 
 from ..models import RuleStep, SegmentationJob, SegmentationPipeline
 from .engine import SegmentationEngine
 from .job_workdir import JobWorkdir, get_job_workdir_base
-from .rtstruct_io import (
-    _backup_rtstruct,
-    load_rtstruct_and_image,
-    regenerate_instance_uids,
-    save_rtstruct,
-)
+from .rtstruct_io import load_rtstruct_and_image, regenerate_instance_uids
+from .structure_set_output import build_output_structure_set
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +170,8 @@ def prepare_job(job: SegmentationJob) -> None:
     wd = JobWorkdir(job.id, base_dir=get_job_workdir_base())
     try:
         wd.create()
-        job.backup_file_path = _backup_rtstruct(rtstruct_path)
-        job.save()
+        # The input file is never modified by the pipeline (the output is written
+        # to a NEW file in finalize_job), so no backup of the input is needed.
         rtstruct, image, _series = load_rtstruct_and_image(
             rtstruct_path, series_uid, instances_dir=wd.images_dir
         )
@@ -279,83 +273,89 @@ def finalize_job(job: SegmentationJob) -> dict:
         logger.warning(f"Job {job.id} finalize is a duplicate; skipping")
         return job.result_summary or {}
 
-    rtstruct_path = _job_input_rtstruct_path(job)
+    rtstruct_path = _job_input_rtstruct_path(job)  # input file (never modified)
     wd = JobWorkdir(job.id, base_dir=get_job_workdir_base())
+
+    created_rois = [
+        s.output_roi_name
+        for s in job.steps.filter(
+            status="SUCCESS", rule__output_action="CREATE_NEW"
+        ).order_by("order")
+        if s.output_roi_name
+    ]
+    replaced_rois = [
+        s.output_roi_name
+        for s in job.steps.filter(
+            status="SUCCESS", rule__output_action="REPLACE_EXISTING"
+        ).order_by("order")
+        if s.output_roi_name
+    ]
 
     try:
         engine = SegmentationEngine.from_workdir(wd.root)
-        new_sop_uid, new_series_uid = regenerate_instance_uids(engine.rtstruct)
-        save_rtstruct(engine.rtstruct, rtstruct_path)
+        regenerate_instance_uids(engine.rtstruct)  # fresh SOP/Series UIDs
+        # Write a NEW structure set file (original + new ROIs) and register it as
+        # a new RTStructureSetFile with per-ROI approval. The input file is left
+        # untouched.
+        output = build_output_structure_set(
+            engine.rtstruct, rtstruct_path, job, created_rois, replaced_rois
+        )
     except Exception as e:
         logger.error(f"Job {job.id} finalization failed: {e}", exc_info=True)
         _fail_job(job, f"Finalization failed: {e}")
         raise
 
     summary = {
-        "created_rois": [
-            s.output_roi_name
-            for s in job.steps.filter(
-                status="SUCCESS", rule__output_action="CREATE_NEW"
-            ).order_by("order")
-            if s.output_roi_name
-        ],
-        "replaced_rois": [
-            s.output_roi_name
-            for s in job.steps.filter(
-                status="SUCCESS", rule__output_action="REPLACE_EXISTING"
-            ).order_by("order")
-            if s.output_roi_name
-        ],
+        "created_rois": created_rois,
+        "replaced_rois": replaced_rois,
         # Same shape as the legacy engine summary; always [] on the success
         # path (a failed step marks the job FAILED before finalize runs).
         "failed_rules": [
             {"order": s.order, "name": s.rule.name, "error": s.error or ""}
             for s in job.steps.filter(status="FAILED").order_by("order")
         ],
-        "sop_instance_uid": new_sop_uid,
-        "series_instance_uid": new_series_uid,
+        "sop_instance_uid": output["sop_instance_uid"],
+        "series_instance_uid": output["series_instance_uid"],
+        "output_file_path": output["new_path"],
+        "output_record_id": output["record_id"],
+        "new_rois": output["new_rois"],
+        "preserved_rois": output["preserved_rois"],
     }
 
     job.status = "SUCCESS"
     job.completed_at = timezone.now()
-    job.output_file_path = rtstruct_path
+    job.output_file_path = output["new_path"]
     job.result_summary = summary
     job.error_message = None
     job.save()
 
-    # Same post-processing as the legacy single-task run.
-    _sync_record_uids(job, rtstruct_path, summary)
-    _mark_rtstruct_as_rule_based(job, rtstruct_path)
-    _push_output_to_destination(job, rtstruct_path)
+    # Post-processing. The input record is NOT re-pointed to new UIDs (the input
+    # file is unchanged); we only flag the import (if any) and push the NEW file.
+    _mark_rtstruct_as_rule_based(job)
+    _push_output_to_destination(job, output["new_path"])
     wd.cleanup()
 
     logger.info(f"Segmentation job {job.id} completed successfully")
     return summary
 
 
-def _sync_record_uids(
-    job: SegmentationJob, rtstruct_path: str, summary: dict
-) -> None:
-    """Update the input record's UIDs after the engine regenerated them."""
-    new_sop_uid = summary.get("sop_instance_uid")
-    new_series_uid = summary.get("series_instance_uid")
-    if not new_sop_uid:
-        return
+def _mark_rtstruct_as_rule_based(job: SegmentationJob) -> None:
+    """Flag the input as processed by a rule-based pipeline.
 
-    if job.input_type == "UPLOAD" and job.input_upload:
-        job.input_upload.sop_instance_uid = new_sop_uid
-        if new_series_uid:
-            job.input_upload.series_instance_uid = new_series_uid
-        job.input_upload.save(
-            update_fields=["sop_instance_uid", "series_instance_uid"]
-        )
-    elif job.input_type == "IMPORT" and job.input_import:
+    Only the status is updated — the input file (and its UIDs / VOI data) is
+    left untouched. The pipeline output lives in its own RTStructureSetFile
+    record (see build_output_structure_set), which carries per-ROI approval.
+    """
+    if job.input_import:
         rt_import = job.input_import
-        rt_import.deidentified_sop_instance_uid = new_sop_uid
-        rt_import.reidentified_rt_structure_file_sop_instance_uid = new_sop_uid
-        if new_series_uid:
-            rt_import.reidentified_rt_structure_file_series_instance_uid = new_series_uid
-        rt_import.save()
+        rt_import.server_segmentation_status = "RULE_BASED_COMPLETED"
+        rt_import.server_segmentation_updated_datetime = timezone.now()
+        rt_import.save(
+            update_fields=[
+                "server_segmentation_status",
+                "server_segmentation_updated_datetime",
+            ]
+        )
 
 
 def _push_output_to_destination(job: SegmentationJob, rtstruct_path: str) -> None:
@@ -393,51 +393,3 @@ def _push_output_to_destination(job: SegmentationJob, rtstruct_path: str) -> Non
         job.result_summary = job.result_summary or {}
         job.result_summary["push_error"] = str(e)
         job.save(update_fields=["result_summary"])
-
-
-def _mark_rtstruct_as_rule_based(job: SegmentationJob, rtstruct_path: str) -> None:
-    """Mark the input RTStruct as having been processed by a rule-based pipeline."""
-    # For imported inputs, update the existing RTStructureFileImport record.
-    if job.input_import:
-        rt_import = job.input_import
-        rt_import.server_segmentation_status = "RULE_BASED_COMPLETED"
-        rt_import.server_segmentation_updated_datetime = timezone.now()
-        rt_import.save(update_fields=["server_segmentation_status", "server_segmentation_updated_datetime"])
-        _extract_and_save_voi_data(rtstruct_path, rt_import)
-        return
-
-    # For uploaded inputs, reuse an existing RTStructureFileImport pointing at
-    # this file when present so reruns do not create duplicate list entries.
-    rt_import = RTStructureFileImport.objects.filter(
-        reidentified_rt_structure_file_path=rtstruct_path
-    ).first() or RTStructureFileImport.objects.filter(
-        deidentified_rt_structure_file_path=rtstruct_path
-    ).first()
-
-    if rt_import is None:
-        rt_import = RTStructureFileImport.objects.create(
-            deidentified_series_instance_uid=job.dicom_series,
-            deidentified_rt_structure_file_path=rtstruct_path,
-            reidentified_rt_structure_file_path=rtstruct_path,
-            received_rt_structure_file_download_datetime=timezone.now(),
-        )
-
-    rt_import.server_segmentation_status = "RULE_BASED_COMPLETED"
-    rt_import.reidentified_rt_structure_file_export_datetime = timezone.now()
-
-    try:
-        ds = pydicom.dcmread(rtstruct_path, stop_before_pixels=True, force=True)
-        if hasattr(ds, "SOPInstanceUID"):
-            rt_import.deidentified_sop_instance_uid = str(ds.SOPInstanceUID)
-            rt_import.reidentified_rt_structure_file_sop_instance_uid = str(ds.SOPInstanceUID)
-        if hasattr(ds, "StudyInstanceUID"):
-            rt_import.reidentified_rt_structure_file_study_instance_uid = str(ds.StudyInstanceUID)
-        if hasattr(ds, "SeriesInstanceUID"):
-            rt_import.reidentified_rt_structure_file_series_instance_uid = str(ds.SeriesInstanceUID)
-        if hasattr(ds, "SOPClassUID"):
-            rt_import.reidentified_rt_structure_file_sop_class_uid = str(ds.SOPClassUID)
-    except Exception as e:
-        logger.warning(f"Could not read RTStruct metadata for job {job.id}: {e}")
-
-    rt_import.save()
-    _extract_and_save_voi_data(rtstruct_path, rt_import)

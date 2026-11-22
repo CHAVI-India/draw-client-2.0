@@ -124,7 +124,8 @@ class PrepareJobTests(StepTestBase):
         self.assertEqual(job.status, "STARTED")
         self.assertIsNotNone(job.started_at)
         self.assertEqual(job.dicom_series_id, self.series.id)
-        self.assertTrue(os.path.exists(job.backup_file_path))
+        # The input file is never modified, so no backup is created.
+        self.assertIsNone(job.backup_file_path)
 
         wd = self.wd(job)
         self.assertEqual(len(os.listdir(wd.images_dir)), 10)
@@ -245,29 +246,35 @@ class FinalizeJobTests(StepTestBase):
         job_service.execute_rule_step(job, 2)
         return job
 
-    def test_finalize_writes_output_and_marks_success(self):
+    def test_finalize_writes_new_structure_set(self):
         job = self._completed_job()
-        with open(self.rtstruct_path, "rb") as fh:
-            original_bytes = fh.read()
+        original_bytes = open(self.rtstruct_path, "rb").read()
+        original_sop = self.rt_record.sop_instance_uid
 
         summary = job_service.finalize_job(job)
         job.refresh_from_db()
 
         self.assertEqual(job.status, "SUCCESS")
-        self.assertEqual(job.output_file_path, self.rtstruct_path)
+        self.assertIsNotNone(job.output_file_path)
+        self.assertNotEqual(job.output_file_path, self.rtstruct_path)  # new file
+        self.assertTrue(os.path.exists(job.output_file_path))
         self.assertIsNone(job.error_message)
-        with open(self.rtstruct_path, "rb") as fh:
-            self.assertNotEqual(original_bytes, fh.read())
-        self.assertEqual(summary["created_rois"], ["PTV", "Union"])
-        self.assertTrue(job.result_summary["sop_instance_uid"])
-        self.assertTrue(job.result_summary["series_instance_uid"])
-
-        # input record UIDs were synced to the regenerated file
+        # The input file is untouched.
+        self.assertEqual(open(self.rtstruct_path, "rb").read(), original_bytes)
+        # The input record is untouched (no UID re-pointing).
         self.rt_record.refresh_from_db()
-        self.assertEqual(
-            self.rt_record.sop_instance_uid,
-            job.result_summary["sop_instance_uid"],
-        )
+        self.assertEqual(self.rt_record.sop_instance_uid, original_sop)
+        self.assertEqual(self.rt_record.rtstructure_file_path, self.rtstruct_path)
+
+        self.assertEqual(summary["created_rois"], ["PTV", "Union"])
+        self.assertTrue(summary["sop_instance_uid"])
+        self.assertTrue(summary["series_instance_uid"])
+        # A new output structure set record is created.
+        output_record = RTStructureSetFile.objects.get(id=summary["output_record_id"])
+        self.assertEqual(output_record.sop_instance_uid, summary["sop_instance_uid"])
+        self.assertEqual(output_record.rtstructure_file_path, job.output_file_path)
+        voi_names = set(output_record.vois.values_list("roi_name", flat=True))
+        self.assertEqual(voi_names, {"Box", "PTV", "Union"})
         # work dir cleaned up on success
         self.assertFalse(self.wd(job).exists())
 

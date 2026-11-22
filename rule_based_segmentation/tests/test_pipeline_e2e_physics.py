@@ -47,6 +47,7 @@ from rule_based_segmentation.models import PipelineRule, SegmentationJob
 from rule_based_segmentation.utils import job_service
 from rule_based_segmentation.utils import rtstruct_registry
 from rule_based_segmentation.utils.engine import SegmentationEngine
+from spatial_overlap.models import RTStructureSetFile
 from rule_based_segmentation.utils.dicom_image_importer import (
     import_uploaded_image_series,
 )
@@ -457,7 +458,16 @@ class PhysicsMegaPipelineTests(TestCase):
         self.assertEqual(set(summary["created_rois"]), set(CREATED_ROIS))
 
         # --- The saved output RTStruct is verified structurally -------------
-        out_ds = pydicom.dcmread(rt_path, stop_before_pixels=True, force=True)
+        # The pipeline writes a NEW structure set file; the input copy is left
+        # untouched (no in-place overwrite anymore).
+        out_path = job.output_file_path
+        self.assertIsNotNone(out_path)
+        self.assertNotEqual(out_path, rt_path)
+        self.assertEqual(
+            open(rt_path, "rb").read(), open(self.src_rtstruct, "rb").read(),
+            "input RTStruct must not be modified",
+        )
+        out_ds = pydicom.dcmread(out_path, stop_before_pixels=True, force=True)
         out_names = {str(r.ROIName) for r in out_ds.StructureSetROISequence}
 
         for roi in CREATED_ROIS:
@@ -482,19 +492,41 @@ class PhysicsMegaPipelineTests(TestCase):
             "some created ROIs were written without contour data",
         )
 
-        # --- Fresh UIDs, study preserved, input record synced ---------------
+        # --- Fresh UIDs, study preserved; input file & record untouched -----
         self.assertNotEqual(str(out_ds.SOPInstanceUID), str(src_ds.SOPInstanceUID))
         self.assertEqual(str(out_ds.StudyInstanceUID), str(src_ds.StudyInstanceUID))
         self.assertEqual(summary["sop_instance_uid"], str(out_ds.SOPInstanceUID))
-        self.assertEqual(job.input_upload.sop_instance_uid, str(out_ds.SOPInstanceUID))
+        # Input record keeps its original (source) UID — no re-pointing.
+        self.assertEqual(job.input_upload.sop_instance_uid, str(src_ds.SOPInstanceUID))
 
-        # --- run_job created the rule-based import bookkeeping -------------
-        from dicom_handler.models import RTStructureFileImport
-        self.assertTrue(
-            RTStructureFileImport.objects.filter(
-                server_segmentation_status="RULE_BASED_COMPLETED"
-            ).exists()
+        # --- A new output structure set record with per-ROI approval --------
+        output_record = RTStructureSetFile.objects.get(id=summary["output_record_id"])
+        self.assertEqual(output_record.sop_instance_uid, str(out_ds.SOPInstanceUID))
+        self.assertEqual(
+            set(output_record.vois.values_list("roi_name", flat=True)),
+            set(CREATED_ROIS) | original_roi_names,
         )
+        # New (created) and replaced ROIs are always UNAPPROVED.
+        unapproved = set(
+            output_record.vois.filter(approval_status="UNAPPROVED")
+            .values_list("roi_name", flat=True)
+        )
+        self.assertTrue(
+            (set(CREATED_ROIS) | {"UD4"}).issubset(unapproved),
+            "created/replaced ROIs must be UNAPPROVED",
+        )
+        # Preserved ROIs inherit the source file's approval (default UNAPPROVED).
+        from rule_based_segmentation.utils.rtstruct_io import read_approval_info
+
+        expected_preserved = read_approval_info(self.src_rtstruct)["status"] or "UNAPPROVED"
+        preserved = set(
+            output_record.vois.values_list("roi_name", flat=True)
+        ) - (set(CREATED_ROIS) | {"UD4"})
+        for name in preserved:
+            self.assertEqual(
+                output_record.vois.get(roi_name=name).approval_status,
+                expected_preserved,
+            )
 
     def test_pipeline_geometry_is_correct(self):
         """Assert the operations actually compute correctly, on the engine's
