@@ -671,3 +671,5 @@ def gather_statistics_celery(self):
         logger.info("Statistics gathered successfully")
     except Exception as e:
         logger.error(f"Error in gather_statistics_celery: {str(e)}")
+# Ensure the viewer preparation task is registered with the worker
+from . import viewer_tasks  # noqa: E402,F401

@@ -5,7 +5,8 @@ Provides interactive visualization of DICOM images with RT Structure contours
 
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse
+from django.core.cache import cache
+from django.http import Http404, JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
 from .models import DICOMSeries, RTStructureFileImport, DICOMInstance, RTStructureFileVOIData, ContourModificationTypeChoices
 import os
@@ -428,41 +429,41 @@ def _roi_geometry_for_slice(sparse_mask, rt_slice_index):
     return contours
 
 
-@login_required
-@require_http_methods(["POST"])
-def load_dicom_data(request):
+def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
     """
-    API endpoint to load DICOM files and RT Structure into temporary directory
-    Returns paths and metadata for the viewer
+    Prepare viewer data: copy the series into a temporary directory, sort the
+    slices, load the RT structure and pre-build every structure mask.
+
+    Runs the (potentially long) preparation work. Used both by the
+    synchronous ``load_dicom_data`` endpoint and by the Celery task
+    ``dicom_handler.prepare_dicom_viewer``.
+
+    progress: optional callback ``progress(stage, done, total)`` where stage
+    is one of ``'copy'``, ``'sort'`` or ``'structures'``.
+
+    Returns a dict with ``temp_dir``, ``temp_rt_struct``,
+    ``instance_files``, ``roi_names`` and ``roi_colors``.
+    Raises on failure (the temporary directory is removed).
     """
+    def _emit(stage, done, total):
+        if progress is not None:
+            progress(stage, done, total)
+
+    series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
+    rt_structure = get_object_or_404(RTStructureFileImport, id=rt_structure_id)
+
+    # Create temporary directory for this session
+    temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
+
     try:
-        data = json.loads(request.body)
-        series_uid = data.get('series_uid')
-        rt_structure_id = data.get('rt_structure_id')
-        
-        if not series_uid or not rt_structure_id:
-            return JsonResponse({
-                'success': False,
-                'error': 'Missing required parameters'
-            }, status=400)
-        
-        series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
-        rt_structure = get_object_or_404(RTStructureFileImport, id=rt_structure_id)
-        
-        # Create temporary directory for this session
-        temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
-        
         # Get DICOM instances from database
-        instances = DICOMInstance.objects.filter(
-            series_instance_uid=series
-        )
-        
+        instances = list(DICOMInstance.objects.filter(series_instance_uid=series))
+
         # STEP 1: Byte-copy all DICOM files into the temp dir (one read per
         # file from the source, no re-serialization)
-        instances = list(instances)
         max_workers = min(16, (os.cpu_count() or 1) * 4)
         logger.info(f"Copying {len(instances)} DICOM files in parallel using {max_workers} workers")
-        
+
         def _copy_instance(idx, instance):
             if not instance.instance_path or not os.path.exists(instance.instance_path):
                 return None
@@ -473,21 +474,30 @@ def load_dicom_data(request):
             except Exception as e:
                 logger.warning(f"Failed to copy DICOM file {instance.sop_instance_uid}: {e}")
                 return None
-        
+
         copied = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(_copy_instance, i, inst)
                 for i, inst in enumerate(instances)
             ]
+            done_count = 0
             for future in as_completed(futures):
+                done_count += 1
+                if done_count % 5 == 0 or done_count == len(futures):
+                    _emit('copy', done_count, len(futures))
                 result = future.result()
                 if result is not None:
                     copied.append(result)
-        
+
         logger.info(f"Copied {len(copied)} out of {len(instances)} DICOM files")
-        
+
+        if not copied:
+            raise RuntimeError('No DICOM files could be copied for this series')
+
         # STEP 2: Read headers only (stop before pixel data) to get sort keys
+        _emit('sort', 0, 1)
+
         def _read_sort_keys(entry):
             try:
                 ds = pydicom.dcmread(entry['path'], stop_before_pixels=True, force=True)
@@ -498,14 +508,14 @@ def load_dicom_data(request):
                 logger.warning(f"Failed to read header for {entry['sop_instance_uid']}: {e}")
                 return None
             return entry
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             copied = [entry for entry in executor.map(_read_sort_keys, copied) if entry is not None]
-        
+
         # STEP 3: Sort and rename to the ordered instance_NNNN.dcm names
         copied.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
         logger.info(f"Sorted {len(copied)} DICOM files by instance number and slice location")
-        
+
         instance_files = []
         for idx, entry in enumerate(copied):
             final_path = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
@@ -515,22 +525,19 @@ def load_dicom_data(request):
                 'temp_path': final_path,
                 'sop_instance_uid': entry['sop_instance_uid'],
             })
-        
+
+        _emit('sort', 1, 1)
         logger.info(f"Prepared {len(instance_files)} sorted DICOM files in {temp_dir}")
-        
+
         # Copy RT Structure file to temp directory
         rt_struct_path = rt_structure.reidentified_rt_structure_file_path
         if not rt_struct_path or not os.path.exists(rt_struct_path):
             # Fallback to deidentified path
             rt_struct_path = rt_structure.deidentified_rt_structure_file_path
-        
+
         if not rt_struct_path or not os.path.exists(rt_struct_path):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return JsonResponse({
-                'success': False,
-                'error': 'RT Structure file not found'
-            }, status=404)
-        
+            raise RuntimeError('RT Structure file not found')
+
         temp_rt_struct = os.path.join(temp_dir, 'rtstruct.dcm')
         try:
             # Read and save RT Structure with proper format enforcement
@@ -538,12 +545,8 @@ def load_dicom_data(request):
             rt_ds.save_as(temp_rt_struct, enforce_file_format=True)
         except Exception as e:
             logger.error(f"Failed to save RT Structure file: {e}")
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return JsonResponse({
-                'success': False,
-                'error': f'Failed to process RT Structure file: {str(e)}'
-            }, status=500)
-        
+            raise RuntimeError(f'Failed to process RT Structure file: {e}')
+
         # Load RT Structure to get ROI names and colors (cached for later slice requests)
         try:
             bundle = _get_rtstruct_bundle(temp_dir, temp_rt_struct)
@@ -560,13 +563,14 @@ def load_dicom_data(request):
             logger.error(f"Failed to load RT Structure: {e}")
             roi_names = []
             roi_colors = {}
-        
+
         # Pre-build the sparse mask cache for every structure up front so the
         # viewer is fully ready before the first slice is shown
         if roi_names:
             cache_dir = os.path.join(temp_dir, 'mask_cache')
             os.makedirs(cache_dir, exist_ok=True)
-            for roi_name in roi_names:
+            total = len(roi_names)
+            for i, roi_name in enumerate(roi_names, start=1):
                 cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
                 failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
                 if os.path.exists(cache_file) or os.path.exists(failed_cache_file):
@@ -577,26 +581,130 @@ def load_dicom_data(request):
                     logger.error(f"Failed to pre-build mask for {roi_name}: {e}")
                     with open(failed_cache_file, 'w') as f:
                         f.write(str(e))
-        
-        # Store temp directory path in session
-        request.session['dicom_temp_dir'] = temp_dir
-        request.session['rt_struct_path'] = temp_rt_struct
-        request.session.modified = True
-        
-        return JsonResponse({
-            'success': True,
+                _emit('structures', i, total)
+
+        return {
             'temp_dir': temp_dir,
-            'instance_count': len(instance_files),
+            'temp_rt_struct': temp_rt_struct,
+            'instance_files': instance_files,
             'roi_names': roi_names,
             'roi_colors': roi_colors,
+        }
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
+
+@login_required
+@require_http_methods(["POST"])
+def load_dicom_data(request):
+    """
+    Synchronous API endpoint to load DICOM files and RT Structure into a
+    temporary directory. The page normally uses the Celery flow
+    (``start_dicom_load`` + ``get_dicom_load_progress``); this endpoint is
+    kept for direct usage and tests.
+    """
+    try:
+        data = json.loads(request.body)
+        series_uid = data.get('series_uid')
+        rt_structure_id = data.get('rt_structure_id')
+
+        if not series_uid or not rt_structure_id:
+            return JsonResponse({
+                'success': False,
+                'error': 'Missing required parameters'
+            }, status=400)
+
+        try:
+            result = prepare_dicom_viewer_data(series_uid, rt_structure_id)
+        except Http404:
+            return JsonResponse({
+                'success': False,
+                'error': 'Series or RT Structure not found'
+            }, status=404)
+
+        request.session['dicom_temp_dir'] = result['temp_dir']
+        request.session['rt_struct_path'] = result['temp_rt_struct']
+        request.session.modified = True
+
+        return JsonResponse({
+            'success': True,
+            'temp_dir': result['temp_dir'],
+            'instance_count': len(result['instance_files']),
+            'roi_names': result['roi_names'],
+            'roi_colors': result['roi_colors'],
         })
-        
+
     except Exception as e:
         logger.error(f"Error loading DICOM data: {e}")
         return JsonResponse({
             'success': False,
             'error': str(e)
         }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def start_dicom_load(request):
+    """
+    Start the Celery task that prepares the viewer data (file copy, slice
+    sorting, structure parsing and mask pre-warm) and return immediately.
+    The page then polls ``get_dicom_load_progress`` for progress.
+    """
+    try:
+        data = json.loads(request.body)
+        series_uid = data.get('series_uid')
+        rt_structure_id = data.get('rt_structure_id')
+
+        if not series_uid or not rt_structure_id:
+            return JsonResponse({
+                'success': False,
+                'error': 'Missing required parameters'
+            }, status=400)
+
+        get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
+        get_object_or_404(RTStructureFileImport, id=rt_structure_id)
+
+        from .viewer_tasks import prepare_dicom_viewer_task
+
+        progress_key = f"viewer_progress_{request.session.session_key}"
+        cache.set(progress_key, {
+            'stage': 'queued',
+            'copy': {'done': 0, 'total': 0},
+            'structures': {'done': 0, 'total': 0},
+        }, timeout=3600)
+
+        task = prepare_dicom_viewer_task.delay(
+            request.session.session_key, series_uid, rt_structure_id
+        )
+        return JsonResponse({'success': True, 'task_id': task.id})
+
+    except Http404:
+        return JsonResponse({
+            'success': False,
+            'error': 'Series or RT Structure not found'
+        }, status=404)
+    except Exception as e:
+        logger.error(f"Error starting DICOM load task: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def get_dicom_load_progress(request):
+    """Return the progress record of the viewer preparation task."""
+    progress_key = f"viewer_progress_{request.session.session_key}"
+    progress = cache.get(progress_key)
+    if progress is None:
+        return JsonResponse({
+            'success': False,
+            'error': 'No load in progress. Please reload the page.'
+        }, status=404)
+    return JsonResponse({'success': True, 'progress': progress})
+
 
 
 @login_required
