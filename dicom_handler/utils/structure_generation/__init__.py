@@ -97,6 +97,22 @@ from .pipeline import (
     parse_operation_string
 )
 
+# Canonical operation catalog + shared execution dispatcher
+from .operation_catalog import (
+    OPERATIONS,
+    OperationSpec,
+    Parameter,
+    StructureRole,
+    get_operation,
+    resolve_operation_id,
+    to_frontend_catalog,
+)
+from .execution import (
+    OperationExecutionError,
+    execute_operation,
+    supported_operation_ids,
+)
+
 __all__ = [
     # Geometry
     'load_ct_series_as_sitk_image',
@@ -143,6 +159,18 @@ __all__ = [
     'OperationPipeline',
     'create_simple_pipeline',
     'parse_operation_string',
+
+    # Canonical operation catalog + shared execution
+    'OPERATIONS',
+    'OperationSpec',
+    'Parameter',
+    'StructureRole',
+    'get_operation',
+    'resolve_operation_id',
+    'to_frontend_catalog',
+    'OperationExecutionError',
+    'execute_operation',
+    'supported_operation_ids',
 ]
 
 __version__ = '1.0.0'
