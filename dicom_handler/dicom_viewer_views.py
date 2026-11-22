@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 try:
     import pydicom
     import numpy as np
+    from PIL import Image
     from rt_utils import RTStructBuilder
     import matplotlib
     matplotlib.use('Agg')  # Use non-interactive backend
@@ -160,65 +161,271 @@ def _roi_cache_filename(roi_name, ext):
     return f"{digest}{ext}"
 
 
-def _read_dicom_full(instance):
-    """
-    Helper function to read full DICOM file (including pixels) for sorting and copying.
-    Designed to be called in parallel.
-    
-    Args:
-        instance: DICOMInstance object
-        
-    Returns:
-        Dictionary with DICOM dataset and metadata on success, None on failure
-    """
-    if not instance.instance_path or not os.path.exists(instance.instance_path):
-        return None
-    
-    try:
-        # Read full DICOM file (including pixel data)
-        ds = pydicom.dcmread(instance.instance_path, force=True)
-        instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
-        slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
-        image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
-        
-        return {
-            'instance': instance,
-            'dataset': ds,  # Full DICOM dataset in memory
-            'instance_number': instance_number,
-            'slice_location': slice_location,
-            'image_position': image_position,
-        }
-    except Exception as e:
-        logger.warning(f"Failed to read DICOM file for {instance.sop_instance_uid}: {e}")
-        return None
+# ---------------------------------------------------------------------------
+# Shared helpers: RT structure caching, image encoding, contour geometry
+# ---------------------------------------------------------------------------
+
+# Process-level cache of RT structure bundles. Keyed by (temp_dir, rt_struct_path)
+# and invalidated when the RT Structure file's mtime changes, so
+# RTStructBuilder.create_from runs once per series instead of per slice request.
+_RTSTRUCT_CACHE = {}
 
 
-def _save_dicom_file(idx, dataset, sop_instance_uid, temp_dir):
+def _get_rtstruct_bundle(temp_dir, rt_struct_path):
     """
-    Helper function to save a DICOM dataset to temp directory.
-    Designed to be called in parallel.
-    
-    Args:
-        idx: Index for the file in the sorted series (determines filename)
-        dataset: pydicom Dataset object (already loaded in memory)
-        sop_instance_uid: SOP Instance UID for logging
-        temp_dir: Temporary directory path
-        
-    Returns:
-        Dictionary with file info on success, None on failure
+    Return a cached bundle of parsed RT structure data:
+    {'rtstruct', 'series_data', 'sop_to_rt_index', 'roi_color_map', 'available_rois'}
     """
-    temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
+    key = (temp_dir, rt_struct_path)
     try:
-        # Save the already-loaded DICOM dataset with proper format enforcement
-        dataset.save_as(temp_file, enforce_file_format=True)
-        return {
-            'index': idx,
-            'temp_path': temp_file,
-            'sop_instance_uid': sop_instance_uid,
-        }
-    except Exception as e:
-        logger.error(f"Failed to save DICOM file {sop_instance_uid}: {e}")
-        return None
+        mtime = os.path.getmtime(rt_struct_path)
+    except OSError:
+        mtime = None
+
+    entry = _RTSTRUCT_CACHE.get(key)
+    if entry is not None and entry['mtime'] == mtime:
+        logger.debug(f"Using cached RT structure bundle for {temp_dir}")
+        return entry['bundle']
+
+    logger.info(f"Building RT structure bundle from {rt_struct_path}")
+    rtstruct = RTStructBuilder.create_from(
+        dicom_series_path=temp_dir,
+        rt_struct_path=rt_struct_path
+    )
+    available_rois = rtstruct.get_roi_names()
+    series_data = rtstruct.series_data
+    sop_to_rt_index = {
+        rt_slice.SOPInstanceUID: rt_idx for rt_idx, rt_slice in enumerate(series_data)
+    }
+
+    # Extract ROI colors from the RT Structure file (rainbow fallback)
+    roi_color_map = {}
+    rt_ds = pydicom.dcmread(rt_struct_path, force=True)
+    if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
+        roi_number_to_name = {}
+        for roi_item in rt_ds.StructureSetROISequence:
+            roi_number_to_name[int(roi_item.ROINumber)] = str(roi_item.ROIName)
+
+        for contour_item in rt_ds.ROIContourSequence:
+            roi_name = roi_number_to_name.get(int(contour_item.ReferencedROINumber))
+            if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
+                color_values = contour_item.ROIDisplayColor
+                roi_color_map[roi_name] = (
+                    color_values[0] / 255.0,
+                    color_values[1] / 255.0,
+                    color_values[2] / 255.0,
+                )
+
+    if available_rois:
+        rainbow_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
+        for i, roi_name in enumerate(available_rois):
+            if roi_name not in roi_color_map:
+                roi_color_map[roi_name] = rainbow_colors[i]
+
+    bundle = {
+        'rtstruct': rtstruct,
+        'series_data': series_data,
+        'sop_to_rt_index': sop_to_rt_index,
+        'roi_color_map': roi_color_map,
+        'available_rois': available_rois,
+    }
+
+    # Bound memory: keep at most 2 series bundles in memory
+    while len(_RTSTRUCT_CACHE) >= 2:
+        _RTSTRUCT_CACHE.pop(next(iter(_RTSTRUCT_CACHE)))
+    _RTSTRUCT_CACHE[key] = {'mtime': mtime, 'bundle': bundle}
+    logger.info(f"Cached RT structure bundle ({len(available_rois)} ROIs) for {temp_dir}")
+    return bundle
+
+
+def _rgb_to_hex(color):
+    """Convert a 0-1 RGB tuple (matplotlib format) to a #rrggbb string."""
+    return '#{:02x}{:02x}{:02x}'.format(*(int(round(c * 255)) for c in color[:3]))
+
+
+def _encode_windowed_png(windowed_array):
+    """
+    Encode a 0-1 windowed grayscale array as base64 PNG without matplotlib
+    (much faster than plt.savefig for plain grayscale slices).
+    """
+    arr = (np.clip(windowed_array, 0, 1) * 255.0).astype(np.uint8)
+    img = Image.fromarray(arr, mode='L')
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+
+def _simplify_contour(contour, tolerance=0.5):
+    """
+    Douglas-Peucker simplification of a find_contours point list.
+    Returns a flat [x, y, ...] array (2dp) - small enough for JSON transport.
+    """
+    pts = np.asarray(contour, dtype=np.float64)
+    n = len(pts)
+    if n <= 4:
+        return [round(float(v), 2) for v in pts.ravel().tolist()]
+    
+    keep = np.zeros(n, dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        sub = pts[i + 1:j]
+        seg = pts[j] - pts[i]
+        seg_len = np.hypot(seg[0], seg[1])
+        if seg_len < 1e-12:
+            dists = np.hypot(sub[:, 0] - pts[i][0], sub[:, 1] - pts[i][1])
+        else:
+            # Perpendicular distance of each point to line i->j (cross product)
+            dists = np.abs(
+                (pts[i][0] - sub[:, 0]) * seg[1] - (pts[i][1] - sub[:, 1]) * seg[0]
+            ) / seg_len
+        k = i + 1 + int(np.argmax(dists))
+        if dists[k - i - 1] > tolerance:
+            keep[k] = True
+            stack.append((i, k))
+            stack.append((k, j))
+    
+    return [round(float(v), 2) for v in pts[keep].ravel().tolist()]
+
+
+# Process-level in-memory cache of sparse per-slice ROI masks:
+# {(cache_dir, roi_name): {slice_index: (packed_uint8_array, (height, width))}}
+# Only non-empty slices are stored, bit-packed (~32x smaller than raw uint8;
+# a full 3D mask would be ~64 MB per ROI).
+_MASK_MEMORY_CACHE = {}
+
+
+def _pack_mask_slice(mask_slice):
+    """Bit-pack a 2D uint8 mask slice; returns (packed_array, shape)."""
+    return (
+        np.packbits(mask_slice.astype(np.uint8, copy=False).ravel()),
+        tuple(mask_slice.shape),
+    )
+
+
+def _save_sparse_mask_cache(cache_file, sparse):
+    with open(cache_file, 'wb') as f:
+        pickle.dump(sparse, f)
+
+
+# Cache of viewer-order SOP lists: {temp_dir: [sop_instance_uid or None, ...]}
+_VIEWER_SOP_CACHE = {}
+
+
+def _get_viewer_sops(temp_dir):
+    """
+    Return the SOP Instance UIDs in viewer order (instance_NNNN.dcm).
+    Used to map RT-structure slice indices onto viewer slice indices -
+    the two orderings can differ, even be reversed.
+    """
+    cached = _VIEWER_SOP_CACHE.get(temp_dir)
+    if cached is not None:
+        return cached
+
+    dicom_files = sorted([
+        os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+        if f.startswith('instance_') and f.endswith('.dcm')
+    ])
+
+    def _read_sop(path):
+        try:
+            return pydicom.dcmread(path, stop_before_pixels=True).SOPInstanceUID
+        except Exception as e:
+            logger.warning(f"Failed to read SOP Instance UID from {os.path.basename(path)}: {e}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        sops = list(executor.map(_read_sop, dicom_files))
+
+    if len(_VIEWER_SOP_CACHE) >= 4:
+        _VIEWER_SOP_CACHE.pop(next(iter(_VIEWER_SOP_CACHE)))
+    _VIEWER_SOP_CACHE[temp_dir] = sops
+    return sops
+
+
+def _load_roi_sparse_mask(rtstruct, roi_name, cache_dir):
+    """
+    Return the sparse per-slice mask for an ROI:
+    {slice_index: (packed_uint8_array, (height, width))}.
+
+    Lookup order: process memory cache -> small disk file (packed sparse dict).
+    Legacy full 3D pickles are converted on first access.
+    Raises on failure; callers record a '.failed' marker to avoid retries.
+    """
+    memory_key = (cache_dir, roi_name)
+    entry = _MASK_MEMORY_CACHE.get(memory_key)
+    if entry is not None:
+        return entry
+
+    cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
+    if os.path.exists(cache_file):
+        with open(cache_file, 'rb') as f:
+            data = pickle.load(f)
+
+        if isinstance(data, dict) and data and isinstance(next(iter(data.values())), tuple):
+            # Already packed sparse form
+            sparse = {int(k): v for k, v in data.items()}
+        elif isinstance(data, dict):
+            # Sparse but unpacked (older revision): pack and rewrite
+            sparse = {int(k): _pack_mask_slice(v) for k, v in data.items()}
+            _save_sparse_mask_cache(cache_file, sparse)
+            logger.info(f"Converted sparse mask for {roi_name} to packed form")
+        else:
+            # Legacy full 3D mask: convert to packed sparse and rewrite the file
+            mask_3d = np.asarray(data)
+            sparse = {}
+            if mask_3d.ndim == 3 and mask_3d.any():
+                for z in np.where(mask_3d.any(axis=(0, 1)))[0]:
+                    sparse[int(z)] = _pack_mask_slice(mask_3d[:, :, z])
+            _save_sparse_mask_cache(cache_file, sparse)
+            logger.info(f"Converted legacy full mask for {roi_name} to packed sparse cache")
+
+        _MASK_MEMORY_CACHE[memory_key] = sparse
+        while len(_MASK_MEMORY_CACHE) >= 64:
+            _MASK_MEMORY_CACHE.pop(next(iter(_MASK_MEMORY_CACHE)))
+        return sparse
+
+    # Build from the RT structure
+    mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
+    sparse = {}
+    if mask_3d.ndim == 3 and mask_3d.any():
+        for z in np.where(mask_3d.any(axis=(0, 1)))[0]:
+            sparse[int(z)] = _pack_mask_slice(mask_3d[:, :, z])
+
+    _save_sparse_mask_cache(cache_file, sparse)
+    logger.info(f"Cached packed sparse mask for {roi_name} ({len(sparse)} non-empty slices)")
+
+    _MASK_MEMORY_CACHE[memory_key] = sparse
+    while len(_MASK_MEMORY_CACHE) >= 64:
+        _MASK_MEMORY_CACHE.pop(next(iter(_MASK_MEMORY_CACHE)))
+    return sparse
+
+
+def _roi_geometry_for_slice(sparse_mask, rt_slice_index):
+    """
+    Return simplified contour geometry for one 2D mask slice:
+    a list of contours, each a flat [x, y, ...] array (empty if no data).
+
+    sparse_mask: {slice_index: (packed_uint8_array, (height, width))}
+    """
+    if rt_slice_index is None:
+        return []
+    entry = sparse_mask.get(int(rt_slice_index))
+    if entry is None:
+        return []
+    packed, shape = entry
+    mask_slice = np.unpackbits(packed, axis=None)[: shape[0] * shape[1]].reshape(shape)
+
+    contours = []
+    for contour in find_contours(mask_slice):
+        if len(contour) > 2:
+            # find_contours returns (row, col) = (y, x); emit (x, y) for the client
+            contours.append(_simplify_contour(contour[:, ::-1]))
+    return contours
 
 
 @login_required
@@ -250,56 +457,66 @@ def load_dicom_data(request):
             series_instance_uid=series
         )
         
-        # STEP 1: Read all DICOM files in parallel (including pixel data)
-        max_workers = min(8, (os.cpu_count() or 1) * 2)
-        logger.info(f"Reading {instances.count()} DICOM files in parallel using {max_workers} workers")
+        # STEP 1: Byte-copy all DICOM files into the temp dir (one read per
+        # file from the source, no re-serialization)
+        instances = list(instances)
+        max_workers = min(16, (os.cpu_count() or 1) * 4)
+        logger.info(f"Copying {len(instances)} DICOM files in parallel using {max_workers} workers")
         
-        dicom_data = []
+        def _copy_instance(idx, instance):
+            if not instance.instance_path or not os.path.exists(instance.instance_path):
+                return None
+            dest = os.path.join(temp_dir, f'raw_{idx:05d}.dcm')
+            try:
+                shutil.copyfile(instance.instance_path, dest)
+                return {'index': idx, 'sop_instance_uid': instance.sop_instance_uid, 'path': dest}
+            except Exception as e:
+                logger.warning(f"Failed to copy DICOM file {instance.sop_instance_uid}: {e}")
+                return None
+        
+        copied = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all read tasks
-            future_to_instance = {
-                executor.submit(_read_dicom_full, instance): instance 
-                for instance in instances
-            }
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_instance):
+            futures = [
+                executor.submit(_copy_instance, i, inst)
+                for i, inst in enumerate(instances)
+            ]
+            for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
-                    dicom_data.append(result)
+                    copied.append(result)
         
-        logger.info(f"Successfully read {len(dicom_data)} out of {instances.count()} DICOM files")
+        logger.info(f"Copied {len(copied)} out of {len(instances)} DICOM files")
         
-        # STEP 2: Aggregate and sort by instance number, slice location, image position
-        dicom_data.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
-        logger.info(f"Sorted {len(dicom_data)} DICOM files by instance number and slice location")
+        # STEP 2: Read headers only (stop before pixel data) to get sort keys
+        def _read_sort_keys(entry):
+            try:
+                ds = pydicom.dcmread(entry['path'], stop_before_pixels=True, force=True)
+                entry['instance_number'] = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
+                entry['slice_location'] = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
+                entry['image_position'] = float(ds.ImagePositionPatient[2]) if hasattr(ds, 'ImagePositionPatient') else 0.0
+            except Exception as e:
+                logger.warning(f"Failed to read header for {entry['sop_instance_uid']}: {e}")
+                return None
+            return entry
         
-        # STEP 3: Save sorted DICOM files in parallel to temp directory
-        logger.info(f"Saving {len(dicom_data)} sorted DICOM files in parallel using {max_workers} workers")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            copied = [entry for entry in executor.map(_read_sort_keys, copied) if entry is not None]
+        
+        # STEP 3: Sort and rename to the ordered instance_NNNN.dcm names
+        copied.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
+        logger.info(f"Sorted {len(copied)} DICOM files by instance number and slice location")
         
         instance_files = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all save tasks with sorted index
-            future_to_idx = {
-                executor.submit(
-                    _save_dicom_file, 
-                    idx, 
-                    data['dataset'], 
-                    data['instance'].sop_instance_uid, 
-                    temp_dir
-                ): idx 
-                for idx, data in enumerate(dicom_data)
-            }
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_idx):
-                result = future.result()
-                if result is not None:
-                    instance_files.append(result)
+        for idx, entry in enumerate(copied):
+            final_path = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
+            os.rename(entry['path'], final_path)
+            instance_files.append({
+                'index': idx,
+                'temp_path': final_path,
+                'sop_instance_uid': entry['sop_instance_uid'],
+            })
         
-        # Sort instance_files by index to maintain proper order
-        instance_files.sort(key=lambda x: x['index'])
-        logger.info(f"Successfully saved {len(instance_files)} out of {len(dicom_data)} DICOM files")
+        logger.info(f"Prepared {len(instance_files)} sorted DICOM files in {temp_dir}")
         
         # Copy RT Structure file to temp directory
         rt_struct_path = rt_structure.reidentified_rt_structure_file_path
@@ -327,43 +544,39 @@ def load_dicom_data(request):
                 'error': f'Failed to process RT Structure file: {str(e)}'
             }, status=500)
         
-        # Load RT Structure to get ROI names and colors
+        # Load RT Structure to get ROI names and colors (cached for later slice requests)
         try:
-            rtstruct = RTStructBuilder.create_from(
-                dicom_series_path=temp_dir,
-                rt_struct_path=temp_rt_struct
-            )
-            roi_names = rtstruct.get_roi_names()
-            
-            # Extract ROI colors from RT Structure file
-            roi_colors = {}
-            if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
-                # Create mapping from ROI Number to ROI Name
-                roi_number_to_name = {}
-                for roi_item in rt_ds.StructureSetROISequence:
-                    roi_number = int(roi_item.ROINumber)
-                    roi_name = str(roi_item.ROIName)
-                    roi_number_to_name[roi_number] = roi_name
-                
-                # Extract colors from ROI Contour Sequence
-                for contour_item in rt_ds.ROIContourSequence:
-                    roi_number = int(contour_item.ReferencedROINumber)
-                    roi_name = roi_number_to_name.get(roi_number)
-                    
-                    if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
-                        # ROIDisplayColor is stored as [R, G, B] with values 0-255
-                        color_values = contour_item.ROIDisplayColor
-                        roi_colors[roi_name] = {
-                            'r': int(color_values[0]),
-                            'g': int(color_values[1]),
-                            'b': int(color_values[2])
-                        }
-                        logger.info(f"Extracted color for '{roi_name}': RGB({color_values[0]}, {color_values[1]}, {color_values[2]})")
-            
+            bundle = _get_rtstruct_bundle(temp_dir, temp_rt_struct)
+            roi_names = bundle['available_rois']
+            roi_colors = {
+                name: {
+                    'r': int(round(c[0] * 255)),
+                    'g': int(round(c[1] * 255)),
+                    'b': int(round(c[2] * 255)),
+                }
+                for name, c in bundle['roi_color_map'].items()
+            }
         except Exception as e:
             logger.error(f"Failed to load RT Structure: {e}")
             roi_names = []
             roi_colors = {}
+        
+        # Pre-build the sparse mask cache for every structure up front so the
+        # viewer is fully ready before the first slice is shown
+        if roi_names:
+            cache_dir = os.path.join(temp_dir, 'mask_cache')
+            os.makedirs(cache_dir, exist_ok=True)
+            for roi_name in roi_names:
+                cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
+                failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
+                if os.path.exists(cache_file) or os.path.exists(failed_cache_file):
+                    continue
+                try:
+                    _load_roi_sparse_mask(bundle['rtstruct'], roi_name, cache_dir)
+                except Exception as e:
+                    logger.error(f"Failed to pre-build mask for {roi_name}: {e}")
+                    with open(failed_cache_file, 'w') as f:
+                        f.write(str(e))
         
         # Store temp directory path in session
         request.session['dicom_temp_dir'] = temp_dir
@@ -442,109 +655,44 @@ def get_dicom_slice(request):
         # Apply windowing
         windowed_array = apply_windowing(pixel_array, window_center, window_width)
         
-        # Create figure with aspect ratio matching the DICOM image
-        height, width = windowed_array.shape
+        # Base image: windowed grayscale PNG (no matplotlib overhead)
+        image_base64 = _encode_windowed_png(windowed_array)
         
-        # Use higher DPI for better quality when displayed large
-        # 200 DPI gives 2x native resolution for smooth display
-        dpi = 200
-        fig_width = width / dpi
-        fig_height = height / dpi
-        
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
-        ax.imshow(windowed_array, cmap='gray', interpolation='bilinear')
-        ax.axis('off')
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        
-        # Track failed ROIs
+        # Track failed ROIs; contour geometry is drawn client-side on a canvas
         failed_rois = []
+        geometry = {}
         
-        # Overlay RT Structure contours if selected
+        # Extract RT Structure contour geometry if selected (drawn in the browser)
         if selected_rois and rt_struct_path and os.path.exists(rt_struct_path):
             try:
-                logger.info(f"Loading RT Structure from {mask_sensitive_data(rt_struct_path, 'file_path')}")
                 logger.info(f"Selected ROIs: {selected_rois}")
                 
-                # Use file-based cache instead of session (masks are too large for session)
                 cache_dir = os.path.join(temp_dir, 'mask_cache')
                 os.makedirs(cache_dir, exist_ok=True)
                 
-                rtstruct = RTStructBuilder.create_from(
-                    dicom_series_path=temp_dir,
-                    rt_struct_path=rt_struct_path
-                )
-                
-                available_rois = rtstruct.get_roi_names()
-                logger.info(f"Available ROIs in RT Structure: {available_rois}")
-                
-                # Get the series_data from rt-utils to understand slice mapping
-                # rt-utils creates mask based on sorted DICOM files it finds
-                series_data = rtstruct.series_data
-                logger.info(f"RT Structure series has {len(series_data)} slices")
+                # Cached RT structure bundle (built once per series, not per slice)
+                bundle = _get_rtstruct_bundle(temp_dir, rt_struct_path)
+                rtstruct = bundle['rtstruct']
+                available_rois = bundle['available_rois']
+                roi_color_map = bundle['roi_color_map']
+                sop_to_rt_index = bundle['sop_to_rt_index']
                 
                 # Find which rt-utils slice index corresponds to our current DICOM file
                 current_sop_uid = ds.SOPInstanceUID
-                rt_slice_index = None
-                for rt_idx, rt_slice in enumerate(series_data):
-                    if rt_slice.SOPInstanceUID == current_sop_uid:
-                        rt_slice_index = rt_idx
-                        logger.info(f"Found matching slice: viewer index {slice_index} -> RT Structure index {rt_slice_index}")
-                        break
+                rt_slice_index = sop_to_rt_index.get(current_sop_uid)
                 
                 if rt_slice_index is None:
                     logger.warning(f"Could not find matching slice for SOP UID {current_sop_uid}")
                     # Fallback: use the slice index as-is
                     rt_slice_index = slice_index
                 
-                # Extract colors from RT Structure file
-                # Read the RT Structure DICOM file to get ROI colors
-                rt_ds = pydicom.dcmread(rt_struct_path, force=True)
-                roi_color_map = {}
-                
-                # Build mapping from ROI name to color from DICOM tags
-                if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
-                    # Create mapping from ROI Number to ROI Name
-                    roi_number_to_name = {}
-                    for roi_item in rt_ds.StructureSetROISequence:
-                        roi_number = int(roi_item.ROINumber)
-                        roi_name = str(roi_item.ROIName)
-                        roi_number_to_name[roi_number] = roi_name
-                    
-                    # Extract colors from ROI Contour Sequence
-                    for contour_item in rt_ds.ROIContourSequence:
-                        roi_number = int(contour_item.ReferencedROINumber)
-                        roi_name = roi_number_to_name.get(roi_number)
-                        
-                        if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
-                            # ROIDisplayColor is stored as [R, G, B] with values 0-255
-                            color_values = contour_item.ROIDisplayColor
-                            # Convert to matplotlib format (0-1 range)
-                            color = (color_values[0] / 255.0, 
-                                   color_values[1] / 255.0, 
-                                   color_values[2] / 255.0)
-                            roi_color_map[roi_name] = color
-                            logger.info(f"Extracted color for '{roi_name}': RGB({color_values[0]}, {color_values[1]}, {color_values[2]})")
-                
-                # For ROIs without colors in the file, assign rainbow colors
-                rainbow_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
-                for i, roi_name in enumerate(available_rois):
-                    if roi_name not in roi_color_map:
-                        roi_color_map[roi_name] = rainbow_colors[i]
-                        logger.info(f"Assigned rainbow color to '{roi_name}' (no color in RT Structure)")
-                
-                logger.info(f"Created color map for {len(available_rois)} ROIs ({len([k for k in roi_color_map if k in available_rois])} from file, {len([k for k in available_rois if k not in roi_color_map])} generated)")
-                
-                contours_drawn = 0
+                contours_found = 0
                 for idx, roi_name in enumerate(selected_rois):
                     if roi_name not in available_rois:
                         logger.warning(f"Skipping requested ROI not present in RT Structure: {roi_name}")
                         failed_rois.append(roi_name)
                         continue
                     try:
-                        logger.info(f"Processing ROI: {roi_name}")
-                        
-                        # Check if mask is already cached in file
-                        cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
                         failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
                         
                         # Check if this ROI failed previously
@@ -553,76 +701,35 @@ def get_dicom_slice(request):
                             failed_rois.append(roi_name)
                             continue
                         
-                        # Try to load from cache
-                        if os.path.exists(cache_file):
-                            logger.info(f"Using cached mask for {roi_name}")
-                            with open(cache_file, 'rb') as f:
-                                mask_3d = pickle.load(f)
-                        else:
-                            # Get 3D mask for this ROI - wrap in try-except to handle rt-utils/OpenCV errors
-                            try:
-                                logger.info(f"Generating mask for {roi_name} (first time)")
-                                mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
-                                
-                                # Cache the mask to file for future use
-                                with open(cache_file, 'wb') as f:
-                                    pickle.dump(mask_3d, f)
-                                logger.info(f"Cached mask for {roi_name}")
-                                
-                            except Exception as mask_error:
-                                logger.error(f"Failed to generate mask for ROI '{roi_name}': {mask_error}")
-                                logger.error(f"This ROI has invalid contour data that cannot be processed by rt-utils/OpenCV")
-                                logger.error(f"Skipping ROI '{roi_name}' and continuing with other structures")
-                                failed_rois.append(roi_name)
-                                
-                                # Mark as failed so we don't retry
-                                with open(failed_cache_file, 'w') as f:
-                                    f.write(str(mask_error))
-                                continue  # Skip this ROI and move to the next one
+                        # Load the sparse per-slice mask (memory cache, then file)
+                        try:
+                            sparse_mask = _load_roi_sparse_mask(rtstruct, roi_name, cache_dir)
+                        except Exception as mask_error:
+                            logger.error(f"Failed to load mask for ROI '{roi_name}': {mask_error}")
+                            logger.error(f"Skipping ROI '{roi_name}' and continuing with other structures")
+                            failed_rois.append(roi_name)
                             
-                        logger.info(f"Mask 3D shape for {roi_name}: {mask_3d.shape}")
-                        logger.info(f"Viewer slice index: {slice_index}, RT Structure slice index: {rt_slice_index}, Total slices in mask: {mask_3d.shape[2]}")
+                            # Mark as failed so we don't retry
+                            with open(failed_cache_file, 'w') as f:
+                                f.write(str(mask_error))
+                            continue
                         
-                        # Get the slice for current index using the mapped rt_slice_index
-                        if rt_slice_index < mask_3d.shape[2]:
-                            mask_slice = mask_3d[:, :, rt_slice_index]
-                            logger.info(f"Mask slice shape: {mask_slice.shape}, Non-zero pixels: {np.count_nonzero(mask_slice)}")
-                            
-                            # Create contour overlay
-                            if np.any(mask_slice):
-                                # Find contours
-                                contours = find_contours(mask_slice)
-                                logger.info(f"Found {len(contours)} contours for {roi_name}")
-                                
-                                for contour_idx, contour in enumerate(contours):
-                                    if len(contour) > 2:  # Need at least 3 points to draw
-                                        ax.plot(contour[:, 1], contour[:, 0], 
-                                               color=roi_color_map[roi_name], linewidth=0.5, 
-                                               label=roi_name if contour_idx == 0 else "")
-                                        contours_drawn += 1
-                            else:
-                                logger.info(f"No mask data on RT slice {rt_slice_index} for {roi_name}")
-                        else:
-                            logger.warning(f"RT slice index {rt_slice_index} out of range for {roi_name} (max: {mask_3d.shape[2]-1})")
+                        contours = _roi_geometry_for_slice(sparse_mask, rt_slice_index)
+                        contours = _roi_geometry_for_slice(mask_3d, rt_slice_index)
+                        contours_found += len(contours)
+                        geometry[roi_name] = {
+                            'color': _rgb_to_hex(roi_color_map[roi_name]),
+                            'contours': contours,
+                        }
                             
                     except Exception as e:
-                        logger.error(f"Failed to overlay ROI {roi_name}: {e}", exc_info=True)
+                        logger.error(f"Failed to extract geometry for ROI {roi_name}: {e}", exc_info=True)
                         continue
                 
-                logger.info(f"Total contours drawn: {contours_drawn}")
-                
-                # Legend removed - ROI names are displayed in the sidebar with color indicators
+                logger.info(f"Total contours extracted: {contours_found}")
                     
             except Exception as e:
-                logger.error(f"Failed to overlay RT Structure: {e}", exc_info=True)
-        
-        # Convert plot to base64 image
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches=0, pad_inches=0)
-        plt.close(fig)
-        buf.seek(0)
-        
-        image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                logger.error(f"Failed to extract RT Structure geometry: {e}", exc_info=True)
         
         # Get slice metadata
         metadata = {
@@ -634,6 +741,7 @@ def get_dicom_slice(request):
         return JsonResponse({
             'success': True,
             'image': image_base64,
+            'geometry': geometry,
             'metadata': metadata,
             'slice_index': slice_index,
             'total_slices': len(dicom_files),
@@ -646,6 +754,96 @@ def get_dicom_slice(request):
             'success': False,
             'error': str(e)
         }, status=500)
+@login_required
+@require_http_methods(["POST"])
+def get_structure_geometry(request):
+    """
+    API endpoint to get contour geometry (all slices) for the requested ROIs.
+    Compact JSON: only slices where the structure is present are included.
+    """
+    try:
+        data = json.loads(request.body)
+        selected_rois = data.get('selected_rois', [])
+        
+        temp_dir = request.session.get('dicom_temp_dir')
+        rt_struct_path = request.session.get('rt_struct_path')
+        
+        if not temp_dir or not os.path.exists(temp_dir):
+            return JsonResponse({
+                'success': False,
+                'error': 'Session expired. Please reload the page.'
+            }, status=400)
+        
+        failed_rois = []
+        structures = {}
+        
+        if selected_rois and rt_struct_path and os.path.exists(rt_struct_path):
+            try:
+                bundle = _get_rtstruct_bundle(temp_dir, rt_struct_path)
+                available_rois = bundle['available_rois']
+                roi_color_map = bundle['roi_color_map']
+                sop_to_rt_index = bundle['sop_to_rt_index']
+                
+                # Map RT-structure slice indices to viewer slice indices (the
+                # two orderings can differ, even be reversed)
+                rt_to_viewer = {}
+                for viewer_idx, sop in enumerate(_get_viewer_sops(temp_dir)):
+                    rt_idx = sop_to_rt_index.get(sop)
+                    if rt_idx is not None:
+                        rt_to_viewer[rt_idx] = viewer_idx
+                
+                cache_dir = os.path.join(temp_dir, 'mask_cache')
+                os.makedirs(cache_dir, exist_ok=True)
+                
+                for roi_name in selected_rois:
+                    if roi_name not in available_rois:
+                        logger.warning(f"Skipping requested ROI not present in RT Structure: {roi_name}")
+                        failed_rois.append(roi_name)
+                        continue
+                    
+                    failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
+                    if os.path.exists(failed_cache_file):
+                        logger.info(f"Skipping {roi_name} (previously failed)")
+                        failed_rois.append(roi_name)
+                        continue
+                    
+                    try:
+                        sparse_mask = _load_roi_sparse_mask(bundle['rtstruct'], roi_name, cache_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to load mask for ROI '{roi_name}': {e}")
+                        failed_rois.append(roi_name)
+                        with open(failed_cache_file, 'w') as f:
+                            f.write(str(e))
+                        continue
+                    
+                    slices = {}
+                    for z in sparse_mask:
+                        contours = _roi_geometry_for_slice(sparse_mask, z)
+                        if contours:
+                            # Key by VIEWER slice index so contours land on the
+                            # correct slice regardless of series ordering
+                            slices[str(rt_to_viewer.get(z, z))] = contours
+                    if slices:
+                        structures[roi_name] = {
+                            'color': _rgb_to_hex(roi_color_map[roi_name]),
+                            'slices': slices,
+                        }
+            except Exception as e:
+                logger.error(f"Failed to extract structure geometry: {e}", exc_info=True)
+        
+        return JsonResponse({
+            'success': True,
+            'structures': structures,
+            'failed_rois': failed_rois,
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting structure geometry: {e}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
 
 
 @login_required
@@ -679,46 +877,20 @@ def render_all_slices(request):
         
         logger.info(f"Pre-rendering {len(dicom_files)} slices with window C/W: {window_center}/{window_width}")
         
-        # Prepare RT Structure data if needed
+        # Prepare RT Structure data if needed (cached bundle, built once per series)
         rtstruct = None
-        roi_color_map = {}
         series_data = None
+        roi_color_map = {}
+        sop_to_rt_index = {}
         
         if selected_rois and rt_struct_path and os.path.exists(rt_struct_path):
             try:
-                # Load RT Structure once
-                rtstruct = RTStructBuilder.create_from(
-                    dicom_series_path=temp_dir,
-                    rt_struct_path=rt_struct_path
-                )
-                series_data = rtstruct.series_data
-                
-                # Extract colors once
-                rt_ds = pydicom.dcmread(rt_struct_path, force=True)
-                if hasattr(rt_ds, 'StructureSetROISequence') and hasattr(rt_ds, 'ROIContourSequence'):
-                    roi_number_to_name = {}
-                    for roi_item in rt_ds.StructureSetROISequence:
-                        roi_number = int(roi_item.ROINumber)
-                        roi_name = str(roi_item.ROIName)
-                        roi_number_to_name[roi_number] = roi_name
-                    
-                    for contour_item in rt_ds.ROIContourSequence:
-                        roi_number = int(contour_item.ReferencedROINumber)
-                        roi_name = roi_number_to_name.get(roi_number)
-                        
-                        if roi_name and hasattr(contour_item, 'ROIDisplayColor'):
-                            color_values = contour_item.ROIDisplayColor
-                            color = (color_values[0] / 255.0, 
-                                   color_values[1] / 255.0, 
-                                   color_values[2] / 255.0)
-                            roi_color_map[roi_name] = color
-                
-                # For ROIs without colors, assign rainbow colors
-                available_rois = rtstruct.get_roi_names()
-                rainbow_colors = plt.cm.rainbow(np.linspace(0, 1, len(available_rois)))
-                for i, roi_name in enumerate(available_rois):
-                    if roi_name not in roi_color_map:
-                        roi_color_map[roi_name] = rainbow_colors[i]
+                bundle = _get_rtstruct_bundle(temp_dir, rt_struct_path)
+                rtstruct = bundle['rtstruct']
+                series_data = bundle['series_data']
+                roi_color_map = bundle['roi_color_map']
+                sop_to_rt_index = bundle['sop_to_rt_index']
+                available_rois = bundle['available_rois']
                 
                 # Pre-load masks
                 cache_dir = os.path.join(temp_dir, 'mask_cache')
@@ -728,15 +900,16 @@ def render_all_slices(request):
                     if roi_name not in available_rois:
                         logger.warning(f"Skipping requested ROI not present in RT Structure: {roi_name}")
                         continue
-                    cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
-                    if not os.path.exists(cache_file):
-                        try:
-                            mask_3d = rtstruct.get_roi_mask_by_name(roi_name)
-                            with open(cache_file, 'wb') as f:
-                                pickle.dump(mask_3d, f)
-                        except Exception as e:
-                            logger.error(f"Failed to cache mask for {roi_name}: {e}")
-                
+                    failed_cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.failed'))
+                    if os.path.exists(failed_cache_file):
+                        continue
+                    try:
+                        _load_roi_sparse_mask(rtstruct, roi_name, cache_dir)
+                    except Exception as e:
+                        logger.error(f"Failed to cache mask for {roi_name}: {e}")
+                        with open(failed_cache_file, 'w') as f:
+                            f.write(str(e))
+                            
             except Exception as e:
                 logger.error(f"Failed to prepare RT Structure: {e}")
                 rtstruct = None
@@ -754,65 +927,32 @@ def render_all_slices(request):
                 if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
                     pixel_array = pixel_array * ds.RescaleSlope + ds.RescaleIntercept
                 
-                # Apply windowing
+                # Apply windowing and encode the base image (no matplotlib)
                 windowed_array = apply_windowing(pixel_array, window_center, window_width)
+                image_base64 = _encode_windowed_png(windowed_array)
                 
-                # Create figure with higher DPI for smooth display
-                height, width = windowed_array.shape
-                dpi = 200
-                fig_width = width / dpi
-                fig_height = height / dpi
-                
-                fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
-                ax.imshow(windowed_array, cmap='gray', interpolation='bilinear')
-                ax.axis('off')
-                plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-                
-                # Overlay contours if RT Structure loaded
+                # Collect contour geometry (drawn client-side on a canvas)
+                geometry = {}
                 if rtstruct and selected_rois:
-                    current_sop_uid = ds.SOPInstanceUID
-                    rt_slice_index = None
-                    for rt_idx, rt_slice in enumerate(series_data):
-                        if rt_slice.SOPInstanceUID == current_sop_uid:
-                            rt_slice_index = rt_idx
-                            break
-                    
+                    rt_slice_index = sop_to_rt_index.get(ds.SOPInstanceUID)
                     if rt_slice_index is None:
                         rt_slice_index = slice_idx
                     
                     cache_dir = os.path.join(temp_dir, 'mask_cache')
-                    contours_drawn = 0
                     
                     for roi_name in selected_rois:
-                        cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
-                        if os.path.exists(cache_file):
-                            try:
-                                with open(cache_file, 'rb') as f:
-                                    mask_3d = pickle.load(f)
-                                
-                                if rt_slice_index < mask_3d.shape[2]:
-                                    mask_slice = mask_3d[:, :, rt_slice_index]
-                                    
-                                    if np.any(mask_slice):
-                                        contours = find_contours(mask_slice)
-                                        for contour_idx, contour in enumerate(contours):
-                                            if len(contour) > 2:
-                                                ax.plot(contour[:, 1], contour[:, 0], 
-                                                       color=roi_color_map[roi_name], linewidth=0.5,
-                                                       label=roi_name if contour_idx == 0 else "")
-                                                contours_drawn += 1
-                            except Exception as e:
-                                logger.error(f"Failed to overlay {roi_name} on slice {slice_idx}: {e}")
-                    
-                    # Legend removed - ROI names are displayed in the sidebar
-                
-                # Convert to base64
-                buf = BytesIO()
-                plt.savefig(buf, format='png', bbox_inches=0, pad_inches=0)
-                plt.close(fig)
-                buf.seek(0)
-                
-                image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                        if roi_name not in roi_color_map:
+                            continue
+                        try:
+                            sparse_mask = _load_roi_sparse_mask(rtstruct, roi_name, cache_dir)
+                            contours = _roi_geometry_for_slice(sparse_mask, rt_slice_index)
+                            if contours:
+                                geometry[roi_name] = {
+                                    'color': _rgb_to_hex(roi_color_map[roi_name]),
+                                    'contours': contours,
+                                }
+                        except Exception as e:
+                            logger.error(f"Failed to extract {roi_name} on slice {slice_idx}: {e}")
                 
                 # Get metadata
                 metadata = {
@@ -823,6 +963,7 @@ def render_all_slices(request):
                 return {
                     'index': slice_idx,
                     'image': image_base64,
+                    'geometry': geometry,
                     'metadata': metadata,
                 }
             except Exception as e:

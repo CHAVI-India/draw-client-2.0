@@ -497,3 +497,6 @@ LOG_VIEWER_FILE_LIST_MAX_ITEMS_PER_PAGE = 25  # Max log files loaded in Datatabl
 LOG_VIEWER_PATTERNS = ['[INFO]', '[DEBUG]', '[WARNING]', '[ERROR]', '[CRITICAL]', '[IMPORT]', '[EXPORT]', '[DICOM]', '[CELERY]']
 LOG_VIEWER_EXCLUDE_TEXT_PATTERN = None  # String regex expression to exclude the log from line
 LOG_VIEWER_FILE_LIST_TITLE = "Application Logs"
+
+# File Upload Settings to allow multiple file uploads
+DATA_UPLOAD_MAX_NUMBER_FILES=10000

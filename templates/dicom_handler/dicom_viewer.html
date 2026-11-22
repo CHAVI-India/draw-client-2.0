@@ -177,7 +177,7 @@
     </div>
 
     <!-- Overall Contour Rating Section (Top) -->
-    <div class="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4" id="overall-rating-section">
+    <div class="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4" id="overall-rating-section" style="display: none;">
         <h3 class="text-lg font-semibold text-gray-900 mb-4">Overall Structure Set Quality</h3>
         
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -337,7 +337,13 @@
                                     <p id="loading-text" style="white-space: nowrap;">Loading DICOM data...</p>
                                 </div>
                             </div>
-                            <img id="dicom-image" src="" alt="DICOM Image" style="display: none; max-width: none; max-height: 500px; width: auto; height: auto; transition: transform 0.2s ease;">
+                            <div id="pre-render-status" style="position: absolute; top: 8px; right: 8px; z-index: 20; display: none;" class="bg-black/70 text-white text-xs rounded px-2 py-1">
+                                Loading structures...
+                            </div>
+                            <div id="image-wrapper" style="position: relative; display: none; transition: transform 0.2s ease;">
+                                <img id="dicom-image" src="" alt="DICOM Image" style="display: block; max-width: none; max-height: 500px; width: auto; height: auto;">
+                                <canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
+                            </div>
                         </div>
                 </div>
             </div>
@@ -359,9 +365,7 @@
                         </button>
                     </div>
                     
-                    <button id="apply-overlay" class="w-full px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors font-medium mb-4">
-                        Apply Overlay
-                    </button>
+                    <p class="text-xs text-gray-500 mb-3">Check or uncheck a structure to show or hide its contours on the image.</p>
                     
                     <div id="roi-list" class="space-y-3 max-h-96 overflow-y-auto">
                         <!-- ROI checkboxes with ratings will be populated here -->
@@ -596,6 +600,16 @@ const viewerState = {
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 const dicomImage = document.getElementById('dicom-image');
+const imageWrapper = document.getElementById('image-wrapper');
+const overlayCanvas = document.getElementById('overlay-canvas');
+const overlayCtx = overlayCanvas.getContext('2d');
+const preRenderStatus = document.getElementById('pre-render-status');
+
+// Per-structure contour geometry loaded from the server (all slices):
+// {roiName: {color: '#rrggbb', slices: {sliceIndex: [contours...]}}}
+const structureData = {};
+const structureLoadFailed = new Set();
+let isStructureLoading = false;
 const currentSliceSpan = document.getElementById('current-slice');
 const totalSlicesSpan = document.getElementById('total-slices');
 const sliceSlider = document.getElementById('slice-slider');
@@ -608,7 +622,6 @@ const wwValueSpan = document.getElementById('ww-value');
 const roiList = document.getElementById('roi-list');
 const selectAllBtn = document.getElementById('select-all-roi');
 const deselectAllBtn = document.getElementById('deselect-all-roi');
-const applyOverlayBtn = document.getElementById('apply-overlay');
 const zoomSlider = document.getElementById('zoom-slider');
 const zoomValueSpan = document.getElementById('zoom-value');
 const zoomInBtn = document.getElementById('zoom-in-btn');
@@ -624,6 +637,16 @@ const currentModeText = document.getElementById('current-mode-text');
 
 // Cache for pre-rendered slices
 const sliceCache = new Map();
+
+// Parse a JSON API response, detecting HTML error/redirect pages (e.g. a
+// 302 to /accounts/login/ when the session expires mid-interaction)
+async function readApiResponse(response) {
+    const contentType = response.headers.get('Content-Type') || '';
+    if (!contentType.includes('application/json')) {
+        throw new Error('Session expired. Please reload the page.');
+    }
+    return response.json();
+}
 
 // Interaction mode state
 let currentMode = null; // 'pan', 'zoom', 'window', 'slice', or null
@@ -645,7 +668,7 @@ async function initializeViewer() {
             }),
         });
 
-        const data = await response.json();
+        const data = await readApiResponse(response);
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to load DICOM data');
@@ -666,19 +689,22 @@ async function initializeViewer() {
         // Populate ROI list
         await populateROIList();
         
-        // For now, skip pre-rendering for large series (>100 slices) due to timeout/memory issues
-        // TODO: Implement batch rendering with progress updates
-        if (viewerState.totalSlices <= 100) {
-            loadingText.textContent = 'Pre-rendering all slices for instant navigation...';
+        // Pre-render the base (structure-independent) slices so navigation
+        // stays instant even with many structures selected
+        if (viewerState.totalSlices <= 300) {
+            loadingText.textContent = 'Rendering all slices...';
             await preRenderAllSlices();
-            
-            // Display first slice from cache if available
-            if (!displayCachedSlice(0)) {
-                await loadSlice(0);
-            }
         } else {
-            // For large series, use on-demand loading with caching
             loadingText.textContent = '';
+        }
+        
+        // Load all structure geometry before showing the first slice
+        if (viewerState.roiNames.length > 0) {
+            loadingText.textContent = 'Loading structures...';
+            await loadStructureGeometry(viewerState.roiNames);
+        }
+        
+        if (!displayCachedSlice(0)) {
             await loadSlice(0);
         }
         
@@ -688,16 +714,9 @@ async function initializeViewer() {
     }
 }
 
-// Pre-render all slices and cache them
+// Pre-render all base slices (without overlays) and cache them
 async function preRenderAllSlices() {
     try {
-        // Get selected ROIs (will be empty on initial load)
-        const selectedROIs = [];
-        const checkboxes = document.querySelectorAll('#roi-list input[type="checkbox"]:checked');
-        if (checkboxes.length > 0) {
-            checkboxes.forEach(cb => selectedROIs.push(cb.value));
-        }
-        
         const response = await fetch('{% url "dicom_handler:render_all_slices" %}', {
             method: 'POST',
             headers: {
@@ -707,7 +726,7 @@ async function preRenderAllSlices() {
             body: JSON.stringify({
                 window_center: viewerState.windowCenter,
                 window_width: viewerState.windowWidth,
-                selected_rois: selectedROIs,
+                selected_rois: [],
             }),
         });
 
@@ -716,13 +735,13 @@ async function preRenderAllSlices() {
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
-        const data = await response.json();
+        const data = await readApiResponse(response);
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to render slices');
         }
 
-        // Cache all rendered slices
+        // Cache all rendered base slices (overlays come from structureData)
         data.slices.forEach(slice => {
             sliceCache.set(slice.index, {
                 image: slice.image,
@@ -741,20 +760,113 @@ async function preRenderAllSlices() {
     }
 }
 
-// Display a cached slice (instant)
+// Fetch contour geometry for structures (all slices, compact) and cache it.
+// Only structures not already loaded (and not known to be failed) are requested.
+async function loadStructureGeometry(roiNames) {
+    const missing = roiNames.filter(r => !structureData[r] && !structureLoadFailed.has(r));
+    if (missing.length === 0) return;
+    if (isStructureLoading) return;
+    
+    isStructureLoading = true;
+    preRenderStatus.textContent = 'Loading structures...';
+    preRenderStatus.style.display = 'block';
+    
+    try {
+        const response = await fetch('{% url "dicom_handler:get_structure_geometry" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrftoken,
+            },
+            body: JSON.stringify({
+                selected_rois: missing,
+            }),
+        });
+        
+        const data = await readApiResponse(response);
+        
+        if (data.success) {
+            for (const [name, structure] of Object.entries(data.structures)) {
+                structureData[name] = structure;
+                structureLoadFailed.delete(name);
+            }
+            (data.failed_rois || []).forEach(roi => structureLoadFailed.add(roi));
+            if (data.failed_rois && data.failed_rois.length > 0) {
+                updateFailedROIsIndicator(data.failed_rois);
+            }
+        }
+    } catch (error) {
+        console.warn('Error loading structure geometry:', error.message);
+    } finally {
+        isStructureLoading = false;
+        preRenderStatus.style.display = 'none';
+        syncOverlayCanvas();
+    }
+}
+
+// Get the currently selected ROI names
+function getSelectedROIs() {
+    return Array.from(document.querySelectorAll('#roi-list input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+}
+
+// Show the image (and its overlay canvas)
+function showImage() {
+    imageWrapper.style.display = 'block';
+    syncOverlayCanvas();
+}
+
+// Redraw the contour overlay for the currently displayed slice (drawn from
+// the structure geometry cache - no network needed)
+function syncOverlayCanvas() {
+    if (!dicomImage.naturalWidth || !dicomImage.naturalHeight) return;
+    overlayCanvas.width = dicomImage.clientWidth;
+    overlayCanvas.height = dicomImage.clientHeight;
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    
+    const scaleX = overlayCanvas.width / dicomImage.naturalWidth;
+    const scaleY = overlayCanvas.height / dicomImage.naturalHeight;
+    
+    overlayCtx.lineWidth = 0.5;
+    for (const roiName of getSelectedROIs()) {
+        const structure = structureData[roiName];
+        if (!structure || !structure.slices) continue;
+        const contours = structure.slices[viewerState.currentSlice];
+        if (!contours) continue;
+        overlayCtx.strokeStyle = structure.color;
+        for (const flat of contours) {
+            overlayCtx.beginPath();
+            for (let i = 0; i < flat.length; i += 2) {
+                const x = flat[i] * scaleX;
+                const y = flat[i + 1] * scaleY;
+                if (i === 0) overlayCtx.moveTo(x, y);
+                else overlayCtx.lineTo(x, y);
+            }
+            overlayCtx.stroke();
+        }
+    }
+}
+
+dicomImage.addEventListener('load', syncOverlayCanvas);
+window.addEventListener('resize', () => {
+    if (imageWrapper.style.display !== 'none') syncOverlayCanvas();
+});
+
+// Display a cached base slice (instant). Overlays are drawn separately
+// from the structure geometry cache.
 function displayCachedSlice(sliceIndex) {
     const cached = sliceCache.get(sliceIndex);
-    if (cached) {
-        // Display from cache (instant)
-        dicomImage.src = 'data:image/png;base64,' + cached.image;
-        currentSliceSpan.textContent = sliceIndex + 1;
-        sliceSlider.value = sliceIndex;
-        sliceInput.value = sliceIndex + 1;
-        
-        viewerState.currentSlice = sliceIndex;
-        return true;
-    }
-    return false;
+    if (!cached) return false;
+    
+    // Display from cache (instant)
+    dicomImage.src = 'data:image/png;base64,' + cached.image;
+    currentSliceSpan.textContent = sliceIndex + 1;
+    sliceSlider.value = sliceIndex;
+    sliceInput.value = sliceIndex + 1;
+    
+    viewerState.currentSlice = sliceIndex;
+    showImage();
+    return true;
 }
 
 // Fetch modification types from backend
@@ -1003,13 +1115,21 @@ async function populateROIList() {
     });
 }
 
+// Latest slice requested while a load was already in flight (so the viewer
+// always ends on the slice the user last asked for, e.g. after Apply Overlay)
+let deferredSliceLoad = null;
+
 // Load DICOM Slice
 async function loadSlice(sliceIndex) {
-    if (viewerState.isLoading) return;
+    if (viewerState.isLoading) {
+        // Remember the latest request and run it once the in-flight load finishes
+        deferredSliceLoad = sliceIndex;
+        return;
+    }
     
     // Try to display from cache first (instant)
     if (displayCachedSlice(sliceIndex)) {
-        dicomImage.style.display = 'block';
+        showImage();
         updateSliderBackground();
         return;
     }
@@ -1019,10 +1139,9 @@ async function loadSlice(sliceIndex) {
     loadingOverlay.style.display = 'flex';
     
     try {
-        // Get selected ROIs
-        const selectedROIs = Array.from(document.querySelectorAll('#roi-list input[type="checkbox"]:checked'))
-            .map(cb => cb.value);
-        
+        // Base image only - overlays are drawn client-side from structureData
+        loadingText.textContent = `Loading slice ${sliceIndex + 1}...`;
+                
         const response = await fetch('{% url "dicom_handler:get_dicom_slice" %}', {
             method: 'POST',
             headers: {
@@ -1033,25 +1152,25 @@ async function loadSlice(sliceIndex) {
                 slice_index: sliceIndex,
                 window_center: viewerState.windowCenter,
                 window_width: viewerState.windowWidth,
-                selected_rois: selectedROIs,
             }),
         });
 
-        const data = await response.json();
+        const data = await readApiResponse(response);
         
         if (!data.success) {
             throw new Error(data.error || 'Failed to load slice');
         }
 
-        // Cache this slice for future instant access
+        // Cache this base slice for future instant access (overlays are
+        // drawn separately from the structure geometry cache)
         sliceCache.set(sliceIndex, {
             image: data.image,
             metadata: data.metadata,
         });
-
+        
         // Update image
         dicomImage.src = 'data:image/png;base64,' + data.image;
-        dicomImage.style.display = 'block';
+        showImage();
         
         // Update slice info
         viewerState.currentSlice = sliceIndex;
@@ -1066,11 +1185,6 @@ async function loadSlice(sliceIndex) {
         // Update input field
         sliceInput.value = sliceIndex + 1;
         
-        // Show warning for failed ROIs
-        if (data.failed_rois && data.failed_rois.length > 0) {
-            updateFailedROIsIndicator(data.failed_rois);
-        }
-        
         loadingOverlay.style.display = 'none';
         
     } catch (error) {
@@ -1078,6 +1192,13 @@ async function loadSlice(sliceIndex) {
         loadingText.textContent = 'Error: ' + error.message;
     } finally {
         viewerState.isLoading = false;
+        
+        // Run the latest request that arrived while this load was in flight
+        const deferred = deferredSliceLoad;
+        deferredSliceLoad = null;
+        if (deferred !== null) {
+            loadSlice(deferred);
+        }
     }
 }
 
@@ -1153,31 +1274,18 @@ sliceInput.addEventListener('input', (e) => {
     }
 });
 
-// Mouse wheel scrolling - only when hovering over the image
-let isMouseOverImage = false;
-
-dicomImage.addEventListener('mouseenter', () => {
-    isMouseOverImage = true;
-});
-
-dicomImage.addEventListener('mouseleave', () => {
-    isMouseOverImage = false;
-});
-
+// Mouse wheel scrolling over the viewer navigates CT slices and must never
+// scroll the page (always prevent default while the pointer is in the viewer)
 document.getElementById('viewer-container').addEventListener('wheel', (e) => {
-    // Only prevent default and scroll slices if mouse is over the image
-    if (isMouseOverImage) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // Scroll up = increase slice number (move up through body)
-        if (e.deltaY < 0 && viewerState.currentSlice < viewerState.totalSlices - 1) {
-            loadSlice(viewerState.currentSlice + 1);
-        } 
-        // Scroll down = decrease slice number (move down through body)
-        else if (e.deltaY > 0 && viewerState.currentSlice > 0) {
-            loadSlice(viewerState.currentSlice - 1);
-        }
+    e.preventDefault();
+    
+    // Scroll up = increase slice number (move up through body)
+    if (e.deltaY < 0 && viewerState.currentSlice < viewerState.totalSlices - 1) {
+        loadSlice(viewerState.currentSlice + 1);
+    } 
+    // Scroll down = decrease slice number (move down through body)
+    else if (e.deltaY > 0 && viewerState.currentSlice > 0) {
+        loadSlice(viewerState.currentSlice - 1);
     }
 }, { passive: false });
 
@@ -1233,24 +1341,28 @@ selectAllBtn.addEventListener('click', () => {
     document.querySelectorAll('#roi-list input[type="checkbox"][id^="roi-"]').forEach(cb => {
         cb.checked = true;
     });
+    updateOverlayVisibility();
 });
 
 deselectAllBtn.addEventListener('click', () => {
     document.querySelectorAll('#roi-list input[type="checkbox"][id^="roi-"]').forEach(cb => {
         cb.checked = false;
     });
+    updateOverlayVisibility();
 });
 
-applyOverlayBtn.addEventListener('click', () => {
-    // Clear cache to force re-render with new ROI selections
-    sliceCache.clear();
+// Show/hide contours and the rating UI based on the checked structures.
+// Structures are pre-loaded at startup, so this is purely client-side.
+function updateOverlayVisibility() {
+    // Re-draw the overlay with the current selection
+    syncOverlayCanvas();
     
-    loadSlice(viewerState.currentSlice);
+    const selected = getSelectedROIs();
     
-    // Show overall rating section at the top
+    // Show/hide the overall rating section
     const overallRatingSection = document.getElementById('overall-rating-section');
     if (overallRatingSection) {
-        overallRatingSection.style.display = 'block';
+        overallRatingSection.style.display = selected.length > 0 ? 'block' : 'none';
     }
     
     // Enable/disable rating forms based on which structures are checked
@@ -1261,13 +1373,11 @@ applyOverlayBtn.addEventListener('click', () => {
         if (ratingSection) {
             const isChecked = checkbox.checked;
             
-            // Enable/disable all form elements in the rating section
             const formElements = ratingSection.querySelectorAll('select, textarea, input');
             formElements.forEach(element => {
                 element.disabled = !isChecked;
             });
             
-            // Add/remove visual indication
             if (isChecked) {
                 ratingSection.classList.remove('opacity-50');
             } else {
@@ -1275,6 +1385,13 @@ applyOverlayBtn.addEventListener('click', () => {
             }
         }
     });
+}
+
+// Live overlay updates when the structure selection changes
+document.getElementById('roi-list').addEventListener('change', (e) => {
+    if (e.target && e.target.matches('input[type="checkbox"]')) {
+        updateOverlayVisibility();
+    }
 });
 
 // Mode switching
@@ -1342,8 +1459,8 @@ let interactionState = {
 
 function applyZoom(zoomLevel) {
     const scale = zoomLevel / 100;
-    dicomImage.style.transform = `translate(${interactionState.translateX}px, ${interactionState.translateY}px) scale(${scale})`;
-    dicomImage.style.transformOrigin = 'center center';
+    imageWrapper.style.transform = `translate(${interactionState.translateX}px, ${interactionState.translateY}px) scale(${scale})`;
+    imageWrapper.style.transformOrigin = 'center center';
     zoomValueSpan.textContent = `${zoomLevel}%`;
     zoomSlider.value = zoomLevel;
 }
@@ -1403,7 +1520,7 @@ document.addEventListener('mousemove', (e) => {
         interactionState.translateY = e.clientY - interactionState.startY;
         const currentZoom = parseInt(zoomSlider.value);
         const scale = currentZoom / 100;
-        dicomImage.style.transform = `translate(${interactionState.translateX}px, ${interactionState.translateY}px) scale(${scale})`;
+        imageWrapper.style.transform = `translate(${interactionState.translateX}px, ${interactionState.translateY}px) scale(${scale})`;
     } else if (currentMode === 'zoom') {
         const deltaY = interactionState.startY - e.clientY;
         const zoomChange = Math.floor(deltaY / 2);
