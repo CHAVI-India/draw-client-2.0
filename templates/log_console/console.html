@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+
+{% block title %}Log Console — DRAW{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Page header -->
+    <div class="flex flex-wrap items-end justify-between gap-4 mb-4">
+        <div>
+            <h1 class="font-brand text-2xl font-semibold text-gray-900 tracking-tight">Log Console</h1>
+            <p class="text-sm text-gray-500 mt-0.5">
+                Live tail of application logs · {{ files|length }} files · {{ total_size }} total
+            </p>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="{% url 'log_console:download_all' %}"
+               class="inline-flex items-center gap-2 bg-gray-900 hover:bg-gray-700 text-white font-nav font-medium px-4 py-2 rounded-md text-sm transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/>
+                </svg>
+                Download all (.zip)
+            </a>
+            <a id="download-file-btn"
+               href="/logs/download/?file={{ selected|urlencode|default:'' }}"
+               class="inline-flex items-center gap-2 border border-gray-300 hover:border-gray-400 bg-white text-gray-700 hover:text-gray-900 font-nav font-medium px-4 py-2 rounded-md text-sm transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"/>
+                </svg>
+                Download file
+            </a>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex flex-wrap items-center gap-3 bg-white border border-gray-200 rounded-lg px-4 py-3 mb-3">
+        <label class="flex items-center gap-2 font-nav text-sm text-gray-600">
+            <span class="font-medium">File</span>
+            <select id="log-file-select"
+                    class="border border-gray-300 rounded-md px-2.5 py-1.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-gray-300 max-w-xs">
+                {% for f in files %}
+                <option value="{{ f.name }}" {% if f.name == selected %}selected{% endif %}>{{ f.name }} · {{ f.size_human }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label class="flex items-center gap-2 font-nav text-sm text-gray-600">
+            <span class="font-medium">Tail</span>
+            <select id="log-window-select" class="border border-gray-300 rounded-md px-2.5 py-1.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-gray-300">
+                <option value="200">200 lines</option>
+                <option value="500" {% if window == 500 %}selected{% endif %}>500 lines</option>
+                <option value="1000">1000 lines</option>
+                <option value="2000">2000 lines</option>
+            </select>
+        </label>
+
+        <!-- Level filters -->
+        <div class="flex items-center gap-1" role="group" aria-label="Log level filter">
+            <button data-level="ALL" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-gray-900 text-white border-gray-900">All</button>
+            <button data-level="CRITICAL" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-white text-red-600 border-gray-300 hover:bg-red-50">Critical</button>
+            <button data-level="ERROR" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-white text-red-500 border-gray-300 hover:bg-red-50">Error</button>
+            <button data-level="WARNING" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-white text-amber-600 border-gray-300 hover:bg-amber-50">Warning</button>
+            <button data-level="INFO" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-white text-slate-600 border-gray-300 hover:bg-slate-100">Info</button>
+            <button data-level="DEBUG" class="lvl-chip px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors bg-white text-slate-500 border-gray-300 hover:bg-slate-100">Debug</button>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <input id="log-search" type="search" placeholder="Filter lines…"
+               class="w-56 border border-gray-300 rounded-md px-3 py-1.5 text-sm font-nav text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300">
+
+        <button id="autoscroll-btn" type="button"
+                class="inline-flex items-center gap-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-nav text-sm font-medium px-3 py-1.5 rounded-md transition-colors">
+            <span class="text-xs">Auto-scroll</span>
+            <span class="text-xs inline-block w-2 h-2 rounded-full bg-green-500"></span>
+        </button>
+
+        <button id="pause-btn" type="button"
+                class="inline-flex items-center gap-1.5 bg-gray-900 hover:bg-gray-700 text-white font-nav text-sm font-medium px-3 py-1.5 rounded-md transition-colors">
+            <span id="pause-label">Pause</span>
+        </button>
+    </div>
+
+    <!-- Console -->
+    <div class="bg-[#060d1a] border border-ink-700 rounded-lg overflow-hidden shadow-inner">
+        <div id="log-console" class="h-[58vh] min-h-[380px] overflow-y-auto p-4 font-mono text-[13px] leading-[1.55]">
+            {% if not files %}
+            <p class="text-slate-500">No log files found in the log directory.</p>
+            {% else %}
+            <p id="console-placeholder" class="text-slate-500">Connecting to <span class="text-slate-300">{{ selected }}</span>…</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1 mt-2.5 font-nav text-xs text-gray-500">
+        <span class="inline-flex items-center gap-2">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-slate-400 animate-pulse"></span>
+            <span id="status-text">Connecting…</span>
+        </span>
+        <span id="line-count">0 lines in view</span>
+        <span id="file-info"></span>
+        <span class="ml-auto hidden md:inline">Levels highlight automatically · stream reconnects automatically</span>
+    </div>
+</div>
+
+{{ files|json_script:'log-file-meta' }}
+<script>
+(function () {
+    'use strict';
+
+    var FILE_META = JSON.parse(document.getElementById('log-file-meta').textContent || '[]');
+
+    var state = {
+        file: '{{ selected|default:"" }}',
+        window: {{ window }},
+        paused: false,
+        autoscroll: true,
+        level: 'ALL',
+        query: '',
+        lines: [],          // retained raw lines (bounded)
+        pending: [],        // not yet rendered
+        flushTimer: null,
+        es: null,
+        status: 'connecting'
+    };
+    var MAX_LINES = 6000;
+    var consoleEl = document.getElementById('log-console');
+    var statusDot = document.getElementById('status-dot');
+    var statusText = document.getElementById('status-text');
+    var lineCountEl = document.getElementById('line-count');
+    var fileInfoEl = document.getElementById('file-info');
+    var fileSelect = document.getElementById('log-file-select');
+    var windowSelect = document.getElementById('log-window-select');
+    var searchInput = document.getElementById('log-search');
+    var pauseBtn = document.getElementById('pause-btn');
+    var pauseLabel = document.getElementById('pause-label');
+    var autoscrollBtn = document.getElementById('autoscroll-btn');
+    var downloadBtn = document.getElementById('download-file-btn');
+
+    function levelOf(line) {
+        if (/\b(CRITICAL|FATAL)\b/.test(line)) return 'CRITICAL';
+        if (/\bERROR\b/.test(line)) return 'ERROR';
+        if (/\b(WARNING|WARN)\b/.test(line)) return 'WARNING';
+        if (/\bDEBUG\b/.test(line)) return 'DEBUG';
+        return 'INFO';
+    }
+    var LEVEL_CLASS = {
+        'CRITICAL': 'text-red-300 font-semibold',
+        'ERROR': 'text-red-400',
+        'WARNING': 'text-amber-300',
+        'DEBUG': 'text-slate-500',
+        'INFO': 'text-slate-300'
+    };
+
+    function matches(line) {
+        if (state.level !== 'ALL' && levelOf(line) !== state.level) return false;
+        if (state.query && line.toLowerCase().indexOf(state.query) === -1) return false;
+        return true;
+    }
+
+    function makeLineEl(line) {
+        var el = document.createElement('div');
+        el.className = 'whitespace-pre-wrap break-words ' + (LEVEL_CLASS[levelOf(line)] || 'text-slate-300');
+        el.textContent = line;
+        return el;
+    }
+
+    function setStatus(s) {
+        state.status = s;
+        statusDot.className = 'w-2 h-2 rounded-full ' + (
+            s === 'live' ? 'bg-green-500' :
+            s === 'paused' ? 'bg-slate-400' :
+            s === 'reconnecting' ? 'bg-amber-400 animate-pulse' : 'bg-slate-400 animate-pulse'
+        );
+        statusText.textContent = s === 'live' ? 'Live' : s === 'paused' ? 'Paused' :
+                                 s === 'reconnecting' ? 'Reconnecting…' : 'Connecting…';
+    }
+
+    function updateCounts() {
+        lineCountEl.textContent = state.lines.length + ' lines in view';
+    }
+
+    function flushPending() {
+        state.flushTimer = null;
+        if (!state.pending.length) return;
+        var batch = state.pending.splice(0, state.pending.length);
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < batch.length; i++) {
+            if (matches(batch[i])) frag.appendChild(makeLineEl(batch[i]));
+        }
+        var placeholder = document.getElementById('console-placeholder');
+        if (placeholder) placeholder.remove();
+        consoleEl.appendChild(frag);
+        // Prune old DOM nodes
+        while (consoleEl.childElementCount > MAX_LINES) {
+            consoleEl.removeChild(consoleEl.firstChild);
+        }
+        updateCounts();
+        if (state.autoscroll &&
+            consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 120) {
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+    }
+
+    function pushLine(line) {
+        state.lines.push(line);
+        if (state.lines.length > MAX_LINES) {
+            state.lines.splice(0, state.lines.length - MAX_LINES);
+        }
+        state.pending.push(line);
+        if (!state.flushTimer) {
+            state.flushTimer = setTimeout(flushPending, 250);
+        }
+    }
+
+    function clearConsole() {
+        consoleEl.innerHTML = '';
+        state.lines = [];
+        state.pending = [];
+        updateCounts();
+    }
+
+    function closeStream() {
+        if (state.es) {
+            state.es.close();
+            state.es = null;
+        }
+    }
+
+    function connect() {
+        closeStream();
+        if (!state.file) return;
+        var url = '/logs/stream/?file=' + encodeURIComponent(state.file) + '&window=' + state.window;
+        state.es = new EventSource(url);
+        state.es.onopen = function () { setStatus('live'); };
+        state.es.onerror = function () {
+            if (!state.paused) setStatus('reconnecting');
+        };
+        state.es.onmessage = function (e) {
+            try { pushLine(JSON.parse(e.data)); } catch (err) { /* ignore malformed */ }
+        };
+    }
+
+    function reapply() {
+        // Re-render the retained buffer through the current filters (keep the buffer!)
+        consoleEl.innerHTML = '';
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < state.lines.length; i++) {
+            if (matches(state.lines[i])) frag.appendChild(makeLineEl(state.lines[i]));
+        }
+        consoleEl.appendChild(frag);
+        while (consoleEl.childElementCount > MAX_LINES) consoleEl.removeChild(consoleEl.firstChild);
+        updateCounts();
+        if (state.autoscroll) consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    // --- events ---
+    fileSelect.addEventListener('change', function () {
+        state.file = fileSelect.value;
+        if (downloadBtn) downloadBtn.href = '/logs/download/?file=' + encodeURIComponent(state.file);
+        var ph = consoleEl.querySelector('#console-placeholder');
+        if (ph) ph.remove();
+        clearConsole();
+        if (!state.paused) connect();
+    });
+
+    windowSelect.addEventListener('change', function () {
+        state.window = windowSelect.value;
+        if (!state.paused) { clearConsole(); connect(); }
+    });
+
+    document.querySelectorAll('.lvl-chip').forEach(function (chip) {
+        chip.addEventListener('click', function () {
+            state.level = chip.getAttribute('data-level');
+            document.querySelectorAll('.lvl-chip').forEach(function (c) {
+                c.className = c.className
+                    .replace(/bg-gray-900 text-white border-gray-900/g, 'bg-white border-gray-300');
+            });
+            var base = 'px-2.5 py-1.5 rounded-md text-xs font-semibold font-nav border transition-colors ';
+            var color = { 'CRITICAL': 'text-red-600', 'ERROR': 'text-red-500', 'WARNING': 'text-amber-600', 'INFO': 'text-slate-600', 'DEBUG': 'text-slate-500', 'ALL': 'text-gray-600' }[state.level];
+            document.querySelectorAll('.lvl-chip').forEach(function (c) {
+                c.className = base + 'bg-white border-gray-300 ' + color;
+            });
+            chip.className = base + 'bg-gray-900 border-gray-900 text-white';
+            reapply();
+        });
+    });
+
+    searchInput.addEventListener('input', function () {
+        state.query = searchInput.value.trim().toLowerCase();
+        reapply();
+    });
+
+    autoscrollBtn.addEventListener('click', function () {
+        state.autoscroll = !state.autoscroll;
+        autoscrollBtn.querySelector('span:last-child').className =
+            'text-xs inline-block w-2 h-2 rounded-full ' + (state.autoscroll ? 'bg-green-500' : 'bg-slate-300');
+    });
+
+    pauseBtn.addEventListener('click', function () {
+        state.paused = !state.paused;
+        if (state.paused) {
+            closeStream();
+            setStatus('paused');
+            pauseLabel.textContent = 'Resume';
+            pauseBtn.className = 'inline-flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-nav text-sm font-medium px-3 py-1.5 rounded-md transition-colors';
+        } else {
+            pauseLabel.textContent = 'Pause';
+            pauseBtn.className = 'inline-flex items-center gap-1.5 bg-gray-900 hover:bg-gray-700 text-white font-nav text-sm font-medium px-3 py-1.5 rounded-md transition-colors';
+            connect();
+        }
+    });
+
+    // File info line
+    function humanSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+    function updateFileInfo() {
+        var meta = null;
+        for (var i = 0; i < FILE_META.length; i++) {
+            if (FILE_META[i].name === state.file) { meta = FILE_META[i]; break; }
+        }
+        fileInfoEl.textContent = meta
+            ? state.file + ' · ' + humanSize(meta.size)
+            : (state.file || 'no file');
+    }
+    updateFileInfo();
+    fileSelect.addEventListener('change', updateFileInfo);
+
+    if (state.file) {
+        setStatus('connecting');
+        connect();
+    }
+})();
+</script>
+{% endblock %}

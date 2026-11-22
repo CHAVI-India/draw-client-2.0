@@ -6,6 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}DRAW{% endblock %}</title>
     {% load static %}
+    <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
     {# Shared CSRF token resolver for all inline fetch/axios code on every page. #}
     <script src="{% static 'js/csrf.js' %}"></script>

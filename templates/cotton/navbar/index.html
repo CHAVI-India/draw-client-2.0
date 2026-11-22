@@ -1,28 +1,42 @@
-<nav class="bg-white shadow-lg border-b border-gray-200">
+<nav class="bg-ink-900 shadow-md" aria-label="Main navigation">
     <div class="container mx-auto px-4">
         <div class="flex justify-between items-center h-16">
             <!-- Logo/Brand -->
-            <div class="flex items-center">
-                <a href="{% url 'home' %}" class="text-2xl font-bold text-primary-700 hover:text-primary-600 transition-colors">
-                    DRAW
-                </a>
-            </div>
+            <a href="{% url 'home' %}" class="flex items-center gap-2.5 group">
+                <svg class="w-8 h-8 flex-shrink-0" viewBox="0 0 40 40" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="draw-logo-g" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0" stop-color="#fbbf24"/>
+                            <stop offset="1" stop-color="#d97706"/>
+                        </linearGradient>
+                    </defs>
+                    <rect x="1.5" y="1.5" width="37" height="37" rx="9" fill="url(#draw-logo-g)"/>
+                    <circle cx="20" cy="20" r="9" fill="none" stroke="#0b1526" stroke-width="2.6"/>
+                    <line x1="20" y1="6.5" x2="20" y2="13" stroke="#0b1526" stroke-width="2.6" stroke-linecap="round"/>
+                    <line x1="20" y1="27" x2="20" y2="33.5" stroke="#0b1526" stroke-width="2.6" stroke-linecap="round"/>
+                    <line x1="6.5" y1="20" x2="13" y2="20" stroke="#0b1526" stroke-width="2.6" stroke-linecap="round"/>
+                    <line x1="27" y1="20" x2="33.5" y2="20" stroke="#0b1526" stroke-width="2.6" stroke-linecap="round"/>
+                    <line x1="13.5" y1="20" x2="26.5" y2="20" stroke="#0b1526" stroke-width="2.6" stroke-linecap="round"/>
+                    <circle cx="20" cy="20" r="2.6" fill="#0b1526"/>
+                </svg>
+                <span class="font-brand text-xl font-semibold tracking-tight text-white group-hover:text-amber-300 transition-colors">DRAW</span>
+            </a>
 
             <!-- Navigation Links -->
-            <div class="hidden md:flex items-center space-x-1">
+            <div class="hidden lg:flex items-center gap-1">
                 {% if perms.dicom_handler.view_dicomseries %}
                 <div class="relative group">
-                    <button type="button" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center">
+                    <button type="button" class="font-nav text-sm font-medium text-slate-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors inline-flex items-center">
                         Patient Processing
-                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 ml-1 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                         </svg>
                     </button>
                     <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-                        <div class="bg-white shadow-lg rounded-md border border-gray-200 py-2 w-56">
-                            <a href="{% url 'dicom_handler:series_processing_status' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Series Processing Status</a>
-                            <a href="{% url 'dicom_handler:manual_processing_status' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Manual Processing</a>
-                            <a href="{% url 'dicom_handler:patient_list' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Patients</a>
+                        <div class="bg-white shadow-xl rounded-lg border border-gray-200 py-1.5 w-56">
+                            <a href="{% url 'dicom_handler:series_processing_status' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Series Processing Status</a>
+                            <a href="{% url 'dicom_handler:manual_processing_status' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Manual Processing</a>
+                            <a href="{% url 'dicom_handler:patient_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Patients</a>
                         </div>
                     </div>
                 </div>
@@ -30,91 +44,106 @@
 
                 {% if user.is_authenticated %}
                 <div class="relative group">
-                    <button type="button" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center">
+                    <button type="button" class="font-nav text-sm font-medium text-slate-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors inline-flex items-center">
                         Segmentation Configuration
-                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 ml-1 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                         </svg>
                     </button>
                     <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-                        <div class="bg-white shadow-lg rounded-md border border-gray-200 py-2 w-64">
-                            <p class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Automatic Segmentation</p>
+                        <div class="bg-white shadow-xl rounded-lg border border-gray-200 py-1.5 w-64">
+                            <p class="px-4 pt-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Automatic Segmentation</p>
                             {% if perms.dicom_handler.view_autosegmentationtemplate %}
-                            <a href="{% url 'dicom_handler:template_list' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Templates</a>
+                            <a href="{% url 'dicom_handler:template_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Templates</a>
                             {% endif %}
                             {% if perms.dicom_handler.view_ruleset %}
-                            <a href="{% url 'dicom_handler:ruleset_list' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Rule Groups</a>
+                            <a href="{% url 'dicom_handler:ruleset_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Rule Groups</a>
                             {% endif %}
-                            <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Rule-Based Segmentation</p>
-                            <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Pipelines</a>
-                            <a href="{% url 'rule_based_segmentation:job_list' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Jobs</a>
-                            <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Structure Analysis</p>
-                            <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">RTStructs</a>
-                            <a href="{% url 'spatial_overlap:list_comparisons' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Comparisons</a>
+                            <p class="px-4 pt-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Rule-Based Segmentation</p>
+                            <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Pipelines</a>
+                            <a href="{% url 'rule_based_segmentation:job_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Jobs</a>
+                            <p class="px-4 pt-2.5 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Structure Analysis</p>
+                            <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">RTStructs</a>
+                            <a href="{% url 'spatial_overlap:list_comparisons' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Comparisons</a>
+                            <a href="{% url 'dicom_handler:rt_structure_ratings_list' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">RT Structure Ratings</a>
                         </div>
                     </div>
                 </div>
                 {% endif %}
 
                 <div class="relative group">
-                    <button type="button" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center">
-                        System Configuration
-                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button type="button" class="font-nav text-sm font-medium text-slate-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors inline-flex items-center">
+                        Configuration
+                        <svg class="w-4 h-4 ml-1 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                         </svg>
                     </button>
                     <div class="absolute left-0 top-full pt-1 hidden group-hover:block z-50">
-                        <div class="bg-white shadow-lg rounded-md border border-gray-200 py-2 w-56">
+                        <div class="bg-white shadow-xl rounded-lg border border-gray-200 py-1.5 w-56">
                             {% if user.is_authenticated %}
-                            <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">Statistics</a>
+                            <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Statistics</a>
                             {% endif %}
                             {% if perms.dicom_handler.view_systemconfiguration %}
-                            <a href="{% url 'dicom_handler:system_configuration' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">System Configuration</a>
+                            <a href="{% url 'dicom_handler:system_configuration' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Configuration</a>
                             {% endif %}
                             {% if user.is_authenticated %}
-                            <a href="{% url 'dicom_server:dashboard' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-primary-600">DICOM Configuration</a>
+                            <a href="{% url 'dicom_server:dashboard' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">DICOM Configuration</a>
+                            {% endif %}
+                            {% if user.is_staff %}
+                            <a href="{% url 'log_console:console' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">Logs</a>
                             {% endif %}
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- User Menu -->
-            <div class="hidden md:flex items-center space-x-2">
+            <!-- Status, Profile & Auth -->
+            <div class="hidden lg:flex items-center space-x-3">
                 {% if user.is_authenticated %}
                     <!-- API Health Status Indicator -->
-                    <div id="health-status-indicator" class="flex items-center space-x-2 px-3 py-1 rounded-md text-xs font-medium bg-gray-100 border border-gray-200" title="DRAW API Health Status">
-                        <span id="health-status-dot" class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
-                        <span id="health-status-text" class="text-gray-500">API: Checking...</span>
+                    <div id="health-status-indicator" class="flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-nav font-medium bg-white/10 border border-white/10 text-slate-300" title="DRAW API Health Status">
+                        <span id="health-status-dot" class="w-2 h-2 rounded-full bg-slate-400 animate-pulse"></span>
+                        <span id="health-status-text" class="text-slate-300">API: Checking...</span>
                     </div>
-                    {% if user.is_staff %}
-                    <a href="{% url 'admin:index' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors" title="Django Administration">
-                        Admin
-                    </a>
-                    {% endif %}
-                    <a href="{% url 'account_email' %}" class="text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">
-                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                        </svg>
-                        User Account
-                    </a>
-                    <a href="{% url 'account_logout' %}" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
-                        Logout
-                    </a>
+
+                    <!-- User Profile -->
+                    <div class="relative group">
+                        <button type="button" class="flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-md hover:bg-white/10 transition-colors" aria-haspopup="true" aria-expanded="false">
+                            <span class="w-8 h-8 rounded-full bg-amber-500 text-ink-900 font-brand font-bold text-sm flex items-center justify-center">{{ user.first_name|default:user.username|first|upper }}</span>
+                            <span class="font-nav text-sm font-medium text-slate-200 hidden xl:block">{{ user.first_name|default:user.username }}</span>
+                            <svg class="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        <div class="absolute right-0 top-full pt-1 hidden group-hover:block z-50">
+                            <div class="bg-white shadow-xl rounded-lg border border-gray-200 py-1.5 w-56">
+                                <div class="px-4 py-2.5 border-b border-gray-100">
+                                    <p class="font-nav text-sm font-semibold text-gray-900 truncate">{{ user.get_full_name|default:user.username }}</p>
+                                    <p class="font-nav text-xs text-gray-500 truncate">{{ user.email|default:"" }}</p>
+                                </div>
+                                <a href="{% url 'account_email' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900">User Account</a>
+                                {% if user.is_staff %}
+                                <a href="{% url 'admin:index' %}" class="font-nav block px-4 py-2 text-sm text-gray-700 hover:bg-ink-50 hover:text-ink-900" title="Django Administration">Admin</a>
+                                {% endif %}
+                                <div class="border-t border-gray-100 mt-1"></div>
+                                <a href="{% url 'account_logout' %}" class="font-nav block px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700">Log out</a>
+                            </div>
+                        </div>
+                    </div>
                 {% else %}
-                    <a href="{% url 'account_login' %}" class="text-primary-600 hover:text-primary-700 px-3 py-2 rounded-md text-sm font-medium transition-colors">
-                        Login
+                    <a href="{% url 'account_login' %}" class="font-nav text-sm font-medium text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors">
+                        Log in
                     </a>
-                    <a href="{% url 'account_signup' %}" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                    <a href="{% url 'account_signup' %}" class="font-nav bg-amber-500 hover:bg-amber-400 text-ink-900 px-4 py-2 rounded-md text-sm font-semibold transition-colors">
                         Sign Up
                     </a>
                 {% endif %}
             </div>
 
             <!-- Mobile menu button -->
-            <div class="md:hidden">
-                <button type="button" class="text-gray-700 hover:text-primary-600 focus:outline-none focus:text-primary-600" id="mobile-menu-button">
-                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="lg:hidden">
+                <button type="button" class="text-slate-200 hover:text-white hover:bg-white/10 rounded-md p-2 transition-colors focus:outline-none" id="mobile-menu-button" aria-label="Toggle navigation menu" aria-expanded="false">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                     </svg>
                 </button>
@@ -122,78 +151,76 @@
         </div>
 
         <!-- Mobile menu -->
-        <div class="md:hidden hidden" id="mobile-menu">
-            <div class="px-2 pt-2 pb-3 space-y-1 border-t border-gray-200">
-                <a href="{% url 'home' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
+        <div class="lg:hidden hidden bg-ink-900 border-t border-ink-700" id="mobile-menu">
+            <div class="px-4 pt-3 pb-4 space-y-1">
+                <a href="{% url 'home' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">
                     Home
                 </a>
                 {% if user.is_authenticated %}
                     <!-- API Health Status Indicator (Mobile) -->
-                    <div id="health-status-indicator-mobile" class="flex items-center space-x-2 px-3 py-2 text-sm font-medium bg-gray-100 border border-gray-200 rounded-md" title="DRAW API Health Status">
-                        <span id="health-status-dot-mobile" class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
-                        <span id="health-status-text-mobile" class="text-gray-500">API: Checking...</span>
+                    <div id="health-status-indicator-mobile" class="flex items-center space-x-2 px-3 py-2 text-sm font-nav font-medium bg-white/10 border border-white/10 rounded-md text-slate-300" title="DRAW API Health Status">
+                        <span id="health-status-dot-mobile" class="w-2 h-2 rounded-full bg-slate-400 animate-pulse"></span>
+                        <span id="health-status-text-mobile" class="text-slate-300">API: Checking...</span>
                     </div>
                 {% endif %}
 
                 {% if perms.dicom_handler.view_dicomseries %}
-                <p class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Patient Processing</p>
-                <a href="{% url 'dicom_handler:series_processing_status' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Series Processing Status</a>
-                <a href="{% url 'dicom_handler:manual_processing_status' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Manual Processing</a>
-                <a href="{% url 'dicom_handler:patient_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Patients</a>
+                <p class="font-nav px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wider text-amber-400/80">Patient Processing</p>
+                <a href="{% url 'dicom_handler:series_processing_status' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Series Processing Status</a>
+                <a href="{% url 'dicom_handler:manual_processing_status' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Manual Processing</a>
+                <a href="{% url 'dicom_handler:patient_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Patients</a>
                 {% endif %}
 
                 {% if user.is_authenticated %}
-                <p class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Segmentation Configuration</p>
-                <p class="px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Automatic Segmentation</p>
+                <p class="font-nav px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wider text-amber-400/80">Segmentation Configuration</p>
+                <p class="font-nav px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Automatic Segmentation</p>
                 {% if perms.dicom_handler.view_autosegmentationtemplate %}
-                <a href="{% url 'dicom_handler:template_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Templates</a>
+                <a href="{% url 'dicom_handler:template_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Templates</a>
                 {% endif %}
                 {% if perms.dicom_handler.view_ruleset %}
-                <a href="{% url 'dicom_handler:ruleset_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Rule Groups</a>
+                <a href="{% url 'dicom_handler:ruleset_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Rule Groups</a>
                 {% endif %}
-                <p class="px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Rule-Based Segmentation</p>
-                <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Pipelines</a>
-                <a href="{% url 'rule_based_segmentation:job_list' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Jobs</a>
-                <p class="px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Structure Analysis</p>
-                <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">RTStructs</a>
-                <a href="{% url 'spatial_overlap:list_comparisons' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Comparisons</a>
+                <p class="font-nav px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Rule-Based Segmentation</p>
+                <a href="{% url 'rule_based_segmentation:pipeline_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Pipelines</a>
+                <a href="{% url 'rule_based_segmentation:job_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Jobs</a>
+                <p class="font-nav px-3 pt-1 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">Structure Analysis</p>
+                <a href="{% url 'spatial_overlap:list_rtstructs' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">RTStructs</a>
+                <a href="{% url 'spatial_overlap:list_comparisons' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Comparisons</a>
+                <a href="{% url 'dicom_handler:rt_structure_ratings_list' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">RT Structure Ratings</a>
 
-                <p class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">System Configuration</p>
-                <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">Statistics</a>
+                <p class="font-nav px-3 pt-4 pb-1 text-xs font-semibold uppercase tracking-wider text-amber-400/80">Configuration</p>
+                <a href="{% url 'dicom_handler:statistics_dashboard' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Statistics</a>
                 {% if perms.dicom_handler.view_systemconfiguration %}
-                <a href="{% url 'dicom_handler:system_configuration' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">System Configuration</a>
+                <a href="{% url 'dicom_handler:system_configuration' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Configuration</a>
                 {% endif %}
-                <a href="{% url 'dicom_server:dashboard' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">DICOM Configuration</a>
+                <a href="{% url 'dicom_server:dashboard' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">DICOM Configuration</a>
+                {% if user.is_staff %}
+                <a href="{% url 'log_console:console' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Logs</a>
+                {% endif %}
                 {% endif %}
 
                 {% if user.is_staff %}
-                <a href="{% url 'admin:index' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
+                <a href="{% url 'admin:index' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">
                     Admin
                 </a>
                 {% endif %}
 
-                {% if user.is_authenticated %}
-                    <div class="border-t border-gray-200 pt-2">
-                        <a href="{% url 'account_email' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
-                            <svg class="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                            </svg>
-                            User Account
-                        </a>
-                        <a href="{% url 'account_logout' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
-                            Logout
-                        </a>
-                    </div>
-                {% else %}
-                    <div class="border-t border-gray-200 pt-2">
-                        <a href="{% url 'account_login' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
-                            Login
-                        </a>
-                        <a href="{% url 'account_signup' %}" class="block text-gray-700 hover:text-primary-600 px-3 py-2 rounded-md text-base font-medium">
-                            Sign Up
-                        </a>
-                    </div>
-                {% endif %}
+                <div class="border-t border-ink-700 mt-3 pt-3">
+                    {% if user.is_authenticated %}
+                        <div class="flex items-center gap-3 px-3 pb-2">
+                            <span class="w-9 h-9 rounded-full bg-amber-500 text-ink-900 font-brand font-bold text-sm flex items-center justify-center">{{ user.first_name|default:user.username|first|upper }}</span>
+                            <div class="min-w-0">
+                                <p class="font-nav text-sm font-semibold text-white truncate">{{ user.get_full_name|default:user.username }}</p>
+                                <p class="font-nav text-xs text-slate-400 truncate">{{ user.email|default:"" }}</p>
+                            </div>
+                        </div>
+                        <a href="{% url 'account_email' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">User Account</a>
+                        <a href="{% url 'account_logout' %}" class="font-nav block text-amber-400 hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Log out</a>
+                    {% else %}
+                        <a href="{% url 'account_login' %}" class="font-nav block text-slate-200 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md text-base font-medium">Log in</a>
+                        <a href="{% url 'account_signup' %}" class="font-nav block bg-amber-500 text-ink-900 text-center px-3 py-2 rounded-md text-base font-semibold">Sign Up</a>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
@@ -201,10 +228,15 @@
 
 <script>
     // Mobile menu toggle
-    document.getElementById('mobile-menu-button').addEventListener('click', function() {
+    (function() {
+        const btn = document.getElementById('mobile-menu-button');
         const mobileMenu = document.getElementById('mobile-menu');
-        mobileMenu.classList.toggle('hidden');
-    });
+        if (!btn || !mobileMenu) return;
+        btn.addEventListener('click', function() {
+            mobileMenu.classList.toggle('hidden');
+            btn.setAttribute('aria-expanded', String(!mobileMenu.classList.contains('hidden')));
+        });
+    })();
 
     // Check API health status on page load
     {% if user.is_authenticated %}
@@ -222,19 +254,19 @@
                 let dotClass, textContent, textClass, titleText;
 
                 if (data.status === 'healthy') {
-                    dotClass = 'w-2 h-2 rounded-full bg-green-500';
+                    dotClass = 'w-2 h-2 rounded-full bg-green-400';
                     textContent = 'API: Healthy';
-                    textClass = 'text-green-700';
+                    textClass = 'text-green-300';
                     titleText = 'DRAW API Status: Healthy';
                 } else if (data.status === 'degraded') {
-                    dotClass = 'w-2 h-2 rounded-full bg-yellow-500';
+                    dotClass = 'w-2 h-2 rounded-full bg-yellow-400';
                     textContent = 'API: Degraded';
-                    textClass = 'text-yellow-700';
+                    textClass = 'text-yellow-300';
                     titleText = 'DRAW API Status: Degraded';
                 } else {
-                    dotClass = 'w-2 h-2 rounded-full bg-red-500';
+                    dotClass = 'w-2 h-2 rounded-full bg-red-400';
                     textContent = 'API: Error';
-                    textClass = 'text-red-700';
+                    textClass = 'text-red-300';
                     titleText = 'DRAW API Status: Error - ' + (data.message || 'Unknown error');
                 }
 
@@ -252,15 +284,15 @@
             })
             .catch(error => {
                 // Update desktop indicator
-                statusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+                statusDot.className = 'w-2 h-2 rounded-full bg-red-400';
                 statusText.textContent = 'API: Offline';
-                statusText.className = 'text-red-700';
+                statusText.className = 'text-red-300';
                 statusIndicator.title = 'DRAW API Status: Connection Failed';
 
                 // Update mobile indicator
-                statusDotMobile.className = 'w-2 h-2 rounded-full bg-red-500';
+                statusDotMobile.className = 'w-2 h-2 rounded-full bg-red-400';
                 statusTextMobile.textContent = 'API: Offline';
-                statusTextMobile.className = 'text-red-700';
+                statusTextMobile.className = 'text-red-300';
                 statusIndicatorMobile.title = 'DRAW API Status: Connection Failed';
             });
     }

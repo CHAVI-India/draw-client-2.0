@@ -28,5 +28,5 @@ urlpatterns = [
     path('dicom-server/', include('dicom_server.urls')),
     path('spatial-overlap/', include('spatial_overlap.urls')),
     path('rule-based-segmentation/', include('rule_based_segmentation.urls')),
-    path('logs/', include('log_viewer.urls')),
+    path('logs/', include('log_console.urls')),
 ]

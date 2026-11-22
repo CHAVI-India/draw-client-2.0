@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Self-hosted fonts (offline-safe for clinical intranets) */
+@font-face {
+    font-family: 'Figtree';
+    font-style: normal;
+    font-weight: 300 700;
+    font-display: swap;
+    src: url('/static/fonts/Figtree-Variable.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'Noto Sans';
+    font-style: normal;
+    font-weight: 300 700;
+    font-display: swap;
+    src: url('/static/fonts/NotoSans-Variable.woff2') format('woff2');
+}

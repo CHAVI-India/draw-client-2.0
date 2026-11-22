@@ -80,7 +80,6 @@ INSTALLED_APPS = [
     'spatial_overlap',
     'rule_based_segmentation',
     'dicom_server',
-    'log_viewer',
 ]
 
 # Crispy Forms Configuration for Tailwind CSS
