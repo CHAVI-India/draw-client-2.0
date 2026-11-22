@@ -11,17 +11,7 @@ import SimpleITK as sitk
 from typing import Dict, List, Any, Optional
 from rt_utils import RTStructBuilder
 
-from .structure_generation import (
-    apply_uniform_margin,
-    boolean_union,
-    boolean_intersection,
-    boolean_subtraction,
-    crop_to_boundary,
-    smooth_structure,
-    fill_holes,
-    remove_small_components,
-    keep_largest_component,
-)
+from .structure_generation import execute_operation
 
 logger = logging.getLogger(__name__)
 
@@ -129,20 +119,17 @@ class ProductionPipelineExecutor:
             logger.error(f"Pipeline execution failed: {e}", exc_info=True)
             return None
     
-    def _execute_operation(self, op_type: str, structures: List[str], 
+    def _execute_operation(self, op_type: str, structures: List[str],
                           parameters: Dict[str, Any]) -> Optional[sitk.Image]:
         """
-        Execute a single operation.
-        
-        Args:
-            op_type: Operation type (expand, union, etc.)
-            structures: List of structure names
-            parameters: Operation parameters
-            
-        Returns:
-            SimpleITK image result or None if failed
+        Execute a single operation by routing through the shared dispatcher.
+
+        The pipeline-builder JSON uses ``{type, structures, parameters}``.
+        ``structures`` are the explicitly-named structures for this operation;
+        operations that continue the running chain (refinement, crop) use the
+        previous result as their source instead.
         """
-        # Load input structures
+        # Load the named structures referenced by this operation.
         input_masks = []
         for struct_name in structures:
             mask = self.load_structure(struct_name)
@@ -150,105 +137,58 @@ class ProductionPipelineExecutor:
                 logger.error(f"Required structure '{struct_name}' not found")
                 return None
             input_masks.append(mask)
-        
+
         try:
-            # Execute based on operation type
-            if op_type == 'expand':
-                if len(input_masks) != 1:
-                    raise ValueError("Expand requires exactly 1 structure")
-                margin_mm = parameters.get('margin_mm', 5.0)
-                kernel_type = parameters.get('kernel_type', 'ball')
-                result = apply_uniform_margin(
-                    input_masks[0], 
-                    margin_mm=margin_mm,
-                    kernel_type=kernel_type
-                )
-                logger.debug(f"Applied {margin_mm}mm expansion")
-                
-            elif op_type == 'contract':
-                if len(input_masks) != 1:
-                    raise ValueError("Contract requires exactly 1 structure")
-                margin_mm = parameters.get('margin_mm', 3.0)
-                kernel_type = parameters.get('kernel_type', 'ball')
-                result = apply_uniform_margin(
-                    input_masks[0], 
-                    margin_mm=-margin_mm,
-                    kernel_type=kernel_type
-                )
-                logger.debug(f"Applied {margin_mm}mm contraction")
-                
-            elif op_type == 'union':
-                if len(input_masks) < 2:
-                    raise ValueError("Union requires at least 2 structures")
-                result = boolean_union(input_masks)
-                logger.debug(f"Combined {len(input_masks)} structures")
-                
-            elif op_type == 'intersection':
-                if len(input_masks) < 2:
-                    raise ValueError("Intersection requires at least 2 structures")
-                result = boolean_intersection(input_masks)
-                logger.debug(f"Intersected {len(input_masks)} structures")
-                
-            elif op_type == 'subtract':
-                if len(input_masks) < 2:
-                    raise ValueError("Subtract requires at least 2 structures")
-                result = input_masks[0]
-                for mask in input_masks[1:]:
-                    result = boolean_subtraction(result, mask)
-                margin_mm = parameters.get('margin_mm', 0)
-                if margin_mm > 0:
-                    result = apply_uniform_margin(result, margin_mm=margin_mm)
-                logger.debug(f"Subtracted {len(input_masks)-1} structures")
-                
-            elif op_type == 'crop_to_boundary':
-                if len(input_masks) != 1:
-                    raise ValueError("Crop requires exactly 1 boundary structure")
-                if self.current_result is None:
-                    raise ValueError("Crop requires a previous result")
-                result = crop_to_boundary(self.current_result, input_masks[0])
-                logger.debug("Applied boundary crop")
-                
-            elif op_type == 'smooth':
-                if self.current_result is None:
-                    raise ValueError("Smooth requires a previous result")
-                smoothing_mm = parameters.get('smoothing_mm', 2.0)
-                iterations = parameters.get('iterations', 1)
-                result = smooth_structure(
-                    self.current_result,
-                    smoothing_mm=smoothing_mm,
-                    iterations=iterations
-                )
-                logger.debug(f"Applied smoothing ({smoothing_mm}mm)")
-                
-            elif op_type == 'fill_holes':
-                if self.current_result is None:
-                    raise ValueError("Fill holes requires a previous result")
-                result = fill_holes(self.current_result)
-                logger.debug("Filled holes")
-                
-            elif op_type == 'remove_small_components':
-                if self.current_result is None:
-                    raise ValueError("Remove small components requires a previous result")
-                min_size_mm3 = parameters.get('min_size_mm3', 100.0)
-                result = remove_small_components(self.current_result, min_size_mm3=min_size_mm3)
-                logger.debug(f"Removed components < {min_size_mm3}mm³")
-                
-            elif op_type == 'keep_largest':
-                if self.current_result is None:
-                    raise ValueError("Keep largest requires a previous result")
-                result = keep_largest_component(self.current_result)
-                logger.debug("Kept largest component")
-                
-            else:
-                logger.error(f"Unknown operation type: {op_type}")
-                return None
-            
+            roles = self._build_roles(op_type, input_masks)
+            result = execute_operation(op_type, roles, parameters or {})
             return result
-            
         except Exception as e:
             logger.error(f"Operation '{op_type}' failed: {e}")
             return None
-    
+
+    def _build_roles(self, op_type: str, input_masks: List[sitk.Image]) -> Dict[str, Any]:
+        """Map a pipeline-builder operation to its dispatcher roles.
+
+        ``input_masks`` are the operation's explicitly-selected structures (in
+        the order given by the JSON). The running result (``self.current_result``)
+        is used as the source for refinement/crop operations.
+        """
+        cur = self.current_result
+
+        def first():
+            if not input_masks:
+                raise ValueError(f"Operation '{op_type}' requires a source structure")
+            return input_masks[0]
+
+        def second():
+            if len(input_masks) < 2:
+                raise ValueError(f"Operation '{op_type}' requires a second structure")
+            return input_masks[1]
+
+        if op_type in ("margin", "expand", "contract", "ring"):
+            return {"source": first()}
+        if op_type in ("union", "intersection", "subtract", "xor"):
+            return {"primary": first(), "others": input_masks[1:]}
+        if op_type == "crop_to_boundary":
+            return {"source": cur, "boundaries": input_masks}
+        if op_type == "overlap":
+            return {"source": first(), "others": input_masks[1:]}
+        if op_type == "expand_subtract":
+            return {"source": first(), "subtract": second()}
+        if op_type == "avoid_margin":
+            return {"source": first(), "avoid": second()}
+        if op_type in (
+            "smooth", "gaussian_smooth", "fill_holes", "remove_small_components",
+            "keep_largest", "keep_n_largest", "close_gaps", "remove_protrusions",
+        ):
+            return {"source": cur}
+        if op_type == "intensity_range":
+            return {
+                "seed": input_masks[0] if input_masks else None,
+                "boundary": input_masks[1] if len(input_masks) > 1 else None,
+            }
+        raise ValueError(f"Unsupported operation type: {op_type}")
+
     def add_result_to_rtstruct(self, structure_name: str, color: List[int]) -> bool:
         """
         Add the pipeline result to the RT Struct.
