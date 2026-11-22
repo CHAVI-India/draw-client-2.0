@@ -55,6 +55,77 @@ class ViewTests(TestCase):
         for rule_type in ("RING", "OVERLAP", "EXPAND_SUBTRACT", "AVOID_MARGIN"):
             self.assertIn(rule_type, injected_values)
 
+    def test_pipeline_create_spatial_rule_types_round_trip(self):
+        """All four spatial rule types are createable through the same view the
+        UI posts to (exact JS-serialized shape), persist to the correct config
+        models, and round-trip back to the editor unchanged."""
+        import re
+
+        rules = [
+            {
+                "rule_type": "RING", "name": "Ring", "output_action": "CREATE_NEW",
+                "output_color": "#FFFF00", "output_roi_type": "ORGAN",
+                "config": {"variant": "UNIFORM", "source": "Box", "thickness_mm": 5.0,
+                           "thickness_x_mm": 0.0, "thickness_y_mm": 0.0, "thickness_z_mm": 0.0,
+                           "kernel_type": "ball"},
+            },
+            {
+                "rule_type": "OVERLAP", "name": "Ov", "output_action": "CREATE_NEW",
+                "output_color": "#FFFF00", "output_roi_type": "ORGAN",
+                "config": {"source": "Box", "others": ["Other1", "Other2"]},
+            },
+            {
+                "rule_type": "EXPAND_SUBTRACT", "name": "ES", "output_action": "CREATE_NEW",
+                "output_color": "#FFFF00", "output_roi_type": "ORGAN",
+                "config": {"variant": "UNIFORM", "source": "Box", "subtract": "Other1",
+                           "distance_mm": 5.0, "distance_x_mm": 0.0, "distance_y_mm": 0.0,
+                           "distance_z_mm": 0.0, "kernel_type": "ball"},
+            },
+            {
+                "rule_type": "AVOID_MARGIN", "name": "AM", "output_action": "CREATE_NEW",
+                "output_color": "#FFFF00", "output_roi_type": "AVOIDANCE",
+                "config": {"variant": "UNIFORM", "source": "Box", "avoid": "Other1",
+                           "margin_mm": 5.0, "margin_x_mm": 0.0, "margin_y_mm": 0.0,
+                           "margin_z_mm": 0.0, "kernel_type": "ball"},
+            },
+        ]
+        payload = {"name": "Spatial Pipeline", "description": "", "is_public": False, "rules": rules}
+        response = self.client.post(
+            reverse("rule_based_segmentation:pipeline_create"),
+            {"pipeline_data": json.dumps(payload)},
+        )
+        self.assertEqual(response.status_code, 302, getattr(response, "context", None))
+        self.assertEqual(SegmentationPipeline.objects.count(), 1)
+        pipeline = SegmentationPipeline.objects.get()
+        self.assertEqual(pipeline.rules.count(), 4)
+
+        # DB config records are correct.
+        ring = pipeline.rules.get(rule_type="RING").ring_config
+        self.assertEqual(ring.source, "Box")
+        self.assertEqual(ring.thickness_mm, 5.0)
+        overlap = pipeline.rules.get(rule_type="OVERLAP").overlap_config
+        self.assertEqual(
+            list(overlap.others.order_by("order").values_list("other_roi", flat=True)),
+            ["Other1", "Other2"],
+        )
+        es = pipeline.rules.get(rule_type="EXPAND_SUBTRACT").expand_subtract_config
+        self.assertEqual(es.subtract, "Other1")
+        am = pipeline.rules.get(rule_type="AVOID_MARGIN").avoid_margin_config
+        self.assertEqual(am.avoid, "Other1")
+
+        # Round-trip: the edit page returns the configs to the editor unchanged.
+        edit = self.client.get(
+            reverse("rule_based_segmentation:pipeline_edit", args=[pipeline.id])
+        )
+        self.assertEqual(edit.status_code, 200)
+        match = re.search(r'id="pipeline-data"[^>]*>(.*?)</script>', edit.content.decode(), re.DOTALL)
+        self.assertIsNotNone(match)
+        by_type = {r["rule_type"]: r["config"] for r in json.loads(match.group(1))["rules"]}
+        self.assertEqual(by_type["RING"]["thickness_mm"], 5.0)
+        self.assertEqual(by_type["OVERLAP"]["others"], ["Other1", "Other2"])
+        self.assertEqual(by_type["EXPAND_SUBTRACT"]["subtract"], "Other1")
+        self.assertEqual(by_type["AVOID_MARGIN"]["avoid"], "Other1")
+
     def test_pipeline_create_view(self):
         data = {
             "pipeline_data": json.dumps({
