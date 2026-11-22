@@ -70,7 +70,7 @@
 
         <button id="autoscroll-btn" type="button"
                 class="inline-flex items-center gap-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-nav text-sm font-medium px-3 py-1.5 rounded-md transition-colors">
-            <span class="text-xs">Auto-scroll</span>
+            <span class="text-xs">Pin to top</span>
             <span class="text-xs inline-block w-2 h-2 rounded-full bg-green-500"></span>
         </button>
 
@@ -114,7 +114,7 @@
         file: '{{ selected|default:"" }}',
         window: {{ window }},
         paused: false,
-        autoscroll: true,
+        pinTop: true,
         level: 'ALL',
         query: '',
         lines: [],          // retained raw lines (bounded)
@@ -185,21 +185,20 @@
         if (!state.pending.length) return;
         var batch = state.pending.splice(0, state.pending.length);
         var frag = document.createDocumentFragment();
+        // Newest lines must end up at the top: insert each (chronological) line
+        // before the previous one so the batch renders newest-first.
         for (var i = 0; i < batch.length; i++) {
-            if (matches(batch[i])) frag.appendChild(makeLineEl(batch[i]));
+            if (matches(batch[i])) frag.insertBefore(makeLineEl(batch[i]), frag.firstChild);
         }
         var placeholder = document.getElementById('console-placeholder');
         if (placeholder) placeholder.remove();
-        consoleEl.appendChild(frag);
-        // Prune old DOM nodes
+        consoleEl.insertBefore(frag, consoleEl.firstChild);
+        // Prune oldest DOM nodes (now at the bottom)
         while (consoleEl.childElementCount > MAX_LINES) {
-            consoleEl.removeChild(consoleEl.firstChild);
+            consoleEl.removeChild(consoleEl.lastChild);
         }
         updateCounts();
-        if (state.autoscroll &&
-            consoleEl.scrollHeight - consoleEl.scrollTop - consoleEl.clientHeight < 120) {
-            consoleEl.scrollTop = consoleEl.scrollHeight;
-        }
+        if (state.pinTop) consoleEl.scrollTop = 0;
     }
 
     function pushLine(line) {
@@ -245,13 +244,14 @@
         // Re-render the retained buffer through the current filters (keep the buffer!)
         consoleEl.innerHTML = '';
         var frag = document.createDocumentFragment();
-        for (var i = 0; i < state.lines.length; i++) {
+        // Newest-first: iterate the chronological buffer in reverse
+        for (var i = state.lines.length - 1; i >= 0; i--) {
             if (matches(state.lines[i])) frag.appendChild(makeLineEl(state.lines[i]));
         }
         consoleEl.appendChild(frag);
-        while (consoleEl.childElementCount > MAX_LINES) consoleEl.removeChild(consoleEl.firstChild);
+        while (consoleEl.childElementCount > MAX_LINES) consoleEl.removeChild(consoleEl.lastChild);
         updateCounts();
-        if (state.autoscroll) consoleEl.scrollTop = consoleEl.scrollHeight;
+        if (state.pinTop) consoleEl.scrollTop = 0;
     }
 
     // --- events ---
@@ -292,9 +292,10 @@
     });
 
     autoscrollBtn.addEventListener('click', function () {
-        state.autoscroll = !state.autoscroll;
+        state.pinTop = !state.pinTop;
         autoscrollBtn.querySelector('span:last-child').className =
-            'text-xs inline-block w-2 h-2 rounded-full ' + (state.autoscroll ? 'bg-green-500' : 'bg-slate-300');
+            'text-xs inline-block w-2 h-2 rounded-full ' + (state.pinTop ? 'bg-green-500' : 'bg-slate-300');
+        if (state.pinTop) consoleEl.scrollTop = 0;
     });
 
     pauseBtn.addEventListener('click', function () {
