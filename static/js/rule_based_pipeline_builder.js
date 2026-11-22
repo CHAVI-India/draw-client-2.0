@@ -1001,62 +1001,6 @@
       `;
     }
 
-    _attachConfigEventListeners(ruleType) {
-      if (ruleType === "INTENSITY") {
-        this.container.querySelector("#rbs-add-range").addEventListener("click", () => {
-          const rangesDiv = this.container.querySelector("#rbs-intensity-ranges");
-          const div = document.createElement("div");
-          div.className = "flex items-center space-x-2 rbs-intensity-range";
-          div.innerHTML = `
-            <input type="number" step="any" class="rbs-range-min border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2 w-32" placeholder="Min">
-            <span>to</span>
-            <input type="number" step="any" class="rbs-range-max border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2 w-32" placeholder="Max">
-            <button type="button" class="rbs-remove-range text-red-600 hover:text-red-800" title="Remove range">×</button>
-          `;
-          rangesDiv.appendChild(div);
-          this._attachRangeRemoveListeners();
-        });
-        this._attachRangeRemoveListeners();
-
-        const seedType = this.container.querySelector("#rbs-intensity-seed-type");
-        seedType.addEventListener("change", () => {
-          const selector = this.container.querySelector("#rbs-intensity-seed-selector");
-          selector.classList.toggle("hidden", seedType.value === "IMAGE");
-        });
-      }
-
-      if (ruleType === "MARGIN") {
-        const variant = this.container.querySelector("#rbs-margin-variant");
-        variant.addEventListener("change", () => {
-          const isUniform = variant.value === "UNIFORM";
-          this.container.querySelector("#rbs-margin-uniform").classList.toggle("hidden", !isUniform);
-          this.container.querySelector("#rbs-margin-anisotropic").classList.toggle("hidden", isUniform);
-        });
-      }
-
-      if (ruleType === "CROP") {
-        this.container.querySelector("#rbs-add-boundary").addEventListener("click", () => {
-          const boundariesDiv = this.container.querySelector("#rbs-crop-boundaries");
-          const div = document.createElement("div");
-          div.className = "flex items-center space-x-2 rbs-crop-boundary";
-          div.innerHTML = `
-            ${this._renderStructureSelect("rbs-crop-boundary-" + Date.now(), "", true, "rbs-crop-boundary-select")}
-            <button type="button" class="rbs-remove-boundary text-red-600 hover:text-red-800" title="Remove boundary">×</button>
-          `;
-          boundariesDiv.appendChild(div);
-          this._attachBoundaryRemoveListeners();
-        });
-        this._attachBoundaryRemoveListeners();
-      }
-
-      if (ruleType === "CLEANUP") {
-        this.container.querySelector("#rbs-cleanup-operation").addEventListener("change", () => {
-          const op = this.container.querySelector("#rbs-cleanup-operation").value;
-          this.container.querySelector("#rbs-cleanup-params").innerHTML = this._renderCleanupParams({ operation: op });
-        });
-      }
-    }
-
     _attachRangeRemoveListeners() {
       this.container.querySelectorAll(".rbs-remove-range").forEach((btn) => {
         btn.onclick = () => btn.closest(".rbs-intensity-range").remove();
