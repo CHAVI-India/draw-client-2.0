@@ -124,6 +124,32 @@ def regenerate_instance_uids(rtstruct: RTStructBuilder) -> Tuple[str, str]:
     return new_sop_uid, new_series_uid
 
 
+def read_approval_info(rtstruct_path: str) -> Dict[str, Optional[str]]:
+    """Read the file-level DICOM Approval Module from an RTStruct.
+
+    Returns a dict with keys: status, review_date, review_time, reviewer_name.
+    Values are None when the corresponding (300E,xxxx) attribute is absent:
+      - (300E,0002) Approval Status  -> status   (APPROVED/UNAPPROVED/REJECTED)
+      - (300E,0004) Review Date      -> review_date (YYYYMMDD)
+      - (300E,0005) Review Time      -> review_time (HHMMSS)
+      - (300E,0008) Reviewer Name    -> reviewer_name
+    """
+    ds = pydicom.dcmread(rtstruct_path, stop_before_pixels=True, force=True)
+
+    def _clean(v) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    return {
+        "status": _clean(getattr(ds, "ApprovalStatus", None)),
+        "review_date": _clean(getattr(ds, "ReviewDate", None)),
+        "review_time": _clean(getattr(ds, "ReviewTime", None)),
+        "reviewer_name": _clean(getattr(ds, "ReviewerName", None)),
+    }
+
+
 def save_rtstruct(rtstruct: RTStructBuilder, output_path: str) -> str:
     """
     Save an RTStruct to disk, creating parent directories if needed.

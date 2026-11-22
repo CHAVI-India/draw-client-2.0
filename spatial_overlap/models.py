@@ -55,6 +55,25 @@ class RTStructureSetVOI(models.Model):
     roi_description = models.CharField(max_length=255, verbose_name="ROI Description")
     roi_volume = models.FloatField(verbose_name="ROI Volume",null=True,blank=True)
     roi_number = models.IntegerField(verbose_name="ROI Number",null=True,blank=True)
+
+    APPROVAL_STATUS_CHOICES = [
+        ("APPROVED", "Approved"),
+        ("UNAPPROVED", "Unapproved"),
+        ("REJECTED", "Rejected"),
+    ]
+    approval_status = models.CharField(
+        max_length=16,
+        choices=APPROVAL_STATUS_CHOICES,
+        default="UNAPPROVED",
+        verbose_name="ROI Approval Status",
+        help_text="DICOM Approval Module (300E,0002) for this ROI. Inherited from the source structure set for original ROIs; UNAPPROVED for rule-generated ROIs.",
+    )
+    review_date = models.DateField(null=True, blank=True, verbose_name="Review Date")
+    review_time = models.TimeField(null=True, blank=True, verbose_name="Review Time")
+    reviewer_name = models.CharField(
+        max_length=255, null=True, blank=True, verbose_name="Reviewer Name"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At", null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated At", null=True, blank=True)
 
