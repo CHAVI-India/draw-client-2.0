@@ -32,6 +32,7 @@ from .models import (
     IntensityRuleConfig,
     MarginRuleConfig,
     PipelineRule,
+    RingRuleConfig,
     SegmentationJob,
     SegmentationPipeline,
 )
@@ -190,6 +191,17 @@ def _rule_to_json(rule):
             "fully_connected": cfg.fully_connected,
             "sigma_mm": cfg.sigma_mm,
             "threshold": cfg.threshold,
+        }
+    elif rule.rule_type == "RING":
+        cfg = rule.ring_config
+        data["config"] = {
+            "variant": cfg.variant,
+            "source": cfg.source,
+            "thickness_mm": cfg.thickness_mm,
+            "thickness_x_mm": cfg.thickness_x_mm,
+            "thickness_y_mm": cfg.thickness_y_mm,
+            "thickness_z_mm": cfg.thickness_z_mm,
+            "kernel_type": cfg.kernel_type,
         }
 
     return data
@@ -915,6 +927,9 @@ def _collect_required_structure_names(rule):
         for boundary in config.get("boundaries", []):
             if boundary:
                 names.add(boundary)
+    elif rule_type == "RING":
+        if config.get("source"):
+            names.add(config["source"])
 
     return names
 
@@ -951,6 +966,8 @@ def _save_rule(pipeline, order, rule_data):
         _save_crop_config(rule, config)
     elif rule.rule_type == "CLEANUP":
         _save_cleanup_config(rule, config)
+    elif rule.rule_type == "RING":
+        _save_ring_config(rule, config)
 
     return rule
 
@@ -1035,6 +1052,20 @@ def _save_cleanup_config(rule, config):
     )
 
 
+def _save_ring_config(rule, config):
+    """Save RING (ring/shell) rule configuration."""
+    RingRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        thickness_mm=config.get("thickness_mm"),
+        thickness_x_mm=config.get("thickness_x_mm"),
+        thickness_y_mm=config.get("thickness_y_mm"),
+        thickness_z_mm=config.get("thickness_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
+
+
 def _duplicate_rule(pipeline, rule):
     """Duplicate a rule and its related configuration."""
     rule.pk = None
@@ -1098,6 +1129,18 @@ def _duplicate_rule(pipeline, rule):
             fully_connected=old_config.fully_connected,
             sigma_mm=old_config.sigma_mm,
             threshold=old_config.threshold,
+        )
+    elif rule.rule_type == "RING":
+        old_config = rule.ring_config
+        RingRuleConfig.objects.create(
+            pipeline_rule=rule,
+            variant=old_config.variant,
+            source=old_config.source,
+            thickness_mm=old_config.thickness_mm,
+            thickness_x_mm=old_config.thickness_x_mm,
+            thickness_y_mm=old_config.thickness_y_mm,
+            thickness_z_mm=old_config.thickness_z_mm,
+            kernel_type=old_config.kernel_type,
         )
 
 
@@ -1235,6 +1278,10 @@ def _collect_rule_structure_names(rule):
                 names.add(config.source)
             for boundary in config.boundaries.all():
                 names.add(boundary.boundary_roi)
+    elif rule.rule_type == "RING":
+        config = getattr(rule, "ring_config", None)
+        if config and config.source:
+            names.add(config.source)
     return names
 
 

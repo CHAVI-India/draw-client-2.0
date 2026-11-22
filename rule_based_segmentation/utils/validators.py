@@ -146,3 +146,33 @@ def validate_cleanup_rule(rule):
         raise ValidationError(
             {f: f"{config.operation} requires this parameter." for f in missing}
         )
+
+
+def validate_ring_rule(rule):
+    """Validate a RING (ring/shell) rule."""
+    try:
+        config = rule.ring_config
+    except Exception:
+        return
+
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Ring variant must be Uniform or Anisotropic."})
+
+    if not config.source:
+        raise ValidationError({"source": "Source structure is required."})
+
+    if config.variant == "UNIFORM":
+        if config.thickness_mm is None:
+            raise ValidationError({"thickness_mm": "Uniform ring requires thickness_mm."})
+    else:
+        missing = []
+        if config.thickness_x_mm is None:
+            missing.append("thickness_x_mm")
+        if config.thickness_y_mm is None:
+            missing.append("thickness_y_mm")
+        if config.thickness_z_mm is None:
+            missing.append("thickness_z_mm")
+        if missing:
+            raise ValidationError(
+                {f: "Anisotropic ring requires this value." for f in missing}
+            )

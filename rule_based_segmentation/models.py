@@ -10,6 +10,7 @@ from .utils.validators import (
     validate_crop_rule,
     validate_intensity_rule,
     validate_margin_rule,
+    validate_ring_rule,
 )
 
 
@@ -53,6 +54,7 @@ class PipelineRule(models.Model):
         ("MARGIN", "Margin"),
         ("CROP", "Crop to Boundary"),
         ("CLEANUP", "Cleanup / Refinement"),
+        ("RING", "Ring / Shell"),
     ]
 
     OUTPUT_ACTION_CHOICES = [
@@ -139,6 +141,8 @@ class PipelineRule(models.Model):
             validate_crop_rule(self)
         elif self.rule_type == "CLEANUP":
             validate_cleanup_rule(self)
+        elif self.rule_type == "RING":
+            validate_ring_rule(self)
 
     def __str__(self):
         return f"{self.order}. {self.name} ({self.rule_type})"
@@ -350,6 +354,42 @@ class CleanupRuleConfig(models.Model):
     fully_connected = models.BooleanField(null=True, blank=True)
     sigma_mm = models.FloatField(null=True, blank=True)
     threshold = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class RingRuleConfig(models.Model):
+    """Configuration for a RING (ring/shell) rule: expand(source, d) - source."""
+
+    VARIANT_CHOICES = [
+        ("UNIFORM", "Uniform"),
+        ("ANISOTROPIC", "Anisotropic"),
+    ]
+    KERNEL_CHOICES = [
+        ("ball", "Ball"),
+        ("box", "Box"),
+        ("cross", "Cross"),
+    ]
+
+    pipeline_rule = models.OneToOneField(
+        PipelineRule,
+        on_delete=models.CASCADE,
+        related_name="ring_config",
+        limit_choices_to={"rule_type": "RING"},
+    )
+    variant = models.CharField(max_length=20, choices=VARIANT_CHOICES)
+    source = models.CharField(max_length=256)
+    thickness_mm = models.FloatField(null=True, blank=True)
+    thickness_x_mm = models.FloatField(null=True, blank=True)
+    thickness_y_mm = models.FloatField(null=True, blank=True)
+    thickness_z_mm = models.FloatField(null=True, blank=True)
+    kernel_type = models.CharField(
+        max_length=16,
+        choices=KERNEL_CHOICES,
+        default="ball",
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

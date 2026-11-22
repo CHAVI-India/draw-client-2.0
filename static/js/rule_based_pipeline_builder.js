@@ -142,6 +142,16 @@
           return { source: "", boundaries: [""] };
         case "CLEANUP":
           return { operation: "SMOOTH_STRUCTURE", source: "", smoothing_mm: 2.0, iterations: 1 };
+        case "RING":
+          return {
+            variant: "UNIFORM",
+            source: "",
+            thickness_mm: 5.0,
+            thickness_x_mm: 0.0,
+            thickness_y_mm: 0.0,
+            thickness_z_mm: 0.0,
+            kernel_type: "ball",
+          };
         default:
           return {};
       }
@@ -274,6 +284,10 @@
           return `Crop ${cfg.source} to ${cfg.boundaries.join(", ")}`;
         case "CLEANUP":
           return `${CLEANUP_OPERATIONS[cfg.operation].label} on ${cfg.source}`;
+        case "RING":
+          return cfg.variant === "UNIFORM"
+            ? `Ring around ${cfg.source} (${cfg.thickness_mm} mm, ${cfg.kernel_type})`
+            : `Anisotropic ring around ${cfg.source}: [${cfg.thickness_x_mm}, ${cfg.thickness_y_mm}, ${cfg.thickness_z_mm}] mm`;
         default:
           return "";
       }
@@ -308,6 +322,9 @@
           break;
         case "CLEANUP":
           configHtml = this._renderCleanupEditor(rule.config);
+          break;
+        case "RING":
+          configHtml = this._renderRingEditor(rule.config);
           break;
       }
 
@@ -542,6 +559,40 @@
             <input type="number" step="any" id="rbs-margin-y" value="${config.margin_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
             <label class="block text-sm font-medium text-gray-700 mt-2">Margin Z (mm)</label>
             <input type="number" step="any" id="rbs-margin-z" value="${config.margin_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+          </div>
+        </div>
+      `;
+    }
+
+    _renderRingEditor(config) {
+      return `
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Variant</label>
+            <select id="rbs-ring-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
+              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Source Structure</label>
+            ${this._renderStructureSelect("rbs-ring-source", config.source)}
+          </div>
+          <div id="rbs-ring-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Ring thickness (mm)</label>
+            <input type="number" step="any" id="rbs-ring-mm" value="${config.thickness_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
+            <select id="rbs-ring-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
+            </select>
+          </div>
+          <div id="rbs-ring-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Thickness X (mm)</label>
+            <input type="number" step="any" id="rbs-ring-x" value="${config.thickness_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Thickness Y (mm)</label>
+            <input type="number" step="any" id="rbs-ring-y" value="${config.thickness_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Thickness Z (mm)</label>
+            <input type="number" step="any" id="rbs-ring-z" value="${config.thickness_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
           </div>
         </div>
       `;
@@ -782,6 +833,15 @@
             if (select.value) cfg.boundaries.push(select.value);
           });
           break;
+        case "RING":
+          cfg.variant = this.container.querySelector("#rbs-ring-variant").value;
+          cfg.source = this._getValue("#rbs-ring-source");
+          cfg.thickness_mm = parseFloat(this._getValue("#rbs-ring-mm")) || 0;
+          cfg.thickness_x_mm = parseFloat(this._getValue("#rbs-ring-x")) || 0;
+          cfg.thickness_y_mm = parseFloat(this._getValue("#rbs-ring-y")) || 0;
+          cfg.thickness_z_mm = parseFloat(this._getValue("#rbs-ring-z")) || 0;
+          cfg.kernel_type = this._getValue("#rbs-ring-kernel");
+          break;
         case "CLEANUP":
           cfg.operation = this.container.querySelector("#rbs-cleanup-operation").value;
           cfg.source = this.container.querySelector("#rbs-cleanup-source").value;
@@ -834,6 +894,14 @@
           const isUniform = variant.value === "UNIFORM";
           this.container.querySelector("#rbs-margin-uniform").classList.toggle("hidden", !isUniform);
           this.container.querySelector("#rbs-margin-anisotropic").classList.toggle("hidden", isUniform);
+        });
+      }
+      if (ruleType === "RING") {
+        const variant = this.container.querySelector("#rbs-ring-variant");
+        variant.addEventListener("change", () => {
+          const isUniform = variant.value === "UNIFORM";
+          this.container.querySelector("#rbs-ring-uniform").classList.toggle("hidden", !isUniform);
+          this.container.querySelector("#rbs-ring-anisotropic").classList.toggle("hidden", isUniform);
         });
       }
 

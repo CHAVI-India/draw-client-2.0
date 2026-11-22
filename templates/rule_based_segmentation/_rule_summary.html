@@ -20,5 +20,11 @@
         Crop {{ rule.crop_config.source }} to {% for b in rule.crop_config.boundaries.all %}{{ b.boundary_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
     {% elif rule.rule_type == "CLEANUP" %}
         {{ rule.cleanup_config.get_operation_display }} on {{ rule.cleanup_config.source }}
+    {% elif rule.rule_type == "RING" %}
+        {% if rule.ring_config.variant == "UNIFORM" %}
+            Ring around {{ rule.ring_config.source }}: {{ rule.ring_config.thickness_mm }} mm ({{ rule.ring_config.kernel_type }})
+        {% else %}
+            Anisotropic ring around {{ rule.ring_config.source }}: x={{ rule.ring_config.thickness_x_mm }} y={{ rule.ring_config.thickness_y_mm }} z={{ rule.ring_config.thickness_z_mm }} mm
+        {% endif %}
     {% endif %}
 </div>

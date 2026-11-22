@@ -5,7 +5,7 @@ import tempfile
 import uuid
 from datetime import date
 from io import BytesIO
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pydicom
@@ -24,6 +24,7 @@ from rule_based_segmentation.models import (
     IntensityRuleConfig,
     MarginRuleConfig,
     PipelineRule,
+    RingRuleConfig,
     SegmentationPipeline,
 )
 
@@ -158,6 +159,26 @@ def create_synthetic_rtstruct(
     return rtstruct_path
 
 
+def create_synthetic_rtstruct_multi(
+    rtstruct_path: str,
+    ct_file_paths: List[str],
+    rois: Dict[str, np.ndarray],
+) -> str:
+    """Create a synthetic RTStruct with multiple ROIs.
+
+    rois maps ROI name -> 3D boolean mask in (Z, Y, X) order (transposed to
+    (X, Y, Z) for rt-utils, same as create_synthetic_rtstruct).
+    """
+    rtstruct = RTStructBuilder.create_new(os.path.dirname(ct_file_paths[0]))
+    for name, mask_array in rois.items():
+        rt_mask = mask_array.astype(bool)
+        if rt_mask.ndim == 3:
+            rt_mask = rt_mask.transpose(2, 1, 0)
+        rtstruct.add_roi(mask=rt_mask, name=name, color=[255, 0, 0])
+    rtstruct.save(rtstruct_path)
+    return rtstruct_path
+
+
 def create_dicom_models(
     ct_file_paths: List[str],
     series_uid: str,
@@ -231,6 +252,8 @@ def create_pipeline_with_rules(user=None, name="Test Pipeline", rules_data=None)
             _create_crop_config(rule, config)
         elif rule.rule_type == "CLEANUP":
             _create_cleanup_config(rule, config)
+        elif rule.rule_type == "RING":
+            _create_ring_config(rule, config)
 
     return pipeline
 
@@ -282,6 +305,19 @@ def _create_margin_config(rule, config):
         margin_x_mm=config.get("margin_x_mm"),
         margin_y_mm=config.get("margin_y_mm"),
         margin_z_mm=config.get("margin_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
+
+
+def _create_ring_config(rule, config):
+    RingRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        thickness_mm=config.get("thickness_mm"),
+        thickness_x_mm=config.get("thickness_x_mm"),
+        thickness_y_mm=config.get("thickness_y_mm"),
+        thickness_z_mm=config.get("thickness_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
     )
 

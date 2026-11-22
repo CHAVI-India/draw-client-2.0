@@ -19,6 +19,8 @@ from dicom_handler.utils.structure_generation.operations import (
     apply_anisotropic_margin,
     apply_uniform_margin,
     boolean_intersection,
+    boolean_subtraction,
+    boolean_union,
 )
 
 from ..models import PipelineRule
@@ -178,6 +180,10 @@ class SegmentationEngine:
             config = getattr(rule, "cleanup_config", None)
             if config and config.source:
                 names.add(config.source)
+        elif rule.rule_type == "RING":
+            config = getattr(rule, "ring_config", None)
+            if config and config.source:
+                names.add(config.source)
 
         return names
 
@@ -192,6 +198,8 @@ class SegmentationEngine:
             return self._evaluate_crop_rule(rule)
         if rule.rule_type == "CLEANUP":
             return self._evaluate_cleanup_rule(rule)
+        if rule.rule_type == "RING":
+            return self._evaluate_ring_rule(rule)
         raise RuleEvaluationError(f"Unknown rule type: {rule.rule_type}")
 
     def _evaluate_boolean_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -216,6 +224,24 @@ class SegmentationEngine:
             self.image, ranges, seed_mask=seed_mask, boundary_mask=boundary_mask
         )
 
+    def _expand_mask_by_variant(
+        self,
+        mask: sitk.Image,
+        variant: str,
+        uniform_mm: float = None,
+        x_mm: float = None,
+        y_mm: float = None,
+        z_mm: float = None,
+        kernel_type: str = "ball",
+    ) -> sitk.Image:
+        """Expand (or contract) a mask by a UNIFORM or ANISOTROPIC distance (mm).
+
+        Shared by the RING, EXPAND_SUBTRACT and AVOID_MARGIN evaluators.
+        """
+        if variant == "UNIFORM":
+            return apply_uniform_margin(mask, uniform_mm, kernel_type or "ball")
+        return apply_anisotropic_margin(mask, x_mm, y_mm, z_mm)
+
     def _evaluate_margin_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.margin_config
         source_mask = self.available_masks[config.source]
@@ -234,6 +260,22 @@ class SegmentationEngine:
             margin_y_mm=config.margin_y_mm,
             margin_z_mm=config.margin_z_mm,
         )
+
+    def _evaluate_ring_rule(self, rule: PipelineRule) -> sitk.Image:
+        """Ring/shell: expand(source, thickness) - source."""
+        config = rule.ring_config
+        source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
+        expanded = self._expand_mask_by_variant(
+            source_mask,
+            config.variant,
+            uniform_mm=config.thickness_mm,
+            x_mm=config.thickness_x_mm,
+            y_mm=config.thickness_y_mm,
+            z_mm=config.thickness_z_mm,
+            kernel_type=config.kernel_type,
+        )
+        return boolean_subtraction(expanded, source_mask)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config
