@@ -10,6 +10,7 @@ from .utils.validators import (
     validate_crop_rule,
     validate_intensity_rule,
     validate_margin_rule,
+    validate_overlap_rule,
     validate_ring_rule,
 )
 
@@ -55,6 +56,7 @@ class PipelineRule(models.Model):
         ("CROP", "Crop to Boundary"),
         ("CLEANUP", "Cleanup / Refinement"),
         ("RING", "Ring / Shell"),
+        ("OVERLAP", "Overlap"),
     ]
 
     OUTPUT_ACTION_CHOICES = [
@@ -143,6 +145,8 @@ class PipelineRule(models.Model):
             validate_cleanup_rule(self)
         elif self.rule_type == "RING":
             validate_ring_rule(self)
+        elif self.rule_type == "OVERLAP":
+            validate_overlap_rule(self)
 
     def __str__(self):
         return f"{self.order}. {self.name} ({self.rule_type})"
@@ -392,6 +396,44 @@ class RingRuleConfig(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class OverlapRuleConfig(models.Model):
+    """Configuration for an OVERLAP rule: source ∩ (union of others)."""
+
+    pipeline_rule = models.OneToOneField(
+        PipelineRule,
+        on_delete=models.CASCADE,
+        related_name="overlap_config",
+        limit_choices_to={"rule_type": "OVERLAP"},
+    )
+    source = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Overlap config for {self.pipeline_rule_id}"
+
+
+class OverlapOther(models.Model):
+    """One selected 'other' structure for an OVERLAP rule (ordered)."""
+
+    overlap_rule = models.ForeignKey(
+        OverlapRuleConfig,
+        on_delete=models.CASCADE,
+        related_name="others",
+    )
+    other_roi = models.CharField(max_length=256)
+    order = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order"]
+        unique_together = [("overlap_rule", "order")]
+
+    def __str__(self):
+        return f"{self.order}: {self.other_roi}"
 
 
 class SegmentationJob(models.Model):

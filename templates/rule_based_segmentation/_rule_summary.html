@@ -26,5 +26,7 @@
         {% else %}
             Anisotropic ring around {{ rule.ring_config.source }}: x={{ rule.ring_config.thickness_x_mm }} y={{ rule.ring_config.thickness_y_mm }} z={{ rule.ring_config.thickness_z_mm }} mm
         {% endif %}
+    {% elif rule.rule_type == "OVERLAP" %}
+        Overlap {{ rule.overlap_config.source }} with {% for o in rule.overlap_config.others.all %}{{ o.other_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
     {% endif %}
 </div>

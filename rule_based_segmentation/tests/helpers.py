@@ -23,6 +23,8 @@ from rule_based_segmentation.models import (
     IntensityRange,
     IntensityRuleConfig,
     MarginRuleConfig,
+    OverlapOther,
+    OverlapRuleConfig,
     PipelineRule,
     RingRuleConfig,
     SegmentationPipeline,
@@ -254,6 +256,8 @@ def create_pipeline_with_rules(user=None, name="Test Pipeline", rules_data=None)
             _create_cleanup_config(rule, config)
         elif rule.rule_type == "RING":
             _create_ring_config(rule, config)
+        elif rule.rule_type == "OVERLAP":
+            _create_overlap_config(rule, config)
 
     return pipeline
 
@@ -320,6 +324,20 @@ def _create_ring_config(rule, config):
         thickness_z_mm=config.get("thickness_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
     )
+
+
+def _create_overlap_config(rule, config):
+    overlap = OverlapRuleConfig.objects.create(
+        pipeline_rule=rule,
+        source=config.get("source", ""),
+    )
+    for idx, other in enumerate(config.get("others", []), start=1):
+        OverlapOther.objects.create(
+            overlap_rule=overlap,
+            other_roi=other,
+            order=idx,
+        )
+    return overlap
 
 
 def _create_crop_config(rule, config):

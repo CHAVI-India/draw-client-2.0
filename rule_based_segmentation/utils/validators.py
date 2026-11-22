@@ -176,3 +176,17 @@ def validate_ring_rule(rule):
             raise ValidationError(
                 {f: "Anisotropic ring requires this value." for f in missing}
             )
+
+
+def validate_overlap_rule(rule):
+    """Validate an OVERLAP rule."""
+    try:
+        config = rule.overlap_config
+    except Exception:
+        return
+
+    if not config.source:
+        raise ValidationError({"source": "Source structure is required."})
+
+    if config.others.count() == 0:
+        raise ValidationError({"others": "At least one other structure is required."})

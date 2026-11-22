@@ -118,3 +118,31 @@ class RingRuleTests(SpatialRulesBase):
         self.assertEqual(self._volume(sitk.And(ring, box)), 0)
         # z-thickness 0 means the shell only grows in x/y; it must still be non-empty.
         self.assertGreater(self._volume(ring), 0)
+
+
+class OverlapRuleTests(SpatialRulesBase):
+    def test_overlap_single_other(self):
+        engine = self._run_single_rule(
+            [
+                {
+                    "rule_type": "OVERLAP",
+                    "name": "Ovl",
+                    "config": {"source": "Box", "others": ["Box2"]},
+                }
+            ]
+        )
+        # Box ∩ Box2 = 4x4x4 = 64 voxels.
+        self.assertEqual(self._volume(engine.available_masks["Ovl"]), 64)
+
+    def test_overlap_multiple_others_union(self):
+        # Box ∩ (Box2 ∪ Box2) is still Box ∩ Box2 = 64 (duplicate-safe union).
+        engine = self._run_single_rule(
+            [
+                {
+                    "rule_type": "OVERLAP",
+                    "name": "Ovl2",
+                    "config": {"source": "Box", "others": ["Box2", "Box2"]},
+                }
+            ]
+        )
+        self.assertEqual(self._volume(engine.available_masks["Ovl2"]), 64)

@@ -184,6 +184,13 @@ class SegmentationEngine:
             config = getattr(rule, "ring_config", None)
             if config and config.source:
                 names.add(config.source)
+        elif rule.rule_type == "OVERLAP":
+            config = getattr(rule, "overlap_config", None)
+            if config:
+                if config.source:
+                    names.add(config.source)
+                for other in config.others.all():
+                    names.add(other.other_roi)
 
         return names
 
@@ -200,6 +207,8 @@ class SegmentationEngine:
             return self._evaluate_cleanup_rule(rule)
         if rule.rule_type == "RING":
             return self._evaluate_ring_rule(rule)
+        if rule.rule_type == "OVERLAP":
+            return self._evaluate_overlap_rule(rule)
         raise RuleEvaluationError(f"Unknown rule type: {rule.rule_type}")
 
     def _evaluate_boolean_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -276,6 +285,18 @@ class SegmentationEngine:
             kernel_type=config.kernel_type,
         )
         return boolean_subtraction(expanded, source_mask)
+
+    def _evaluate_overlap_rule(self, rule: PipelineRule) -> sitk.Image:
+        """Overlap: source ∩ (other1 ∪ other2 ∪ …)."""
+        config = rule.overlap_config
+        result = self.available_masks[config.source]
+        others = list(config.others.values_list("other_roi", flat=True).order_by("order"))
+        if not others:
+            raise RuleEvaluationError("Overlap rule requires at least one other structure.")
+        combined = self.available_masks[others[0]]
+        for name in others[1:]:
+            combined = boolean_union(combined, self.available_masks[name])
+        return boolean_intersection(result, combined)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config

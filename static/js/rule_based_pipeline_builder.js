@@ -17,6 +17,8 @@
     MARGIN: "Margin",
     CROP: "Crop to Boundary",
     CLEANUP: "Cleanup / Refinement",
+    RING: "Ring / Shell",
+    OVERLAP: "Overlap",
   };
 
   const BOOLEAN_OPERATIONS = {
@@ -152,6 +154,8 @@
             thickness_z_mm: 0.0,
             kernel_type: "ball",
           };
+        case "OVERLAP":
+          return { source: "", others: [""] };
         default:
           return {};
       }
@@ -288,6 +292,10 @@
           return cfg.variant === "UNIFORM"
             ? `Ring around ${cfg.source} (${cfg.thickness_mm} mm, ${cfg.kernel_type})`
             : `Anisotropic ring around ${cfg.source}: [${cfg.thickness_x_mm}, ${cfg.thickness_y_mm}, ${cfg.thickness_z_mm}] mm`;
+        case "OVERLAP": {
+          const n = (cfg.others || []).length;
+          return `Overlap ${cfg.source} with ${n} structure(s)`;
+        }
         default:
           return "";
       }
@@ -325,6 +333,9 @@
           break;
         case "RING":
           configHtml = this._renderRingEditor(rule.config);
+          break;
+        case "OVERLAP":
+          configHtml = this._renderOverlapEditor(rule.config);
           break;
       }
 
@@ -598,6 +609,32 @@
       `;
     }
 
+    _renderOverlapEditor(config) {
+      const othersHtml = (config.others || [])
+        .map(
+          (name, idx) => `
+          <div class="flex items-center space-x-2 rbs-overlap-other">
+            ${this._renderStructureSelect("rbs-overlap-other-" + idx, name, true, "rbs-overlap-other-select")}
+            <button type="button" class="rbs-remove-overlap text-red-600 hover:text-red-800" title="Remove structure">×</button>
+          </div>
+        `)
+        .join("");
+
+      return `
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Source Structure</label>
+            ${this._renderStructureSelect("rbs-overlap-source", config.source)}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Overlapping Structures</label>
+            <div id="rbs-overlap-others" class="space-y-2 mt-1">${othersHtml}</div>
+            <button type="button" id="rbs-add-overlap-other" class="mt-2 text-sm text-primary-600 hover:text-primary-800">+ Add structure</button>
+          </div>
+        </div>
+      `;
+    }
+
     _renderCropEditor(config) {
       const boundariesHtml = config.boundaries
         .map(
@@ -795,6 +832,11 @@
         btn.onclick = () => btn.closest(".rbs-crop-boundary").remove();
       });
     }
+    _attachOverlapRemoveListeners() {
+      this.container.querySelectorAll(".rbs-remove-overlap").forEach((btn) => {
+        btn.onclick = () => btn.closest(".rbs-overlap-other").remove();
+      });
+    }
 
     _collectConfigFromEditor(rule) {
       let cfg = rule.config;
@@ -841,6 +883,13 @@
           cfg.thickness_y_mm = parseFloat(this._getValue("#rbs-ring-y")) || 0;
           cfg.thickness_z_mm = parseFloat(this._getValue("#rbs-ring-z")) || 0;
           cfg.kernel_type = this._getValue("#rbs-ring-kernel");
+          break;
+        case "OVERLAP":
+          cfg.source = this._getValue("#rbs-overlap-source");
+          cfg.others = [];
+          this.container.querySelectorAll(".rbs-overlap-other-select").forEach((select) => {
+            if (select.value) cfg.others.push(select.value);
+          });
           break;
         case "CLEANUP":
           cfg.operation = this.container.querySelector("#rbs-cleanup-operation").value;
@@ -903,6 +952,20 @@
           this.container.querySelector("#rbs-ring-uniform").classList.toggle("hidden", !isUniform);
           this.container.querySelector("#rbs-ring-anisotropic").classList.toggle("hidden", isUniform);
         });
+      }
+      if (ruleType === "OVERLAP") {
+        this.container.querySelector("#rbs-add-overlap-other").addEventListener("click", () => {
+          const othersDiv = this.container.querySelector("#rbs-overlap-others");
+          const div = document.createElement("div");
+          div.className = "flex items-center space-x-2 rbs-overlap-other";
+          div.innerHTML = `
+            ${this._renderStructureSelect("rbs-overlap-other-" + Date.now(), "", true, "rbs-overlap-other-select")}
+            <button type="button" class="rbs-remove-overlap text-red-600 hover:text-red-800" title="Remove structure">×</button>
+          `;
+          othersDiv.appendChild(div);
+          this._attachOverlapRemoveListeners();
+        });
+        this._attachOverlapRemoveListeners();
       }
 
       if (ruleType === "CROP") {

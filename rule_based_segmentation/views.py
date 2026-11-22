@@ -31,6 +31,8 @@ from .models import (
     IntensityRange,
     IntensityRuleConfig,
     MarginRuleConfig,
+    OverlapOther,
+    OverlapRuleConfig,
     PipelineRule,
     RingRuleConfig,
     SegmentationJob,
@@ -202,6 +204,12 @@ def _rule_to_json(rule):
             "thickness_y_mm": cfg.thickness_y_mm,
             "thickness_z_mm": cfg.thickness_z_mm,
             "kernel_type": cfg.kernel_type,
+        }
+    elif rule.rule_type == "OVERLAP":
+        cfg = rule.overlap_config
+        data["config"] = {
+            "source": cfg.source,
+            "others": [o.other_roi for o in cfg.others.all().order_by("order")],
         }
 
     return data
@@ -930,6 +938,12 @@ def _collect_required_structure_names(rule):
     elif rule_type == "RING":
         if config.get("source"):
             names.add(config["source"])
+    elif rule_type == "OVERLAP":
+        if config.get("source"):
+            names.add(config["source"])
+        for other in config.get("others", []):
+            if other:
+                names.add(other)
 
     return names
 
@@ -968,6 +982,8 @@ def _save_rule(pipeline, order, rule_data):
         _save_cleanup_config(rule, config)
     elif rule.rule_type == "RING":
         _save_ring_config(rule, config)
+    elif rule.rule_type == "OVERLAP":
+        _save_overlap_config(rule, config)
 
     return rule
 
@@ -1066,6 +1082,21 @@ def _save_ring_config(rule, config):
     )
 
 
+def _save_overlap_config(rule, config):
+    """Save OVERLAP rule configuration (source + ordered list of others)."""
+    overlap_config = OverlapRuleConfig.objects.create(
+        pipeline_rule=rule,
+        source=config.get("source", ""),
+    )
+    for idx, other in enumerate(config.get("others", []), start=1):
+        if other:
+            OverlapOther.objects.create(
+                overlap_rule=overlap_config,
+                other_roi=other,
+                order=idx,
+            )
+
+
 def _duplicate_rule(pipeline, rule):
     """Duplicate a rule and its related configuration."""
     rule.pk = None
@@ -1142,6 +1173,18 @@ def _duplicate_rule(pipeline, rule):
             thickness_z_mm=old_config.thickness_z_mm,
             kernel_type=old_config.kernel_type,
         )
+    elif rule.rule_type == "OVERLAP":
+        old_config = rule.overlap_config
+        new_config = OverlapRuleConfig.objects.create(
+            pipeline_rule=rule,
+            source=old_config.source,
+        )
+        for other in old_config.others.all():
+            OverlapOther.objects.create(
+                overlap_rule=new_config,
+                other_roi=other.other_roi,
+                order=other.order,
+            )
 
 
 def _duplicate_boolean_tree(rule, node, parent=None):
@@ -1282,6 +1325,13 @@ def _collect_rule_structure_names(rule):
         config = getattr(rule, "ring_config", None)
         if config and config.source:
             names.add(config.source)
+    elif rule.rule_type == "OVERLAP":
+        config = getattr(rule, "overlap_config", None)
+        if config:
+            if config.source:
+                names.add(config.source)
+            for other in config.others.all():
+                names.add(other.other_roi)
     return names
 
 
