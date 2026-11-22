@@ -27,7 +27,8 @@ from .dicom_viewer_views import (
 )
 from .api_views import (
     series_export_details,
-    export_dicom_series
+    export_dicom_series,
+    structure_operations_catalog
 )
 from .xml_template_views import (
     xml_template_wizard_start,
@@ -96,6 +97,7 @@ urlpatterns = [
     
     # API Health Check
     path('api/health-check/', views.check_api_health, name='check_api_health'),
+    path('api/structure-operations/', structure_operations_catalog, name='structure_operations_catalog'),
     
     # Contour Quality Rating
     path('rate-contour/<str:series_uid>/', views.rate_contour_quality, name='rate_contour_quality'),

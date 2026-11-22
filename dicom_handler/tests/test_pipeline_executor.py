@@ -11,9 +11,12 @@ convention), which the executor transposes to [z, y, x] on load.
 
 import numpy as np
 import SimpleITK as sitk
-from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+from django.urls import reverse
 
 from dicom_handler.utils.pipeline_executor import ProductionPipelineExecutor
+from dicom_handler.utils.structure_generation import OPERATIONS
 
 
 def _vox(mask):
@@ -158,3 +161,27 @@ class ProductionPipelineExecutorTests(TestCase):
     def test_missing_structure_returns_none(self):
         result, _ = self._run([{"type": "expand", "structures": ["MISSING"]}])
         self.assertIsNone(result)
+
+
+class StructureOperationsCatalogAPITests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="opcat", password="x")
+        self.client = Client()
+        self.client.login(username="opcat", password="x")
+
+    def test_returns_full_catalog(self):
+        r = self.client.get(reverse("dicom_handler:structure_operations_catalog"))
+        self.assertEqual(r.status_code, 200)
+        ops = r.json()["operations"]
+        self.assertEqual(len(ops), len(OPERATIONS))
+        ids = {o["id"] for o in ops}
+        for expected in ("margin", "ring", "avoid_margin", "expand_subtract", "intensity_range"):
+            self.assertIn(expected, ids)
+        margin = next(o for o in ops if o["id"] == "margin")
+        self.assertTrue(any(r0["name"] == "source" for r0 in margin["structure_roles"]))
+        self.assertTrue(any(p["name"] == "margin_mm" for p in margin["parameters"]))
+
+    def test_requires_login(self):
+        anon = Client()
+        r = anon.get(reverse("dicom_handler:structure_operations_catalog"))
+        self.assertIn(r.status_code, (302, 401, 403))

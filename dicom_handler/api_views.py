@@ -58,6 +58,20 @@ def validate_path_within_base(path, base_dir):
 
 
 @login_required
+def structure_operations_catalog(request):
+    """Return the canonical structure-operation catalog (single source of truth).
+
+    Consumed by both the Pipeline Builder and Rule-Based Segmentation so the
+    same operations are offered in both places. The response shape is the
+    output of ``to_frontend_catalog()`` — a list of operation specs, each with
+    its ``structure_roles`` and ``parameters``.
+    """
+    from .utils.structure_generation import to_frontend_catalog
+
+    return JsonResponse({"operations": to_frontend_catalog()})
+
+
+@login_required
 @require_http_methods(["POST"])
 def series_export_details(request):
     """
