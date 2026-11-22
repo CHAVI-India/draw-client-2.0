@@ -52,11 +52,13 @@ class ProductionPipelineExecutor:
             return self.loaded_structures[structure_name]
         
         try:
-            # Get mask from rt-utils (returns numpy array in [x, y, z] order)
+            # Get mask from rt-utils (returns a numpy array in [y, x, z] order,
+            # i.e. (Rows, Columns, Slices)).
             mask_array = self.rtstruct.get_roi_mask_by_name(structure_name)
             
-            # rt-utils returns mask in [x, y, z] order, but SimpleITK expects [z, y, x]
-            mask_array = np.transpose(mask_array, (2, 1, 0))
+            # rt-utils returns (y, x, z), but SimpleITK expects (z, y, x):
+            # move the slice axis (axis 2) to the front.
+            mask_array = np.transpose(mask_array, (2, 0, 1))
             
             # Convert to SimpleITK image
             mask = sitk.GetImageFromArray(mask_array.astype(np.uint8))
@@ -208,8 +210,9 @@ class ProductionPipelineExecutor:
             # Convert SimpleITK mask to numpy array (in [z, y, x] order)
             mask_array = sitk.GetArrayFromImage(self.current_result)
             
-            # rt-utils expects mask in [x, y, z] order, so transpose back
-            mask_array = np.transpose(mask_array, (2, 1, 0))
+            # rt-utils expects (y, x, z) = (Rows, Columns, Slices), so move the
+            # slice axis (axis 0) to the end: (z, y, x) -> (y, x, z).
+            mask_array = np.transpose(mask_array, (1, 2, 0))
             
             # Convert to boolean type (rt-utils requirement)
             mask_array = mask_array.astype(bool)

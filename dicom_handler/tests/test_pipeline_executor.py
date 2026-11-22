@@ -11,13 +11,16 @@ convention), which the executor transposes to [z, y, x] on load.
 
 import numpy as np
 import SimpleITK as sitk
+import tempfile
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
+from rt_utils import RTStructBuilder
 
 from dicom_handler.models import AutosegmentationTemplate
 from dicom_handler.utils.pipeline_executor import ProductionPipelineExecutor
 from dicom_handler.utils.structure_generation import OPERATIONS
+from rule_based_segmentation.tests.helpers import create_synthetic_ct_series
 
 
 def _vox(mask):
@@ -32,8 +35,13 @@ def _ct_image():
 
 
 def _fake_rtstruct(zyx_masks):
-    """Build a fake rtstruct whose masks are given in [z, y, x] order."""
-    stored = {name: np.transpose(m, (2, 1, 0)) for name, m in zyx_masks.items()}
+    """Build a fake rtstruct whose masks are given in [z, y, x] order.
+
+    rt-utils returns masks in (y, x, z) order, so store the transpose of the
+    (z, y, x) masks accordingly (the executor's load_structure transposes back
+    with (2, 0, 1)).
+    """
+    stored = {name: np.transpose(m, (1, 2, 0)) for name, m in zyx_masks.items()}
 
     class _Fake:
         def get_roi_mask_by_name(self, name):
@@ -214,3 +222,61 @@ class PipelineBuilderViewCatalogTests(TestCase):
         r = self.client.get(reverse("dicom_handler:pipeline_builder_edit", args=[structure.id]))
         self.assertEqual(r.status_code, 200)
         self.assertIn("operationCatalog", r.content.decode())
+
+
+class ExecutorOrientationTests(TestCase):
+    """Real rt-utils round-trip: load_structure and add_result_to_rtstruct must
+    preserve orientation on a non-square, in-plane-asymmetric series."""
+
+    Z, Y, X = 4, 8, 10
+
+    def _ct_image(self):
+        img = sitk.GetImageFromArray(np.zeros((self.Z, self.Y, self.X), dtype=np.int16))
+        img.SetSpacing((1.0, 1.0, 1.0))
+        img.SetOrigin((0.0, 0.0, 0.0))
+        return img
+
+    def _asymmetric_mask(self):
+        m = np.zeros((self.Z, self.Y, self.X), dtype=np.uint8)
+        m[1, 1, 8] = 1
+        m[1, 2, 8] = 1
+        m[2, 7, 1] = 1
+        return m
+
+    def _new_rtstruct(self, tmp):
+        create_synthetic_ct_series(tmp, num_slices=self.Z, rows=self.Y, cols=self.X)
+        return RTStructBuilder.create_new(tmp)
+
+    def test_load_structure_preserves_orientation(self):
+        tmp = tempfile.mkdtemp(prefix="exec_orient_")
+        rt = self._new_rtstruct(tmp)
+        m = self._asymmetric_mask()
+        rt.add_roi(mask=m.transpose(1, 2, 0).astype(bool), name="A", color=[255, 0, 0])
+
+        ex = ProductionPipelineExecutor(rt, self._ct_image())
+        arr = sitk.GetArrayFromImage(ex.load_structure("A")).astype(bool)
+        self.assertTrue(
+            np.array_equal(arr, m.astype(bool)),
+            "load_structure must return the exact (Z,Y,X) mask, not a mirror",
+        )
+
+    def test_add_result_to_rtstruct_roundtrip(self):
+        tmp = tempfile.mkdtemp(prefix="exec_orient_")
+        rt = self._new_rtstruct(tmp)
+        src = self._ct_image()
+        m = self._asymmetric_mask()
+
+        ex = ProductionPipelineExecutor(rt, src)
+        # Prime current_result with a known mask (bypass the pipeline).
+        mask_sitk = sitk.GetImageFromArray(m)
+        mask_sitk.CopyInformation(src)
+        ex.current_result = mask_sitk
+
+        self.assertTrue(ex.add_result_to_rtstruct("Out", [0, 255, 0]))
+
+        ex2 = ProductionPipelineExecutor(rt, src)
+        arr = sitk.GetArrayFromImage(ex2.load_structure("Out")).astype(bool)
+        self.assertTrue(
+            np.array_equal(arr, m.astype(bool)),
+            "add_result_to_rtstruct -> load_structure must be an exact round-trip",
+        )

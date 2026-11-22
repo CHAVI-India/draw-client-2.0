@@ -241,14 +241,22 @@ def _add_roi_display_type(rtstruct: RTStructBuilder, roi_name: str, roi_type: st
 
 
 def _sitk_to_rtutils_array(mask_sitk: sitk.Image) -> np.ndarray:
-    """Convert a SimpleITK mask to rt-utils expected (X, Y, Z) boolean array."""
+    """Convert a SimpleITK mask to rt-utils' expected (Y, X, Z) boolean array.
+
+    rt-utils (v2.x) indexes masks as ``(Rows, Columns, Slices)`` = ``(Y, X, Z)``
+    (axis 0 = row, axis 1 = column, matching ``pixel_array``). SimpleITK's
+    ``GetArrayFromImage`` returns ``(Z, Y, X)``, so move axis 0 (Z) to the end.
+    """
     arr = sitk.GetArrayFromImage(mask_sitk)  # (Z, Y, X)
-    return arr.transpose(2, 1, 0).astype(bool)  # (X, Y, Z)
+    return arr.transpose(1, 2, 0).astype(bool)  # (Y, X, Z)
 
 
 def _rtutils_to_sitk_array(mask_array: np.ndarray, reference_image: sitk.Image) -> sitk.Image:
-    """Convert an rt-utils (X, Y, Z) boolean array to a SimpleITK mask."""
-    arr = mask_array.transpose(2, 1, 0).astype(np.uint8)  # (Z, Y, X)
+    """Convert an rt-utils (Y, X, Z) boolean array to a SimpleITK mask.
+
+    Inverse of :func:`_sitk_to_rtutils_array`: ``(Y, X, Z)`` -> ``(Z, Y, X)``.
+    """
+    arr = mask_array.transpose(2, 0, 1).astype(np.uint8)  # (Z, Y, X)
     mask_sitk = sitk.GetImageFromArray(arr)
     mask_sitk.CopyInformation(reference_image)
     return mask_sitk
@@ -271,7 +279,7 @@ def load_roi_masks(
     masks = {}
     for roi_name in rtstruct.get_roi_names():
         try:
-            mask_array = rtstruct.get_roi_mask_by_name(roi_name)  # (X, Y, Z)
+            mask_array = rtstruct.get_roi_mask_by_name(roi_name)  # (Y, X, Z)
             masks[roi_name] = _rtutils_to_sitk_array(mask_array, ct_image)
         except Exception as e:
             logger.warning(f"Failed to load ROI '{roi_name}': {e}")

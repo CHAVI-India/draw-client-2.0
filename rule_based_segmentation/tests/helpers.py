@@ -146,16 +146,16 @@ def create_synthetic_rtstruct(
 ) -> str:
     """Create a synthetic RTStruct from a CT series and a 3D mask.
 
-    mask_array is expected in (Z, Y, X) order and is transposed to
-    (X, Y, Z) for rt-utils.
+    mask_array is expected in (Z, Y, X) order and is transposed to rt-utils'
+    (Y, X, Z) = (Rows, Columns, Slices) layout.
     """
     if color is None:
         color = [255, 0, 0]
 
-    # rt-utils expects mask shape (X, Y, Z) where Z is the slice dimension.
+    # rt-utils expects mask shape (Y, X, Z) = (Rows, Columns, Slices).
     rt_mask = mask_array.astype(bool)
     if rt_mask.ndim == 3:
-        rt_mask = rt_mask.transpose(2, 1, 0)
+        rt_mask = rt_mask.transpose(1, 2, 0)
 
     rtstruct = RTStructBuilder.create_new(os.path.dirname(ct_file_paths[0]))
     rtstruct.add_roi(mask=rt_mask, name=roi_name, color=color)
@@ -171,13 +171,13 @@ def create_synthetic_rtstruct_multi(
     """Create a synthetic RTStruct with multiple ROIs.
 
     rois maps ROI name -> 3D boolean mask in (Z, Y, X) order (transposed to
-    (X, Y, Z) for rt-utils, same as create_synthetic_rtstruct).
+    rt-utils' (Y, X, Z), same as create_synthetic_rtstruct).
     """
     rtstruct = RTStructBuilder.create_new(os.path.dirname(ct_file_paths[0]))
     for name, mask_array in rois.items():
         rt_mask = mask_array.astype(bool)
         if rt_mask.ndim == 3:
-            rt_mask = rt_mask.transpose(2, 1, 0)
+            rt_mask = rt_mask.transpose(1, 2, 0)
         rtstruct.add_roi(mask=rt_mask, name=name, color=[255, 0, 0])
     rtstruct.save(rtstruct_path)
     return rtstruct_path

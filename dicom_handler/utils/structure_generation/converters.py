@@ -59,10 +59,13 @@ def rtstruct_roi_to_sitk_mask(
             raise ValueError(f"ROI '{roi_name}' not found in RTStruct. Available ROIs: {roi_names}")
         
         # Extract mask as numpy array
-        # rt-utils returns array in (Z, Y, X) order
+        # rt-utils returns the mask in (Y, X, Z) = (Rows, Columns, Slices).
         mask_np = rtstruct.get_roi_mask_by_name(roi_name)
         
         logger.debug(f"Extracted mask shape: {mask_np.shape}, dtype: {mask_np.dtype}")
+        
+        # (Y, X, Z) -> (Z, Y, X) for SimpleITK.
+        mask_np = mask_np.transpose(2, 0, 1)
         
         # Convert to SimpleITK image
         mask_sitk = numpy_to_sitk_mask(mask_np, ct_image)
@@ -151,8 +154,11 @@ def add_sitk_mask_to_rtstruct(
     """
     logger.info(f"Adding SimpleITK mask as ROI '{roi_name}' to RTStruct")
     
-    # Convert to numpy array
+    # Convert to numpy array: (Z, Y, X).
     mask_np = sitk_mask_to_numpy(mask_sitk)
+    
+    # rt-utils expects (Y, X, Z) = (Rows, Columns, Slices).
+    mask_np = mask_np.transpose(1, 2, 0).astype(bool)
     
     # Add to RTStruct using rt-utils
     # rt-utils automatically:
@@ -205,7 +211,8 @@ def load_multiple_rois_as_masks(
             continue
         
         try:
-            mask_np = rtstruct.get_roi_mask_by_name(roi_name)
+            # rt-utils returns (Y, X, Z); transpose to (Z, Y, X) for SimpleITK.
+            mask_np = rtstruct.get_roi_mask_by_name(roi_name).transpose(2, 0, 1)
             mask_sitk = numpy_to_sitk_mask(mask_np, ct_image)
             masks[roi_name] = mask_sitk
             logger.info(f"Loaded ROI '{roi_name}' as mask")
