@@ -9,6 +9,8 @@ from django.utils import timezone
 
 import pydicom
 
+from rt_utils import RTStructBuilder
+
 from dicom_handler.models import DICOMSeries
 from spatial_overlap.models import RTStructureSetFile
 
@@ -16,7 +18,7 @@ from ..models import RuleStep, SegmentationJob, SegmentationPipeline
 from .engine import SegmentationEngine
 from .job_workdir import JobWorkdir, get_job_workdir_base
 from .rtstruct_io import load_rtstruct_and_image, regenerate_instance_uids
-from .structure_set_output import build_output_structure_set
+from .structure_set_output import _new_output_path, build_output_structure_set
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +295,17 @@ def finalize_job(job: SegmentationJob) -> dict:
 
     try:
         engine = SegmentationEngine.from_workdir(wd.root)
-        regenerate_instance_uids(engine.rtstruct)  # fresh SOP/Series UIDs
+        output_path = _new_output_path(rtstruct_path, job.id)
+        if os.path.exists(output_path):
+            # A prior (crashed) finalize already wrote the output file. Reload it
+            # so redelivery reuses the same stable UIDs / record instead of
+            # creating a duplicate structure set (build_output_structure_set
+            # reuses the existing record via the SOP UID).
+            engine.rtstruct = RTStructBuilder.create_from(
+                dicom_series_path=wd.images_dir, rt_struct_path=output_path
+            )
+        else:
+            regenerate_instance_uids(engine.rtstruct)  # fresh SOP/Series UIDs
         # Write a NEW structure set file (original + new ROIs) and register it as
         # a new RTStructureSetFile with per-ROI approval. The input file is left
         # untouched.

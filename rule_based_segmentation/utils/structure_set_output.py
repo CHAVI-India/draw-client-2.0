@@ -96,7 +96,14 @@ def build_output_structure_set(
     patient_id = str(getattr(ds, "PatientID", ""))
     original_label = str(getattr(ds, "StructureSetLabel", "") or "").strip()
 
-    label = f"{original_label} (RBS)" if original_label else "RBS output"
+    # Idempotent label: re-running finalize on an already-written output must
+    # not stack another " (RBS)" suffix.
+    if original_label.endswith(" (RBS)") or original_label == "RBS output":
+        label = original_label
+    elif original_label:
+        label = f"{original_label} (RBS)"
+    else:
+        label = "RBS output"
     ds.StructureSetLabel = label
 
     # The new file as a whole is UNAPPROVED (it contains new/reviewed content).
