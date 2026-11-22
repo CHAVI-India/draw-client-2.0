@@ -16,6 +16,7 @@ from .models import (
     AutosegmentationModel,
     AutosegmentationStructure
 )
+from .utils.structure_generation import to_frontend_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def pipeline_builder_new(request, template_id):
     context = {
         'template': template,
         'available_structures': json.dumps(available_structures),  # Serialize to JSON
+        'operation_catalog': json.dumps(to_frontend_catalog()),
         'mode': 'new',
         'structure': None,
         'initial_pipeline': None
@@ -66,6 +68,7 @@ def pipeline_builder_edit(request, structure_id):
     context = {
         'template': template,
         'available_structures': json.dumps(available_structures),  # Serialize to JSON
+        'operation_catalog': json.dumps(to_frontend_catalog()),
         'mode': 'edit',
         'structure': structure,
         'initial_pipeline': json.dumps(initial_pipeline) if initial_pipeline else None

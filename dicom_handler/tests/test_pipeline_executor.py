@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from dicom_handler.models import AutosegmentationTemplate
 from dicom_handler.utils.pipeline_executor import ProductionPipelineExecutor
 from dicom_handler.utils.structure_generation import OPERATIONS
 
@@ -185,3 +186,31 @@ class StructureOperationsCatalogAPITests(TestCase):
         anon = Client()
         r = anon.get(reverse("dicom_handler:structure_operations_catalog"))
         self.assertIn(r.status_code, (302, 401, 403))
+
+
+class PipelineBuilderViewCatalogTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(username="pbsu", password="x")
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.template = AutosegmentationTemplate.objects.create(
+            template_name="Test Template", template_description="d"
+        )
+
+    def test_new_page_embeds_catalog(self):
+        r = self.client.get(reverse("dicom_handler:pipeline_builder_new", args=[self.template.id]))
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        # The catalog is embedded for the JS builder and lists the shared ops.
+        self.assertIn("operationCatalog", html)
+        for op_id in ("margin", "ring", "avoid_margin", "expand_subtract", "intensity_range"):
+            self.assertIn('"id": "{}"'.format(op_id), html)
+
+    def test_edit_page_embeds_catalog(self):
+        from dicom_handler.models import AdditionalStructures
+        structure = AdditionalStructures.objects.create(
+            autosegmentation_template=self.template, roi_label="X"
+        )
+        r = self.client.get(reverse("dicom_handler:pipeline_builder_edit", args=[structure.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("operationCatalog", r.content.decode())

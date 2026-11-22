@@ -228,9 +228,11 @@
     
     // Initialize Pipeline Builder
     const availableStructures = {{ available_structures|safe }};
+    const operationCatalog = {{ operation_catalog|safe }};
     
     const pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
         availableStructures: availableStructures,
+        catalog: operationCatalog,
         onPipelineChange: (pipeline) => {
             document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
         }

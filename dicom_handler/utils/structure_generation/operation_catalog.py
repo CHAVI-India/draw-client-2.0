@@ -36,12 +36,15 @@ KERNEL_CROSS = "cross"
 KERNEL_CHOICES = [KERNEL_BALL, KERNEL_BOX, KERNEL_CROSS]
 
 
-def _margin_params(prefix: str = "margin") -> List["Parameter"]:
+def _margin_params(prefix: str = "margin", allow_negative: bool = False) -> List["Parameter"]:
     """Uniform + anisotropic distance knobs for a margin-like operation.
 
     ``prefix`` selects the field names (``margin_*``, ``thickness_*``,
     ``distance_*``) so the catalog matches the per-rule RBS model fields.
+    ``allow_negative`` permits contraction (used by the generic ``margin`` op,
+    where a negative distance shrinks the structure).
     """
+    dmin = None if allow_negative else 0.0
     return [
         Parameter(
             name="variant",
@@ -55,7 +58,7 @@ def _margin_params(prefix: str = "margin") -> List["Parameter"]:
             label="Margin (mm)",
             type="number",
             default=5.0,
-            min=0.0,
+            min=dmin,
             step=0.5,
             show_when={"variant": VARIANT_UNIFROM},
         ),
@@ -72,7 +75,7 @@ def _margin_params(prefix: str = "margin") -> List["Parameter"]:
             label="Margin X (mm)",
             type="number",
             default=5.0,
-            min=0.0,
+            min=dmin,
             step=0.5,
             show_when={"variant": VARIANT_ANISO},
         ),
@@ -81,7 +84,7 @@ def _margin_params(prefix: str = "margin") -> List["Parameter"]:
             label="Margin Y (mm)",
             type="number",
             default=5.0,
-            min=0.0,
+            min=dmin,
             step=0.5,
             show_when={"variant": VARIANT_ANISO},
         ),
@@ -90,7 +93,7 @@ def _margin_params(prefix: str = "margin") -> List["Parameter"]:
             label="Margin Z (mm)",
             type="number",
             default=5.0,
-            min=0.0,
+            min=dmin,
             step=0.5,
             show_when={"variant": VARIANT_ANISO},
         ),
@@ -199,7 +202,7 @@ OPERATIONS: Dict[str, OperationSpec] = {
         icon="⊕",
         color="blue",
         structure_roles=[StructureRole("source", "Source structure")],
-        parameters=_margin_params("margin"),
+        parameters=_margin_params("margin", allow_negative=True),
         legacy_ids=["expand", "contract", "margin_uniform", "anisotropic_margin"],
     ),
     # ---- Boolean ---------------------------------------------------------
