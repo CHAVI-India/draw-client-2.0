@@ -6,8 +6,14 @@ One job runs as a sequential chain:
 
 Every step reloads persisted state from the job work dir (see
 utils/job_workdir.py), so a step that is redelivered after a worker crash
-re-does at most one rule instead of the whole pipeline. Chain contract: each
-step returns the job_id string, which Celery injects into the next task.
+re-does at most one rule instead of the whole pipeline.
+
+Chain arg contract (Celery 5): the previous task's return value is
+PREPENDED to the next task's stored args (canvas.Signature._merge). Each
+step therefore returns the job_id string, and only the chain HEAD carries
+job_id explicitly — every non-head signature must NOT store job_id again,
+or the injected value overflows the function's positional parameters
+('takes N positional arguments but N+1 were given').
 """
 
 import logging
@@ -58,31 +64,41 @@ def _get_job(job_id: str) -> SegmentationJob:
 
 
 def build_job_chain(job: SegmentationJob):
-    """Build the prepare -> rules -> finalize chain for a (new) job."""
+    """Build the prepare -> rules -> finalize chain for a (new) job.
+
+    Only prepare_job (the chain head) carries job_id explicitly; the rule
+    steps and finalize receive it from the previous task's return value.
+    """
     job_id = str(job.id)
     rule_sigs = [
-        run_rule_step.s(job_id, rule.order)
+        run_rule_step.s(rule.order)
         for rule in job.pipeline.rules.all().order_by("order")
     ]
-    return chain(prepare_job.s(job_id), *rule_sigs, finalize_job.s(job_id))
+    return chain(prepare_job.s(job_id), *rule_sigs, finalize_job.s())
 
 
 def resume_job(job: SegmentationJob) -> None:
     """Re-enqueue the remaining chain steps for a job (retry after failure).
 
-    Steps already SUCCESS are skipped; PENDING/RUNNING/FAILED steps (in
-    order) are enqueued, followed by finalize. A job that never reached
-    prepare (no steps) gets the full chain.
+    Steps already SUCCESS are skipped; the remaining steps (in order) are
+    enqueued, followed by finalize. A job that never reached prepare (no
+    steps) gets the full chain. The first task of a resumed chain receives
+    no injected return value, so it must carry job_id explicitly; later
+    tasks receive it from the previous task's return value.
     """
     job_id = str(job.id)
     steps = list(job.steps.select_related("rule").order_by("order"))
     if not steps:
         build_job_chain(job).apply_async()
         return
-    remaining = [
-        run_rule_step.s(job_id, s.order) for s in steps if s.status != "SUCCESS"
-    ]
-    chain(*remaining, finalize_job.s(job_id)).apply_async()
+    remaining = [s for s in steps if s.status != "SUCCESS"]
+    if not remaining:
+        # All rule steps committed; only finalization is left (idempotent).
+        finalize_job.s(job_id).apply_async()
+        return
+    sigs = [run_rule_step.s(job_id, remaining[0].order)]
+    sigs.extend(run_rule_step.s(s.order) for s in remaining[1:])
+    chain(*sigs, finalize_job.s()).apply_async()
 
 
 @shared_task(
@@ -265,6 +281,8 @@ def reap_stuck_jobs() -> dict:
     Safety net for lost messages / hard-timeout kills:
 
     - RUNNING steps older than the grace window -> FAILED (and job FAILED).
+    - STARTED jobs older than the grace window whose steps never progressed
+      (no RUNNING/SUCCESS step — the chain dispatch itself failed) -> FAILED.
     - PENDING jobs with no steps older than the grace window -> FAILED.
     - Work dirs of FAILED jobs older than JOB_WORKDIR_TTL_DAYS -> removed.
     """
@@ -289,6 +307,24 @@ def reap_stuck_jobs() -> dict:
             step.job.save()
         reaped += 1
         logger.warning(f"Reaped stuck step {step.pk} (job {step.job_id})")
+
+    # A STARTED job whose steps have never progressed (no RUNNING/SUCCESS
+    # step) cannot move forward: the chain dispatch itself failed (e.g. a
+    # message or argument error), so no worker can make progress. Mark it
+    # FAILED so the operator can retry from the failed step.
+    started_stuck = SegmentationJob.objects.filter(
+        status="STARTED",
+        started_at__lt=now - timedelta(seconds=REAP_RUNNING_GRACE_SECONDS),
+    )
+    for job in started_stuck:
+        if job.steps.filter(status__in=["RUNNING", "SUCCESS"]).exists():
+            continue  # in progress, or finalizing after the last commit
+        job.status = "FAILED"
+        job.error_message = "Job did not progress (chain dispatch lost or failed)"
+        job.completed_at = now
+        job.save()
+        reaped += 1
+        logger.warning(f"Reaped stuck started job {job.id}")
 
     stale_pending = SegmentationJob.objects.filter(
         status="PENDING",

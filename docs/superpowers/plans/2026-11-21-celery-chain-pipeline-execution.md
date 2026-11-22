@@ -4,7 +4,7 @@
 
 **Goal:** Replace the single monolithic `run_segmentation_job` Celery task with a sequential Celery chain — `prepare_job → run_rule_step(order 1..N) → finalize_job` — so each rule is an independent, re-entrant task that persists its result to a per-job work directory, with per-step progress, failure localization, and retry-from-failed-step.
 
-**Architecture:** Intermediate state (today held only in the engine's in-memory `available_masks` dict and mutated `RTStruct` dataset) is persisted to a per-job work directory: a copied image-series dir (for rt-utils), a NIfTI cache of the reference image, and `working.dcm` — the RTStruct with all *completed* rules applied, updated via crash-safe commit-by-rename plus a per-step JSON manifest. Each chain step reloads this state, does one rule, and commits. Celery chain contract: every step returns `job_id` (str), which the chain injects as the next task's first positional arg.
+**Architecture:** Intermediate state (today held only in the engine's in-memory `available_masks` dict and mutated `RTStruct` dataset) is persisted to a per-job work directory: a copied image-series dir (for rt-utils), a NIfTI cache of the reference image, and `working.dcm` — the RTStruct with all *completed* rules applied, updated via crash-safe commit-by-rename plus a per-step JSON manifest. Each chain step reloads this state, does one rule, and commits. Celery chain contract (CRITICAL): the previous task's return value is PREPENDED as the next task's first positional arg (`canvas.Signature._merge`), so ONLY the chain head (`prepare_job`) carries `job_id` explicitly — every non-head signature (`run_rule_step.s(order)`, `finalize_job.s()`) must NOT store `job_id` again, or the injected value overflows the function's positional parameters (`TypeError: takes N positional arguments but N+1 were given`). Every step returns `job_id` (str) to feed the next task.
 
 **Tech Stack:** Python 3.13 (venv at `venv/`), Django 6.0.10, Celery 5.6.3 (`task_acks_late=True` already set in `draw_client/celery.py`), celery-chain via `celery.chain`, rt-utils 2.5.0, SimpleITK, pydicom 3.0.2, django-celery-beat 2.9.0.
 
@@ -1317,12 +1317,12 @@ git commit -m "feat(rbs): add prepare/execute/finalize chain-step service functi
 **Interfaces:**
 - Consumes: `job_service.prepare_job / execute_rule_step / finalize_job` (Task 4), `RuleStep` (Task 1).
 - Produces (module-level, used by views/tests):
-  - `build_job_chain(job: SegmentationJob)` → Celery chain `prepare_job.s(job_id), run_rule_step.s(job_id, <order>)... , finalize_job.s(job_id)` (orders from `job.pipeline.rules.all().order_by("order")`; an empty pipeline yields `prepare → finalize`)
+  - `build_job_chain(job: SegmentationJob)` → Celery chain `prepare_job.s(job_id), run_rule_step.s(<order>)... , finalize_job.s()` (only the head `prepare_job` stores `job_id`; rule steps + finalize receive it from the previous return value). Orders from `job.pipeline.rules.all().order_by("order")`; an empty pipeline yields `prepare → finalize`.
   - `resume_job(job: SegmentationJob) -> None` — no steps yet → enqueue `build_job_chain`; otherwise enqueue `run_rule_step` for every step whose status != SUCCESS (in order) followed by `finalize_job`; all via `.apply_async()`
   - task wrappers `prepare_job(job_id: str) -> str`, `run_rule_step(job_id: str, order: int) -> str`, `finalize_job(job_id: str) -> dict`, `reap_stuck_jobs() -> dict` (Task 7 adds the last)
   - time-limit constants `RULE_STEP_SOFT_TIME_LIMIT = 600`, `RULE_STEP_HARD_TIME_LIMIT = 900`, `PREPARE_SOFT_TIME_LIMIT = 900`, `PREPARE_HARD_TIME_LIMIT = 1200`, `FINALIZE_SOFT_TIME_LIMIT = 600`, `FINALIZE_HARD_TIME_LIMIT = 900`
 
-Chain contract (critical): each step returns `job_id` (str); Celery injects the previous task's return value as the next task's first positional arg, so the explicit `job_id` args in the signatures are placeholders that get replaced.
+Chain contract (CRITICAL — production incident 2026-11-22): Celery PREPENDS the previous task's return value to the next task's stored args (`celery/canvas.py` `Signature._merge`), it does NOT replace them. So only the chain head stores `job_id` explicitly; each subsequent task receives it as the injected first positional arg. Storing `job_id` on a non-head task causes `TypeError: takes N positional arguments but N+1 were given` and silently breaks the chain. `resume_job` is special: its first task is the head of a NEW chain (no preceding return value), so it stores `job_id` explicitly, and only that first task does.
 
 - [ ] **Step 1: Rewrite `tasks.py`**
 
@@ -1337,8 +1337,14 @@ One job runs as a sequential chain:
 
 Every step reloads persisted state from the job work dir (see
 utils/job_workdir.py), so a step that is redelivered after a worker crash
-re-does at most one rule instead of the whole pipeline. Chain contract: each
-step returns the job_id string, which Celery injects into the next task.
+re-does at most one rule instead of the whole pipeline.
+
+Chain arg contract (Celery 5): the previous task's return value is
+PREPENDED to the next task's stored args (canvas.Signature._merge). Each
+step therefore returns the job_id string, and only the chain HEAD carries
+job_id explicitly — every non-head signature must NOT store job_id again,
+or the injected value overflows the function's positional parameters
+('takes N positional arguments but N+1 were given').
 """
 
 import logging
@@ -1383,31 +1389,41 @@ def _close_db_connections() -> None:
 
 
 def build_job_chain(job: SegmentationJob):
-    """Build the prepare -> rules -> finalize chain for a (new) job."""
+    """Build the prepare -> rules -> finalize chain for a (new) job.
+
+    Only prepare_job (the chain head) carries job_id explicitly; the rule
+    steps and finalize receive it from the previous task's return value.
+    """
     job_id = str(job.id)
     rule_sigs = [
-        run_rule_step.s(job_id, rule.order)
+        run_rule_step.s(rule.order)
         for rule in job.pipeline.rules.all().order_by("order")
     ]
-    return chain(prepare_job.s(job_id), *rule_sigs, finalize_job.s(job_id))
+    return chain(prepare_job.s(job_id), *rule_sigs, finalize_job.s())
 
 
 def resume_job(job: SegmentationJob) -> None:
     """Re-enqueue the remaining chain steps for a job (retry after failure).
 
-    Steps already SUCCESS are skipped; PENDING/RUNNING/FAILED steps (in
-    order) are enqueued, followed by finalize. A job that never reached
-    prepare (no steps) gets the full chain.
+    Steps already SUCCESS are skipped; the remaining steps (in order) are
+    enqueued, followed by finalize. A job that never reached prepare (no
+    steps) gets the full chain. The first task of a resumed chain receives
+    no injected return value, so it must carry job_id explicitly; later
+    tasks receive it from the previous task's return value.
     """
     job_id = str(job.id)
     steps = list(job.steps.select_related("rule").order_by("order"))
     if not steps:
         build_job_chain(job).apply_async()
         return
-    remaining = [
-        run_rule_step.s(job_id, s.order) for s in steps if s.status != "SUCCESS"
-    ]
-    chain(*remaining, finalize_job.s(job_id)).apply_async()
+    remaining = [s for s in steps if s.status != "SUCCESS"]
+    if not remaining:
+        # All rule steps committed; only finalization is left (idempotent).
+        finalize_job.s(job_id).apply_async()
+        return
+    sigs = [run_rule_step.s(job_id, remaining[0].order)]
+    sigs.extend(run_rule_step.s(s.order) for s in remaining[1:])
+    chain(*sigs, finalize_job.s()).apply_async()
 
 
 @shared_task(
@@ -1582,8 +1598,10 @@ class ChainShapeTests(TestCase):
             ],
         )
         rule_sigs = [s for s in sigs if s.name == "rule_based_segmentation.run_rule_step"]
-        self.assertEqual([s.args[0] for s in rule_sigs], [str(job.id)] * 2)
-        self.assertEqual([s.args[1] for s in rule_sigs], [1, 2])
+        # job_id is NOT stored in non-head signatures: the previous task's
+        # return value is prepended as the first positional argument.
+        self.assertEqual([tuple(s.args) for s in rule_sigs], [(1,), (2,)])
+        self.assertEqual(tuple(sigs[-1].args), ())
 
     def test_empty_pipeline_chain_is_prepare_finalize(self):
         user = User.objects.create_user(username="emptyuser", password="x")
@@ -1647,6 +1665,9 @@ class ResumeJobTests(TestCase):
             ],
         )
         self.assertEqual(sigs[0].args, (str(job.id), 2))
+        # the resumed head carries job_id explicitly; finalize receives it
+        # from the previous task's return value
+        self.assertEqual(tuple(sigs[1].args), ())
 
     def test_resume_without_steps_builds_full_chain(self):
         job = make_job()
@@ -1656,7 +1677,89 @@ class ResumeJobTests(TestCase):
         sigs = mock_chain.call_args[0]
         self.assertEqual(len(sigs), 4)
         self.assertEqual(sigs[0].name, "rule_based_segmentation.prepare_job")
-        self.assertEqual(sigs[1].args, (str(job.id), 1))
+        self.assertEqual(tuple(sigs[1].args), (1,))
+        self.assertEqual(tuple(sigs[3].args), ())
+
+    def test_resume_all_steps_successful_enqueues_bare_finalize(self):
+        job = make_job()
+        r1, r2 = list(job.pipeline.rules.all().order_by("order"))
+        RuleStep.objects.create(
+            job=job, rule=r1, order=1, status="SUCCESS", output_roi_name="PTV"
+        )
+        RuleStep.objects.create(
+            job=job, rule=r2, order=2, status="SUCCESS", output_roi_name="Clipped"
+        )
+        with patch("rule_based_segmentation.tasks.finalize_job") as mock_fin:
+            mock_fin.s.return_value.apply_async = lambda *a, **k: None
+            resume_job(job)
+        mock_fin.s.assert_called_once_with(str(job.id))
+
+
+class ChainDispatchTests(TestCase):
+    """Reproduce Celery's real chain dispatch arg check.
+
+    celery.app.trace._dispatch_callbacks_and_chain applies the next
+    signature with the previous task's return value PREPENDED to that
+    signature's stored args (canvas.Signature._merge). These tests push
+    each chain signature through that exact code path against an in-memory
+    broker (nothing reaches a real queue), so a signature that stores the
+    injected job_id again fails with 'takes N positional arguments but
+    N+1 were given' — the production chain-breaker of 2026-11-22.
+    """
+
+    _CELERY_CONF_KEYS = ("broker_url", "result_backend", "task_publish_retry")
+
+    def _dispatch(self, sig, injected_args, remaining):
+        from draw_client.celery import app as celery_app
+
+        saved = {k: celery_app.conf.get(k) for k in self._CELERY_CONF_KEYS}
+        celery_app.conf.update(
+            broker_url="memory://",
+            result_backend="disabled",
+            task_publish_retry=False,
+        )
+        try:
+            # Same call production makes
+            # (celery/app/trace.py:_dispatch_callbacks_and_chain):
+            # the previous task's return value is prepended to this
+            # signature's stored args.
+            sig.apply_async(injected_args, chain=remaining)
+        finally:
+            celery_app.conf.update(saved)
+
+    def test_full_chain_dispatch_arg_counts(self):
+        job = make_job()
+        sigs = list(build_job_chain(job).tasks)
+        job_id = str(job.id)
+        for i, sig in enumerate(sigs):
+            with self.subTest(i=i, task=sig.name):
+                self._dispatch(sig, () if i == 0 else (job_id,), sigs[i + 1 :])
+
+    def test_resume_chain_dispatch_arg_counts(self):
+        job = make_job()
+        r1, r2 = list(job.pipeline.rules.all().order_by("order"))
+        RuleStep.objects.create(job=job, rule=r1, order=1, status="SUCCESS")
+        RuleStep.objects.create(
+            job=job, rule=r2, order=2, status="FAILED", error="boom"
+        )
+        captured = {}
+
+        def capture(*sigs):
+            captured["sigs"] = sigs
+            raise _SkipApply  # the chain object is never used further
+
+        with patch("rule_based_segmentation.tasks.chain", side_effect=capture):
+            with self.assertRaises(_SkipApply):
+                resume_job(job)
+        sigs = captured["sigs"]
+        job_id = str(job.id)
+        for i, sig in enumerate(sigs):
+            with self.subTest(i=i, task=sig.name):
+                self._dispatch(sig, () if i == 0 else (job_id,), sigs[i + 1 :])
+
+
+class _SkipApply(Exception):
+    """Raised to skip the (irrelevant) chain.apply_async in capture tests."""
 ```
 
 (`ReapStuckJobsTests` is added by Task 7, together with the task it tests.)
@@ -2006,6 +2109,8 @@ def reap_stuck_jobs() -> dict:
     Safety net for lost messages / hard-timeout kills:
 
     - RUNNING steps older than the grace window -> FAILED (and job FAILED).
+    - STARTED jobs older than the grace window whose steps never progressed
+      (no RUNNING/SUCCESS step — the chain dispatch itself failed) -> FAILED.
     - PENDING jobs with no steps older than the grace window -> FAILED.
     - Work dirs of FAILED jobs older than JOB_WORKDIR_TTL_DAYS -> removed.
     """
@@ -2030,6 +2135,24 @@ def reap_stuck_jobs() -> dict:
             step.job.save()
         reaped += 1
         logger.warning(f"Reaped stuck step {step.pk} (job {step.job_id})")
+
+    # A STARTED job whose steps have never progressed (no RUNNING/SUCCESS
+    # step) cannot move forward: the chain dispatch itself failed (e.g. a
+    # message or argument error), so no worker can make progress. Mark it
+    # FAILED so the operator can retry from the failed step.
+    started_stuck = SegmentationJob.objects.filter(
+        status="STARTED",
+        started_at__lt=now - timedelta(seconds=REAP_RUNNING_GRACE_SECONDS),
+    )
+    for job in started_stuck:
+        if job.steps.filter(status__in=["RUNNING", "SUCCESS"]).exists():
+            continue  # in progress, or finalizing after the last commit
+        job.status = "FAILED"
+        job.error_message = "Job did not progress (chain dispatch lost or failed)"
+        job.completed_at = now
+        job.save()
+        reaped += 1
+        logger.warning(f"Reaped stuck started job {job.id}")
 
     stale_pending = SegmentationJob.objects.filter(
         status="PENDING",
@@ -2119,6 +2242,42 @@ class ReapStuckJobsTests(TestCase):
         self.assertEqual(job.status, "FAILED")
         self.assertIn("not started", job.error_message)
 
+    def test_old_started_job_with_only_pending_steps_failed(self):
+        user = User.objects.create_user(username="reapuser5", password="x")
+        pipeline = create_pipeline_with_rules(name="Reap5", rules_data=RULES)
+        job = SegmentationJob.objects.create(
+            pipeline=pipeline,
+            input_type="UPLOAD",
+            status="STARTED",
+            created_by=user,
+            started_at=timezone.now() - timedelta(seconds=REAP_RUNNING_GRACE_SECONDS + 60),
+        )
+        rule = job.pipeline.rules.first()
+        RuleStep.objects.create(job=job, rule=rule, order=1, status="PENDING")
+        reap_stuck_jobs()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "FAILED")
+        self.assertIn("did not progress", job.error_message)
+
+    def test_started_job_with_successful_step_not_reaped(self):
+        user = User.objects.create_user(username="reapuser6", password="x")
+        pipeline = create_pipeline_with_rules(name="Reap6", rules_data=RULES)
+        job = SegmentationJob.objects.create(
+            pipeline=pipeline,
+            input_type="UPLOAD",
+            status="STARTED",
+            created_by=user,
+            started_at=timezone.now() - timedelta(seconds=REAP_RUNNING_GRACE_SECONDS + 60),
+        )
+        r1, r2 = list(job.pipeline.rules.all().order_by("order"))
+        RuleStep.objects.create(job=job, rule=r1, order=1, status="SUCCESS")
+        RuleStep.objects.create(
+            job=job, rule=r2, order=2, status="RUNNING", started_at=timezone.now()
+        )
+        reap_stuck_jobs()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "STARTED")
+
     def test_old_failed_job_workdir_removed(self):
         import os
         import tempfile
@@ -2159,7 +2318,7 @@ In `draw_client/settings.py`, inside `CELERY_BEAT_SCHEDULE` (after the `'dicom-i
 - [ ] **Step 4: Run the full test_tasks module (now complete)**
 
 Run: `venv/bin/python manage.py test rule_based_segmentation.tests.test_tasks -v 2`
-Expected: PASS — including `ReapStuckJobsTests` (4 tests).
+Expected: PASS — including `ReapStuckJobsTests` (6 tests).
 
 - [ ] **Step 5: Commit**
 
