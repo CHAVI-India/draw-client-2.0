@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from .utils.validators import (
+    validate_avoid_margin_rule,
     validate_boolean_rule,
     validate_cleanup_rule,
     validate_crop_rule,
@@ -59,6 +60,7 @@ class PipelineRule(models.Model):
         ("RING", "Ring / Shell"),
         ("OVERLAP", "Overlap"),
         ("EXPAND_SUBTRACT", "Expand & Subtract"),
+        ("AVOID_MARGIN", "Avoid with Margin"),
     ]
 
     OUTPUT_ACTION_CHOICES = [
@@ -151,6 +153,8 @@ class PipelineRule(models.Model):
             validate_overlap_rule(self)
         elif self.rule_type == "EXPAND_SUBTRACT":
             validate_expand_subtract_rule(self)
+        elif self.rule_type == "AVOID_MARGIN":
+            validate_avoid_margin_rule(self)
 
     def __str__(self):
         return f"{self.order}. {self.name} ({self.rule_type})"
@@ -466,6 +470,43 @@ class ExpandSubtractRuleConfig(models.Model):
     distance_x_mm = models.FloatField(null=True, blank=True)
     distance_y_mm = models.FloatField(null=True, blank=True)
     distance_z_mm = models.FloatField(null=True, blank=True)
+    kernel_type = models.CharField(
+        max_length=16,
+        choices=KERNEL_CHOICES,
+        default="ball",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class AvoidMarginRuleConfig(models.Model):
+    """Configuration for an AVOID_MARGIN rule: source - expand(avoid, margin)."""
+
+    VARIANT_CHOICES = [
+        ("UNIFORM", "Uniform"),
+        ("ANISOTROPIC", "Anisotropic"),
+    ]
+    KERNEL_CHOICES = [
+        ("ball", "Ball"),
+        ("box", "Box"),
+        ("cross", "Cross"),
+    ]
+
+    pipeline_rule = models.OneToOneField(
+        PipelineRule,
+        on_delete=models.CASCADE,
+        related_name="avoid_margin_config",
+        limit_choices_to={"rule_type": "AVOID_MARGIN"},
+    )
+    variant = models.CharField(max_length=20, choices=VARIANT_CHOICES)
+    source = models.CharField(max_length=256)
+    avoid = models.CharField(max_length=256)
+    margin_mm = models.FloatField(null=True, blank=True)
+    margin_x_mm = models.FloatField(null=True, blank=True)
+    margin_y_mm = models.FloatField(null=True, blank=True)
+    margin_z_mm = models.FloatField(null=True, blank=True)
     kernel_type = models.CharField(
         max_length=16,
         choices=KERNEL_CHOICES,

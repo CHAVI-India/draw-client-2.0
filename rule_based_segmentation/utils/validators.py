@@ -223,3 +223,36 @@ def validate_expand_subtract_rule(rule):
             raise ValidationError(
                 {f: "Anisotropic expand & subtract requires this value." for f in missing}
             )
+
+
+def validate_avoid_margin_rule(rule):
+    """Validate an AVOID_MARGIN rule."""
+    try:
+        config = rule.avoid_margin_config
+    except Exception:
+        return
+
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Avoid with Margin variant must be Uniform or Anisotropic."})
+
+    if not config.source:
+        raise ValidationError({"source": "Source structure is required."})
+
+    if not config.avoid:
+        raise ValidationError({"avoid": "Structure to avoid is required."})
+
+    if config.variant == "UNIFORM":
+        if config.margin_mm is None:
+            raise ValidationError({"margin_mm": "Uniform avoid with margin requires margin_mm."})
+    else:
+        missing = []
+        if config.margin_x_mm is None:
+            missing.append("margin_x_mm")
+        if config.margin_y_mm is None:
+            missing.append("margin_y_mm")
+        if config.margin_z_mm is None:
+            missing.append("margin_z_mm")
+        if missing:
+            raise ValidationError(
+                {f: "Anisotropic avoid with margin requires this value." for f in missing}
+            )

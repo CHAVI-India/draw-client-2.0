@@ -174,3 +174,29 @@ class ExpandSubtractRuleTests(SpatialRulesBase):
         # The result is a subset of the expanded source.
         expanded = apply_uniform_margin(box, 1.0, "ball")
         self.assertEqual(self._volume(sitk.And(es, sitk.Not(expanded))), 0)
+
+
+class AvoidMarginRuleTests(SpatialRulesBase):
+    def test_avoid_margin_matches_primitives(self):
+        engine = self._run_single_rule(
+            [
+                {
+                    "rule_type": "AVOID_MARGIN",
+                    "name": "AM",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Box",
+                        "avoid": "Box2",
+                        "margin_mm": 1.0,
+                        "kernel_type": "ball",
+                    },
+                }
+            ]
+        )
+        am = engine.available_masks["AM"]
+        box = engine.available_masks["Box"]
+        box2 = engine.available_masks["Box2"]
+        expected = boolean_subtraction(box, apply_uniform_margin(box2, 1.0, "ball"))
+        self.assertTrue(np.array_equal(sitk.GetArrayFromImage(am), sitk.GetArrayFromImage(expected)))
+        # The result is a subset of the source.
+        self.assertEqual(self._volume(sitk.And(am, sitk.Not(box))), 0)

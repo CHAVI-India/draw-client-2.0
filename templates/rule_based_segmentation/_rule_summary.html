@@ -34,5 +34,11 @@
         {% else %}
             Anisotropic expand {{ rule.expand_subtract_config.source }} (x={{ rule.expand_subtract_config.distance_x_mm }} y={{ rule.expand_subtract_config.distance_y_mm }} z={{ rule.expand_subtract_config.distance_z_mm }} mm), subtract {{ rule.expand_subtract_config.subtract }}
         {% endif %}
+    {% elif rule.rule_type == "AVOID_MARGIN" %}
+        {% if rule.avoid_margin_config.variant == "UNIFORM" %}
+            Avoid {{ rule.avoid_margin_config.avoid }} by {{ rule.avoid_margin_config.margin_mm }} mm from {{ rule.avoid_margin_config.source }}
+        {% else %}
+            Anisotropic avoid {{ rule.avoid_margin_config.avoid }} (x={{ rule.avoid_margin_config.margin_x_mm }} y={{ rule.avoid_margin_config.margin_y_mm }} z={{ rule.avoid_margin_config.margin_z_mm }} mm) from {{ rule.avoid_margin_config.source }}
+        {% endif %}
     {% endif %}
 </div>

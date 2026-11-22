@@ -16,6 +16,7 @@ from rt_utils import RTStructBuilder
 
 from dicom_handler.models import DICOMInstance, DICOMSeries, DICOMStudy, Patient
 from rule_based_segmentation.models import (
+    AvoidMarginRuleConfig,
     BooleanExpressionNode,
     CleanupRuleConfig,
     CropBoundary,
@@ -261,6 +262,8 @@ def create_pipeline_with_rules(user=None, name="Test Pipeline", rules_data=None)
             _create_overlap_config(rule, config)
         elif rule.rule_type == "EXPAND_SUBTRACT":
             _create_expand_subtract_config(rule, config)
+        elif rule.rule_type == "AVOID_MARGIN":
+            _create_avoid_margin_config(rule, config)
 
     return pipeline
 
@@ -353,6 +356,20 @@ def _create_expand_subtract_config(rule, config):
         distance_x_mm=config.get("distance_x_mm"),
         distance_y_mm=config.get("distance_y_mm"),
         distance_z_mm=config.get("distance_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
+
+
+def _create_avoid_margin_config(rule, config):
+    return AvoidMarginRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        avoid=config.get("avoid", ""),
+        margin_mm=config.get("margin_mm"),
+        margin_x_mm=config.get("margin_x_mm"),
+        margin_y_mm=config.get("margin_y_mm"),
+        margin_z_mm=config.get("margin_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
     )
 

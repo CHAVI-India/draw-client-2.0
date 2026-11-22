@@ -24,6 +24,7 @@ from dicom_handler.utils.log_masking import mask_sensitive_data
 from spatial_overlap.models import RTStructureSetFile
 
 from .models import (
+    AvoidMarginRuleConfig,
     BooleanExpressionNode,
     CleanupRuleConfig,
     CropBoundary,
@@ -222,6 +223,18 @@ def _rule_to_json(rule):
             "distance_x_mm": cfg.distance_x_mm,
             "distance_y_mm": cfg.distance_y_mm,
             "distance_z_mm": cfg.distance_z_mm,
+            "kernel_type": cfg.kernel_type,
+        }
+    elif rule.rule_type == "AVOID_MARGIN":
+        cfg = rule.avoid_margin_config
+        data["config"] = {
+            "variant": cfg.variant,
+            "source": cfg.source,
+            "avoid": cfg.avoid,
+            "margin_mm": cfg.margin_mm,
+            "margin_x_mm": cfg.margin_x_mm,
+            "margin_y_mm": cfg.margin_y_mm,
+            "margin_z_mm": cfg.margin_z_mm,
             "kernel_type": cfg.kernel_type,
         }
 
@@ -962,6 +975,11 @@ def _collect_required_structure_names(rule):
             names.add(config["source"])
         if config.get("subtract"):
             names.add(config["subtract"])
+    elif rule_type == "AVOID_MARGIN":
+        if config.get("source"):
+            names.add(config["source"])
+        if config.get("avoid"):
+            names.add(config["avoid"])
 
     return names
 
@@ -1004,6 +1022,8 @@ def _save_rule(pipeline, order, rule_data):
         _save_overlap_config(rule, config)
     elif rule.rule_type == "EXPAND_SUBTRACT":
         _save_expand_subtract_config(rule, config)
+    elif rule.rule_type == "AVOID_MARGIN":
+        _save_avoid_margin_config(rule, config)
 
     return rule
 
@@ -1132,6 +1152,21 @@ def _save_expand_subtract_config(rule, config):
     )
 
 
+def _save_avoid_margin_config(rule, config):
+    """Save AVOID_MARGIN rule configuration."""
+    AvoidMarginRuleConfig.objects.create(
+        pipeline_rule=rule,
+        variant=config.get("variant", "UNIFORM"),
+        source=config.get("source", ""),
+        avoid=config.get("avoid", ""),
+        margin_mm=config.get("margin_mm"),
+        margin_x_mm=config.get("margin_x_mm"),
+        margin_y_mm=config.get("margin_y_mm"),
+        margin_z_mm=config.get("margin_z_mm"),
+        kernel_type=config.get("kernel_type", "ball"),
+    )
+
+
 def _duplicate_rule(pipeline, rule):
     """Duplicate a rule and its related configuration."""
     rule.pk = None
@@ -1231,6 +1266,19 @@ def _duplicate_rule(pipeline, rule):
             distance_x_mm=old_config.distance_x_mm,
             distance_y_mm=old_config.distance_y_mm,
             distance_z_mm=old_config.distance_z_mm,
+            kernel_type=old_config.kernel_type,
+        )
+    elif rule.rule_type == "AVOID_MARGIN":
+        old_config = rule.avoid_margin_config
+        AvoidMarginRuleConfig.objects.create(
+            pipeline_rule=rule,
+            variant=old_config.variant,
+            source=old_config.source,
+            avoid=old_config.avoid,
+            margin_mm=old_config.margin_mm,
+            margin_x_mm=old_config.margin_x_mm,
+            margin_y_mm=old_config.margin_y_mm,
+            margin_z_mm=old_config.margin_z_mm,
             kernel_type=old_config.kernel_type,
         )
 
@@ -1387,6 +1435,13 @@ def _collect_rule_structure_names(rule):
                 names.add(config.source)
             if config.subtract:
                 names.add(config.subtract)
+    elif rule.rule_type == "AVOID_MARGIN":
+        config = getattr(rule, "avoid_margin_config", None)
+        if config:
+            if config.source:
+                names.add(config.source)
+            if config.avoid:
+                names.add(config.avoid)
     return names
 
 

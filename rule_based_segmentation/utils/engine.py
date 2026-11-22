@@ -198,6 +198,13 @@ class SegmentationEngine:
                     names.add(config.source)
                 if config.subtract:
                     names.add(config.subtract)
+        elif rule.rule_type == "AVOID_MARGIN":
+            config = getattr(rule, "avoid_margin_config", None)
+            if config:
+                if config.source:
+                    names.add(config.source)
+                if config.avoid:
+                    names.add(config.avoid)
 
         return names
 
@@ -218,6 +225,8 @@ class SegmentationEngine:
             return self._evaluate_overlap_rule(rule)
         if rule.rule_type == "EXPAND_SUBTRACT":
             return self._evaluate_expand_subtract_rule(rule)
+        if rule.rule_type == "AVOID_MARGIN":
+            return self._evaluate_avoid_margin_rule(rule)
         raise RuleEvaluationError(f"Unknown rule type: {rule.rule_type}")
 
     def _evaluate_boolean_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -322,6 +331,24 @@ class SegmentationEngine:
             kernel_type=config.kernel_type,
         )
         return boolean_subtraction(expanded, self.available_masks[config.subtract])
+
+    def _evaluate_avoid_margin_rule(self, rule: PipelineRule) -> sitk.Image:
+        """Avoid with Margin: source - expand(avoid, margin)."""
+        config = rule.avoid_margin_config
+        source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
+        avoid_mask = self.available_masks[config.avoid]
+        self._ensure_mask_not_empty(avoid_mask, config.avoid)
+        expanded = self._expand_mask_by_variant(
+            avoid_mask,
+            config.variant,
+            uniform_mm=config.margin_mm,
+            x_mm=config.margin_x_mm,
+            y_mm=config.margin_y_mm,
+            z_mm=config.margin_z_mm,
+            kernel_type=config.kernel_type,
+        )
+        return boolean_subtraction(source_mask, expanded)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config

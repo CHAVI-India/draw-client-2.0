@@ -20,6 +20,7 @@
     RING: "Ring / Shell",
     OVERLAP: "Overlap",
     EXPAND_SUBTRACT: "Expand & Subtract",
+    AVOID_MARGIN: "Avoid with Margin",
   };
 
   const BOOLEAN_OPERATIONS = {
@@ -168,6 +169,17 @@
             distance_z_mm: 0.0,
             kernel_type: "ball",
           };
+        case "AVOID_MARGIN":
+          return {
+            variant: "UNIFORM",
+            source: "",
+            avoid: "",
+            margin_mm: 5.0,
+            margin_x_mm: 0.0,
+            margin_y_mm: 0.0,
+            margin_z_mm: 0.0,
+            kernel_type: "ball",
+          };
         default:
           return {};
       }
@@ -312,6 +324,10 @@
           const d = cfg.variant === "ANISOTROPIC" ? `${cfg.distance_x_mm}/${cfg.distance_y_mm}/${cfg.distance_z_mm} mm` : `${cfg.distance_mm} mm`;
           return `Expand ${cfg.source} by ${d}, subtract ${cfg.subtract}`;
         }
+        case "AVOID_MARGIN": {
+          const d = cfg.variant === "ANISOTROPIC" ? `${cfg.margin_x_mm}/${cfg.margin_y_mm}/${cfg.margin_z_mm} mm` : `${cfg.margin_mm} mm`;
+          return `Avoid ${cfg.avoid} by ${d} from ${cfg.source}`;
+        }
         default:
           return "";
       }
@@ -355,6 +371,9 @@
           break;
         case "EXPAND_SUBTRACT":
           configHtml = this._renderExpandSubtractEditor(rule.config);
+          break;
+        case "AVOID_MARGIN":
+          configHtml = this._renderAvoidMarginEditor(rule.config);
           break;
       }
 
@@ -692,6 +711,44 @@
       `;
     }
 
+    _renderAvoidMarginEditor(config) {
+      return `
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Variant</label>
+            <select id="rbs-am-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
+              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Structure to Keep</label>
+            ${this._renderStructureSelect("rbs-am-source", config.source)}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700">Structure to Avoid</label>
+            ${this._renderStructureSelect("rbs-am-avoid", config.avoid, true)}
+          </div>
+          <div id="rbs-am-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Avoidance margin (mm)</label>
+            <input type="number" step="any" id="rbs-am-mm" value="${config.margin_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
+            <select id="rbs-am-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
+            </select>
+          </div>
+          <div id="rbs-am-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
+            <label class="block text-sm font-medium text-gray-700">Margin X (mm)</label>
+            <input type="number" step="any" id="rbs-am-x" value="${config.margin_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Y (mm)</label>
+            <input type="number" step="any" id="rbs-am-y" value="${config.margin_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Z (mm)</label>
+            <input type="number" step="any" id="rbs-am-z" value="${config.margin_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+          </div>
+        </div>
+      `;
+    }
+
     _renderCropEditor(config) {
       const boundariesHtml = config.boundaries
         .map(
@@ -958,6 +1015,16 @@
           cfg.distance_z_mm = parseFloat(this._getValue("#rbs-es-z")) || 0;
           cfg.kernel_type = this._getValue("#rbs-es-kernel");
           break;
+        case "AVOID_MARGIN":
+          cfg.variant = this.container.querySelector("#rbs-am-variant").value;
+          cfg.source = this._getValue("#rbs-am-source");
+          cfg.avoid = this._getValue("#rbs-am-avoid");
+          cfg.margin_mm = parseFloat(this._getValue("#rbs-am-mm")) || 0;
+          cfg.margin_x_mm = parseFloat(this._getValue("#rbs-am-x")) || 0;
+          cfg.margin_y_mm = parseFloat(this._getValue("#rbs-am-y")) || 0;
+          cfg.margin_z_mm = parseFloat(this._getValue("#rbs-am-z")) || 0;
+          cfg.kernel_type = this._getValue("#rbs-am-kernel");
+          break;
         case "CLEANUP":
           cfg.operation = this.container.querySelector("#rbs-cleanup-operation").value;
           cfg.source = this.container.querySelector("#rbs-cleanup-source").value;
@@ -1040,6 +1107,14 @@
           const isUniform = variant.value === "UNIFORM";
           this.container.querySelector("#rbs-es-uniform").classList.toggle("hidden", !isUniform);
           this.container.querySelector("#rbs-es-anisotropic").classList.toggle("hidden", isUniform);
+        });
+      }
+      if (ruleType === "AVOID_MARGIN") {
+        const variant = this.container.querySelector("#rbs-am-variant");
+        variant.addEventListener("change", () => {
+          const isUniform = variant.value === "UNIFORM";
+          this.container.querySelector("#rbs-am-uniform").classList.toggle("hidden", !isUniform);
+          this.container.querySelector("#rbs-am-anisotropic").classList.toggle("hidden", isUniform);
         });
       }
 
