@@ -8,19 +8,8 @@ import numpy as np
 import SimpleITK as sitk
 
 from dicom_handler.models import DICOMSeries
-from dicom_handler.utils.structure_generation.advanced_operations import (
-    fill_holes,
-    gaussian_smooth,
-    keep_largest_component,
-    remove_small_components,
-    smooth_structure,
-)
-from dicom_handler.utils.structure_generation.operations import (
-    apply_anisotropic_margin,
-    apply_uniform_margin,
-    boolean_intersection,
-    boolean_subtraction,
-    boolean_union,
+from dicom_handler.utils.structure_generation import (
+    execute_operation,
 )
 
 from ..models import PipelineRule
@@ -30,7 +19,6 @@ from .expression_evaluator import (
     evaluate_boolean_tree,
     get_boolean_root,
 )
-from .intensity_segmentation import intensity_range_segmentation
 from .rtstruct_io import (
     RTStructBuilder,
     add_mask_as_roi,
@@ -247,90 +235,98 @@ class SegmentationEngine:
             boundary_mask = self.available_masks[config.boundary_roi]
 
         ranges = [{"min": r.min_value, "max": r.max_value} for r in config.ranges.all()]
-        return intensity_range_segmentation(
-            self.image, ranges, seed_mask=seed_mask, boundary_mask=boundary_mask
+        return execute_operation(
+            "intensity_range",
+            {"seed": seed_mask, "boundary": boundary_mask},
+            {"ranges": ranges},
+            image=self.image,
         )
 
-    def _expand_mask_by_variant(
+    def _margin_params(
         self,
-        mask: sitk.Image,
         variant: str,
-        uniform_mm: float = None,
-        x_mm: float = None,
-        y_mm: float = None,
-        z_mm: float = None,
-        kernel_type: str = "ball",
-    ) -> sitk.Image:
-        """Expand (or contract) a mask by a UNIFORM or ANISOTROPIC distance (mm).
+        prefix: str,
+        uniform_mm: Optional[float],
+        x_mm: Optional[float],
+        y_mm: Optional[float],
+        z_mm: Optional[float],
+        kernel_type: Optional[str],
+    ) -> Dict[str, Any]:
+        """Build the param dict for a margin-like op (uniform or anisotropic).
 
-        Shared by the RING, EXPAND_SUBTRACT and AVOID_MARGIN evaluators.
+        ``prefix`` selects the distance field names (``margin``/``thickness``/
+        ``distance``) so the catalog params line up per operation.
         """
-        if variant == "UNIFORM":
-            return apply_uniform_margin(mask, uniform_mm, kernel_type or "ball")
-        return apply_anisotropic_margin(mask, x_mm, y_mm, z_mm)
+        if variant == "ANISOTROPIC":
+            return {
+                "variant": "ANISOTROPIC",
+                f"{prefix}_x_mm": x_mm or 0.0,
+                f"{prefix}_y_mm": y_mm or 0.0,
+                f"{prefix}_z_mm": z_mm or 0.0,
+            }
+        return {
+            "variant": "UNIFORM",
+            f"{prefix}_mm": uniform_mm or 0.0,
+            "kernel_type": kernel_type or "ball",
+        }
 
     def _evaluate_margin_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.margin_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-
-        if config.variant == "UNIFORM":
-            return apply_uniform_margin(
-                source_mask,
-                margin_mm=config.margin_mm,
-                kernel_type=config.kernel_type or "ball",
-            )
-
-        return apply_anisotropic_margin(
-            source_mask,
-            margin_x_mm=config.margin_x_mm,
-            margin_y_mm=config.margin_y_mm,
-            margin_z_mm=config.margin_z_mm,
+        params = self._margin_params(
+            config.variant,
+            "margin",
+            config.margin_mm,
+            config.margin_x_mm,
+            config.margin_y_mm,
+            config.margin_z_mm,
+            config.kernel_type,
         )
+        return execute_operation("margin", {"source": source_mask}, params)
 
     def _evaluate_ring_rule(self, rule: PipelineRule) -> sitk.Image:
         """Ring/shell: expand(source, thickness) - source."""
         config = rule.ring_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-        expanded = self._expand_mask_by_variant(
-            source_mask,
+        params = self._margin_params(
             config.variant,
-            uniform_mm=config.thickness_mm,
-            x_mm=config.thickness_x_mm,
-            y_mm=config.thickness_y_mm,
-            z_mm=config.thickness_z_mm,
-            kernel_type=config.kernel_type,
+            "thickness",
+            config.thickness_mm,
+            config.thickness_x_mm,
+            config.thickness_y_mm,
+            config.thickness_z_mm,
+            config.kernel_type,
         )
-        return boolean_subtraction(expanded, source_mask)
+        return execute_operation("ring", {"source": source_mask}, params)
 
     def _evaluate_overlap_rule(self, rule: PipelineRule) -> sitk.Image:
         """Overlap: source ∩ (other1 ∪ other2 ∪ …)."""
         config = rule.overlap_config
-        result = self.available_masks[config.source]
+        source_mask = self.available_masks[config.source]
         others = list(config.others.values_list("other_roi", flat=True).order_by("order"))
         if not others:
             raise RuleEvaluationError("Overlap rule requires at least one other structure.")
-        combined = self.available_masks[others[0]]
-        for name in others[1:]:
-            combined = boolean_union(combined, self.available_masks[name])
-        return boolean_intersection(result, combined)
+        roles = {"source": source_mask, "others": [self.available_masks[n] for n in others]}
+        return execute_operation("overlap", roles, {})
 
     def _evaluate_expand_subtract_rule(self, rule: PipelineRule) -> sitk.Image:
         """Expand & Subtract: expand(source, distance) - subtract."""
         config = rule.expand_subtract_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-        expanded = self._expand_mask_by_variant(
-            source_mask,
+        params = self._margin_params(
             config.variant,
-            uniform_mm=config.distance_mm,
-            x_mm=config.distance_x_mm,
-            y_mm=config.distance_y_mm,
-            z_mm=config.distance_z_mm,
-            kernel_type=config.kernel_type,
+            "distance",
+            config.distance_mm,
+            config.distance_x_mm,
+            config.distance_y_mm,
+            config.distance_z_mm,
+            config.kernel_type,
         )
-        return boolean_subtraction(expanded, self.available_masks[config.subtract])
+        roles = {"source": source_mask, "subtract": self.available_masks[config.subtract]}
+        return execute_operation("expand_subtract", roles, params)
 
     def _evaluate_avoid_margin_rule(self, rule: PipelineRule) -> sitk.Image:
         """Avoid with Margin: source - expand(avoid, margin)."""
@@ -339,23 +335,24 @@ class SegmentationEngine:
         self._ensure_mask_not_empty(source_mask, config.source)
         avoid_mask = self.available_masks[config.avoid]
         self._ensure_mask_not_empty(avoid_mask, config.avoid)
-        expanded = self._expand_mask_by_variant(
-            avoid_mask,
+        params = self._margin_params(
             config.variant,
-            uniform_mm=config.margin_mm,
-            x_mm=config.margin_x_mm,
-            y_mm=config.margin_y_mm,
-            z_mm=config.margin_z_mm,
-            kernel_type=config.kernel_type,
+            "margin",
+            config.margin_mm,
+            config.margin_x_mm,
+            config.margin_y_mm,
+            config.margin_z_mm,
+            config.kernel_type,
         )
-        return boolean_subtraction(source_mask, expanded)
+        roles = {"source": source_mask, "avoid": avoid_mask}
+        return execute_operation("avoid_margin", roles, params)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config
-        result = self.available_masks[config.source]
-        for boundary in config.boundaries.all():
-            result = boolean_intersection(result, self.available_masks[boundary.boundary_roi])
-        return result
+        source_mask = self.available_masks[config.source]
+        boundaries = [self.available_masks[b.boundary_roi] for b in config.boundaries.all()]
+        roles = {"source": source_mask, "boundaries": boundaries}
+        return execute_operation("crop_to_boundary", roles, {})
 
     def _evaluate_cleanup_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.cleanup_config
@@ -364,23 +361,31 @@ class SegmentationEngine:
         operation = config.operation
 
         if operation == "SMOOTH_STRUCTURE":
-            return smooth_structure(
-                source_mask,
-                smoothing_mm=config.smoothing_mm,
-                iterations=config.iterations,
+            return execute_operation(
+                "smooth",
+                {"source": source_mask},
+                {"smoothing_mm": config.smoothing_mm, "iterations": config.iterations},
             )
         if operation == "GAUSSIAN_SMOOTH":
-            return gaussian_smooth(
-                source_mask,
-                sigma_mm=config.sigma_mm,
-                threshold=config.threshold,
+            return execute_operation(
+                "gaussian_smooth",
+                {"source": source_mask},
+                {"sigma_mm": config.sigma_mm, "threshold": config.threshold},
             )
         if operation == "FILL_HOLES":
-            return fill_holes(source_mask, fully_connected=config.fully_connected or False)
+            return execute_operation(
+                "fill_holes",
+                {"source": source_mask},
+                {"fully_connected": config.fully_connected or False},
+            )
         if operation == "REMOVE_SMALL_COMPONENTS":
-            return remove_small_components(source_mask, min_size_mm3=config.min_size_mm3)
+            return execute_operation(
+                "remove_small_components",
+                {"source": source_mask},
+                {"min_size_mm3": config.min_size_mm3},
+            )
         if operation == "KEEP_LARGEST_COMPONENT":
-            return keep_largest_component(source_mask)
+            return execute_operation("keep_largest", {"source": source_mask}, {})
 
         raise RuleEvaluationError(f"Unknown cleanup operation: {operation}")
 
