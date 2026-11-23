@@ -86,6 +86,33 @@ class PipelineBuilder {
         return role.name === "source" && this.chainSourceOps.has(op.type);
     }
 
+    _normalizeLegacyMargin(operation, sign) {
+        // Map legacy margin params (variant/margin_mm or margin_x/y/z_mm) onto
+        // the canonical six-directional form so old pipelines keep working and
+        // re-serialize cleanly. `contract` stored a positive distance, so flip
+        // its sign to a (negative) contraction.
+        const p = operation.parameters || {};
+        const hasLegacy =
+            'margin_mm' in p || 'margin_x_mm' in p || 'margin_y_mm' in p || 'margin_z_mm' in p;
+        if (!hasLegacy) return;
+        if (sign < 0) {
+            for (const k of ['margin_mm', 'margin_x_mm', 'margin_y_mm', 'margin_z_mm']) {
+                if (p[k] && p[k] > 0) p[k] = -p[k];
+            }
+        }
+        if (p.margin_x_mm !== undefined || p.margin_y_mm !== undefined || p.margin_z_mm !== undefined) {
+            const x = p.margin_x_mm || 0, y = p.margin_y_mm || 0, z = p.margin_z_mm || 0;
+            p.margin_h_mm = x; p.margin_f_mm = x;
+            p.margin_a_mm = y; p.margin_p_mm = y;
+            p.margin_l_mm = z; p.margin_r_mm = z;
+        } else {
+            const m = p.margin_mm || 0;
+            for (const k of ['l', 'r', 'a', 'p', 'h', 'f']) p[`margin_${k}_mm`] = m;
+        }
+        delete p.variant; delete p.kernel_type;
+        delete p.margin_mm; delete p.margin_x_mm; delete p.margin_y_mm; delete p.margin_z_mm;
+    }
+
     // ------------------------------------------------------------------
     // Lifecycle
     // ------------------------------------------------------------------
@@ -338,7 +365,10 @@ class PipelineBuilder {
         const params = (spec.parameters || []).filter((p) => this._paramVisible(op, p));
         if (!params.length) return '';
         const rows = params.map((param) => this._renderParam(op, param)).join('');
-        return `<div class="space-y-2 mt-3 pt-3 border-t border-gray-200">${rows}</div>`;
+        const hint = spec.id === 'margin'
+            ? '<p class="mt-2 text-[11px] text-amber-600">Tip: a negative value in a direction contracts (shrinks) the structure on that side.</p>'
+            : '';
+        return `<div class="space-y-2 mt-3 pt-3 border-t border-gray-200">${rows}${hint}</div>`;
     }
 
     _renderParam(op, param) {
@@ -362,10 +392,13 @@ class PipelineBuilder {
                 </div>`;
         }
         // number (default)
+        const minAttr = param.allow_negative
+            ? ''
+            : ` min="${param.min !== undefined ? param.min : 0}"`;
         return `
             <div class="flex items-center justify-between">
                 <label class="text-xs font-medium text-gray-700">${this._escapeHtml(param.label)}:</label>
-                <input type="number" ${dataAttrs} class="${baseClass} w-28 px-2 py-1 text-xs" value="${value}" min="${param.min !== undefined ? param.min : 0}" step="${param.step !== undefined ? param.step : 1}">
+                <input type="number" ${dataAttrs} class="${baseClass} w-28 px-2 py-1 text-xs" value="${value}"${minAttr} step="${param.step !== undefined ? param.step : 1}">
             </div>`;
     }
 
@@ -542,12 +575,9 @@ class PipelineBuilder {
                     roleValues: {},
                     parameters: Object.assign({}, defaults, op.parameters || {})
                 };
-                // Legacy `contract` stored a positive margin_mm; the canonical
-                // margin op is signed, so flip it to a negative (shrink) value.
-                if (sign < 0) {
-                    const mm = operation.parameters.margin_mm;
-                    if (mm && mm > 0) operation.parameters.margin_mm = -mm;
-                }
+                // Normalize legacy margin params (variant/margin_mm or x/y/z)
+                // onto the canonical six-directional form; `contract` flips sign.
+                this._normalizeLegacyMargin(operation, sign);
                 // Map the flat `structures` array back onto roles (in catalog
                 // order, skipping chain sources). A single role consumes one
                 // entry; a multiple role consumes all remaining entries.

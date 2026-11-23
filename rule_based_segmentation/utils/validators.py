@@ -86,6 +86,23 @@ def validate_margin_rule(rule):
     if not config.source:
         raise ValidationError({"source": "Source structure is required."})
 
+    # Six-directional margins (preferred): any set value makes this a
+    # directional margin; unset directions are treated as 0 (no change).
+    directional = [
+        v
+        for v in (
+            config.margin_l_mm,
+            config.margin_r_mm,
+            config.margin_a_mm,
+            config.margin_p_mm,
+            config.margin_h_mm,
+            config.margin_f_mm,
+        )
+        if v is not None
+    ]
+    if directional:
+        return
+
     if config.variant == "UNIFORM":
         if config.margin_mm is None:
             raise ValidationError({"margin_mm": "Uniform margin requires margin_mm."})

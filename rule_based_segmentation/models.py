@@ -311,6 +311,16 @@ class MarginRuleConfig(models.Model):
         null=True,
         blank=True,
     )
+    # Six patient-anatomical directional margins (mm) in the DICOM coordinate
+    # system: L/R, A/P, H(=superior)/F(=inferior). A negative value contracts
+    # that side. These are the canonical margin fields; the uniform/anisotropic
+    # fields above are kept for backward compatibility with existing rules.
+    margin_l_mm = models.FloatField(null=True, blank=True)
+    margin_r_mm = models.FloatField(null=True, blank=True)
+    margin_a_mm = models.FloatField(null=True, blank=True)
+    margin_p_mm = models.FloatField(null=True, blank=True)
+    margin_h_mm = models.FloatField(null=True, blank=True)
+    margin_f_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

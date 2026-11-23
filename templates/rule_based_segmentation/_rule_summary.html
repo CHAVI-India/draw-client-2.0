@@ -11,11 +11,16 @@
             (full image)
         {% endif %}
     {% elif rule.rule_type == "MARGIN" %}
-        {% if rule.margin_config.variant == "UNIFORM" %}
-            {{ rule.margin_config.margin_mm }} mm uniform on {{ rule.margin_config.source }}
-        {% else %}
-            Anisotropic on {{ rule.margin_config.source }}: x={{ rule.margin_config.margin_x_mm }} y={{ rule.margin_config.margin_y_mm }} z={{ rule.margin_config.margin_z_mm }} mm
-        {% endif %}
+        {% with cfg=rule.margin_config %}
+            Margin on {{ cfg.source }}:
+            {% if cfg.margin_l_mm %} L {{ cfg.margin_l_mm }}mm{% endif %}
+            {% if cfg.margin_r_mm %} R {{ cfg.margin_r_mm }}mm{% endif %}
+            {% if cfg.margin_a_mm %} A {{ cfg.margin_a_mm }}mm{% endif %}
+            {% if cfg.margin_p_mm %} P {{ cfg.margin_p_mm }}mm{% endif %}
+            {% if cfg.margin_h_mm %} H {{ cfg.margin_h_mm }}mm{% endif %}
+            {% if cfg.margin_f_mm %} F {{ cfg.margin_f_mm }}mm{% endif %}
+            {% if not cfg.margin_l_mm and not cfg.margin_r_mm and not cfg.margin_a_mm and not cfg.margin_p_mm and not cfg.margin_h_mm and not cfg.margin_f_mm %} {{ cfg.margin_mm|default:"0" }} mm (legacy uniform){% endif %}
+        {% endwith %}
     {% elif rule.rule_type == "CROP" %}
         Crop {{ rule.crop_config.source }} to {% for b in rule.crop_config.boundaries.all %}{{ b.boundary_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
     {% elif rule.rule_type == "CLEANUP" %}

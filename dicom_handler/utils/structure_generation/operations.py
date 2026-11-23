@@ -13,7 +13,7 @@ ensuring consistent results regardless of image resolution.
 import SimpleITK as sitk
 import numpy as np
 import logging
-from typing import Union, List, Tuple, Optional
+from typing import Union, List, Tuple, Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +197,135 @@ def apply_anisotropic_margin(
                 erode.SetForegroundValue(1)
                 result = erode.Execute(result)
     
+    return result
+
+
+# ============================================================================
+# DIRECTIONAL (PATIENT-ANATOMICAL) MARGIN
+# ============================================================================
+
+# Patient-anatomical directions as vectors in the DICOM patient coordinate
+# system (RCS): +x = Left, +y = Posterior, +z = Head.
+_DIRECTIONS = {
+    "L": (1, 0, 0),    # Left      (+x)
+    "R": (-1, 0, 0),   # Right     (-x)
+    "A": (0, -1, 0),   # Anterior  (-y)
+    "P": (0, 1, 0),    # Posterior (+y)
+    "H": (0, 0, 1),    # Head / superior (+z)
+    "F": (0, 0, -1),   # Feet / inferior (-z)
+}
+
+
+def _shift(arr: np.ndarray, axis: int, offset: int) -> np.ndarray:
+    """Shift a boolean array by ``offset`` voxels along ``axis`` (positive moves
+    content toward higher indices), zero-filling the vacated region (no wrap)."""
+    if offset == 0:
+        return arr
+    out = np.zeros_like(arr)
+    n = arr.shape[axis]
+    o = abs(offset)
+    if o >= n:
+        return out
+    if offset > 0:
+        dst = [slice(None)] * arr.ndim
+        src = [slice(None)] * arr.ndim
+        dst[axis] = slice(o, None)
+        src[axis] = slice(0, n - o)
+        out[tuple(dst)] = arr[tuple(src)]
+    else:
+        dst = [slice(None)] * arr.ndim
+        src = [slice(None)] * arr.ndim
+        dst[axis] = slice(0, n - o)
+        src[axis] = slice(o, None)
+        out[tuple(dst)] = arr[tuple(src)]
+    return out
+
+
+def _directional_dilate(arr: np.ndarray, axis: int, d: int, n: int) -> np.ndarray:
+    """Grow ``arr`` by ``n`` voxels toward direction ``d`` (+1/-1) along ``axis``
+    only. Equivalent to the union of the mask with its 1..n shifts in that
+    direction (a one-sided, line-shaped dilation)."""
+    out = arr
+    for k in range(1, n + 1):
+        out = out | _shift(arr, axis, d * k)
+    return out
+
+
+def _directional_erode(arr: np.ndarray, axis: int, d: int, n: int) -> np.ndarray:
+    """Shrink ``arr`` by ``n`` voxels toward direction ``d`` along ``axis`` only.
+    A voxel survives only if the next ``n`` voxels in that direction are also
+    set (a one-sided, line-shaped erosion)."""
+    out = arr
+    for k in range(1, n + 1):
+        out = out & _shift(arr, axis, -d * k)
+    return out
+
+
+def apply_directional_margin(
+    mask: sitk.Image,
+    margins_mm: Dict[str, float],
+) -> sitk.Image:
+    """Apply a 6-directional, patient-anatomical margin to a binary mask.
+
+    Unlike :func:`apply_uniform_margin` / :func:`apply_anisotropic_margin` (which
+    dilate symmetrically about each array axis), this grows/contracts the mask a
+    *different* distance along each of the six anatomical directions -- Left,
+    Right, Anterior, Posterior, Head (superior) and Feet (inferior) -- defined
+    in the DICOM patient coordinate system. The direction cosines of the mask's
+    own image geometry map each anatomical direction onto the corresponding
+    array axis (and sign), so oblique acquisitions are handled correctly.
+
+    A positive value in a direction expands (dilates) the structure toward that
+    side; a negative value contracts (erodes) it. Zero leaves that side
+    unchanged. This is the standard directional-margin convention used in
+    contour editing tools (e.g. 3D Slicer's margin effect, extended to the six
+    anatomical directions).
+
+    Args:
+        mask: SimpleITK binary mask (must carry spacing + direction cosines).
+        margins_mm: dict with keys ``L, R, A, P, H, F`` in millimeters.
+
+    Returns:
+        sitk.Image: new mask with the same geometry as ``mask``.
+    """
+    values = {k: float(margins_mm.get(k, margins_mm.get(k.lower(), 0.0)) or 0.0) for k in _DIRECTIONS}
+    if not any(values.values()):
+        return mask
+
+    arr = sitk.GetArrayFromImage(mask)  # shape (z, y, x)
+    if arr.dtype != bool:
+        arr = arr.astype(bool)
+
+    # Per numpy-array-axis spacing. SimpleITK spacing is (sx, sy, sz) for the
+    # image x/y/z axes, while the array is (z, y, x) = axes 0, 1, 2.
+    sp = mask.GetSpacing()
+    array_spacing = (sp[2], sp[1], sp[0])
+
+    # D rows = patient-space direction of each *image* axis (x, y, z). Reorder
+    # to the numpy-array axes (0 = z, 1 = y, 2 = x):  A[i] = patient direction
+    # of array axis i.  A is orthogonal, so array coords = A.T @ patient vec.
+    D = np.array(mask.GetDirection(), dtype=float).reshape(3, 3)
+    A = np.array([D[2], D[1], D[0]])
+
+    for name, mm in values.items():
+        if mm == 0.0:
+            continue
+        comp = A.T @ np.array(_DIRECTIONS[name], dtype=float)
+        axis = int(np.argmax(np.abs(comp)))
+        d = 1 if comp[axis] >= 0 else -1
+        n = int(np.ceil(abs(mm) / array_spacing[axis]))
+        if n <= 0:
+            continue
+        arr = _directional_dilate(arr, axis, d, n) if mm > 0 else _directional_erode(arr, axis, d, n)
+
+    result = sitk.GetImageFromArray(arr.astype(np.uint8))
+    result.SetOrigin(mask.GetOrigin())
+    result.SetSpacing(mask.GetSpacing())
+    result.SetDirection(tuple(mask.GetDirection()))
+    logger.info(
+        "Applied directional margin (mm): %s",
+        {k: v for k, v in values.items() if v != 0.0},
+    )
     return result
 
 

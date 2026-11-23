@@ -131,9 +131,27 @@
         output_action: rule.output_action || "CREATE_NEW",
         output_color: rule.output_color || "#FFFF00",
         output_roi_type: rule.output_roi_type || "ORGAN",
-        config: rule.config || this._defaultConfig(rule.rule_type),
+        config: this._normalizeRuleConfig(
+          rule.rule_type,
+          rule.config || this._defaultConfig(rule.rule_type)
+        ),
       };
       return normalized;
+    }
+
+    _normalizeRuleConfig(ruleType, config) {
+      // Convert legacy MARGIN configs (variant/margin_mm or x/y/z) onto the
+      // six-directional form so previously-saved rules keep working.
+      if (ruleType !== "MARGIN" || !config) return config;
+      const hasDir = ["l", "r", "a", "p", "h", "f"].some((k) => config[`margin_${k}_mm`] !== undefined && config[`margin_${k}_mm`] !== null);
+      if (hasDir) return config;
+      if (config.margin_mm === undefined && config.margin_x_mm === undefined) return config;
+      if (config.variant === "ANISOTROPIC" && (config.margin_x_mm !== undefined || config.margin_y_mm !== undefined || config.margin_z_mm !== undefined)) {
+        const x = config.margin_x_mm || 0, y = config.margin_y_mm || 0, z = config.margin_z_mm || 0;
+        return { source: config.source, margin_h_mm: x, margin_f_mm: x, margin_a_mm: y, margin_p_mm: y, margin_l_mm: z, margin_r_mm: z };
+      }
+      const m = config.margin_mm || 0;
+      return { source: config.source, margin_l_mm: m, margin_r_mm: m, margin_a_mm: m, margin_p_mm: m, margin_h_mm: m, margin_f_mm: m };
     }
 
     _defaultConfig(ruleType) {
@@ -150,13 +168,13 @@
           };
         case "MARGIN":
           return {
-            variant: "UNIFORM",
             source: "",
-            margin_mm: 5.0,
-            margin_x_mm: 0.0,
-            margin_y_mm: 0.0,
-            margin_z_mm: 0.0,
-            kernel_type: "ball",
+            margin_l_mm: 0.0,
+            margin_r_mm: 0.0,
+            margin_a_mm: 0.0,
+            margin_p_mm: 0.0,
+            margin_h_mm: 0.0,
+            margin_f_mm: 0.0,
           };
         case "CROP":
           return { source: "", boundaries: [""] };
@@ -421,10 +439,15 @@
           return this._summarizeBooleanNode(cfg);
         case "INTENSITY":
           return `Intensity ranges: ${cfg.ranges.map((r) => `${r.min} to ${r.max}`).join(", ")}`;
-        case "MARGIN":
-          return cfg.variant === "UNIFORM"
-            ? `${cfg.margin_mm >= 0 ? "Expand" : "Contract"} ${cfg.source} by ${Math.abs(cfg.margin_mm)} mm (${cfg.kernel_type})`
-            : `Anisotropic margin on ${cfg.source}: [${cfg.margin_x_mm}, ${cfg.margin_y_mm}, ${cfg.margin_z_mm}] mm`;
+        case "MARGIN": {
+          const labels = { l: "L", r: "R", a: "A", p: "P", h: "S", f: "I" };
+          const dirs = ["l", "r", "a", "p", "h", "f"].filter((k) => cfg[`margin_${k}_mm`]);
+          if (!dirs.length) return `No margin on ${cfg.source}`;
+          const parts = dirs
+            .map((k) => `${labels[k]} ${cfg[`margin_${k}_mm`] > 0 ? "+" : ""}${cfg[`margin_${k}_mm`]}mm`)
+            .join(", ");
+          return `Margin on ${cfg.source}: ${parts}`;
+        }
         case "CROP":
           return `Crop ${cfg.source} to ${cfg.boundaries.join(", ")}`;
         case "CLEANUP":
@@ -697,35 +720,29 @@
     }
 
     _renderMarginEditor(config) {
+      const dirs = [
+        ["l", "Left"], ["r", "Right"], ["a", "Anterior"],
+        ["p", "Posterior"], ["h", "Superior (Head)"], ["f", "Inferior (Feet)"],
+      ];
+      const inputs = dirs.map(
+        ([k, label]) => `
+          <div>
+            <label class="block text-sm font-medium text-gray-700">${label} (mm)</label>
+            <input type="number" step="any" id="rbs-margin-${k}" value="${config[`margin_${k}_mm`] ?? 0}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+          </div>`
+      ).join("");
       return `
         <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700">Variant</label>
-            <select id="rbs-margin-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
-              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
-            </select>
-          </div>
           <div>
             <label class="block text-sm font-medium text-gray-700">Source Structure</label>
             ${this._renderStructureSelect("rbs-margin-source", config.source)}
           </div>
-          <div id="rbs-margin-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Margin (mm) — negative to contract</label>
-            <input type="number" step="any" id="rbs-margin-mm" value="${config.margin_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
-            <select id="rbs-margin-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
-            </select>
+          <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 leading-relaxed">
+            Set a margin in millimetres for each direction. A <b>positive</b> value
+            expands (grows) the structure toward that side; a <b>negative</b> value
+            contracts (shrinks) it. Leave at 0 to leave that side unchanged.
           </div>
-          <div id="rbs-margin-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Margin X (mm)</label>
-            <input type="number" step="any" id="rbs-margin-x" value="${config.margin_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Y (mm)</label>
-            <input type="number" step="any" id="rbs-margin-y" value="${config.margin_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Z (mm)</label>
-            <input type="number" step="any" id="rbs-margin-z" value="${config.margin_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-          </div>
+          <div class="grid grid-cols-2 gap-3">${inputs}</div>
         </div>
       `;
     }
@@ -1040,13 +1057,11 @@
           });
           break;
         case "MARGIN":
-          cfg.variant = this.container.querySelector("#rbs-margin-variant").value;
           cfg.source = this.container.querySelector("#rbs-margin-source").value;
-          cfg.margin_mm = parseFloat(this.container.querySelector("#rbs-margin-mm").value) || 0;
-          cfg.margin_x_mm = parseFloat(this.container.querySelector("#rbs-margin-x").value) || 0;
-          cfg.margin_y_mm = parseFloat(this.container.querySelector("#rbs-margin-y").value) || 0;
-          cfg.margin_z_mm = parseFloat(this.container.querySelector("#rbs-margin-z").value) || 0;
-          cfg.kernel_type = this.container.querySelector("#rbs-margin-kernel").value;
+          for (const k of ["l", "r", "a", "p", "h", "f"]) {
+            cfg[`margin_${k}_mm`] =
+              parseFloat(this.container.querySelector(`#rbs-margin-${k}`).value) || 0;
+          }
           break;
         case "CROP":
           cfg.source = this.container.querySelector("#rbs-crop-source").value;
@@ -1137,14 +1152,6 @@
         });
       }
 
-      if (ruleType === "MARGIN") {
-        const variant = this.container.querySelector("#rbs-margin-variant");
-        variant.addEventListener("change", () => {
-          const isUniform = variant.value === "UNIFORM";
-          this.container.querySelector("#rbs-margin-uniform").classList.toggle("hidden", !isUniform);
-          this.container.querySelector("#rbs-margin-anisotropic").classList.toggle("hidden", isUniform);
-        });
-      }
       if (ruleType === "RING") {
         const variant = this.container.querySelector("#rbs-ring-variant");
         variant.addEventListener("change", () => {

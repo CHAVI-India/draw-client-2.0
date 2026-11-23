@@ -97,6 +97,27 @@ def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image
     )
 
 
+def _margin_directional(params: Dict[str, Any], prefix: str = "margin") -> Dict[str, float]:
+    """Return the six-directional margin dict (mm) for a margin-like op.
+
+    Handles the new per-direction params (``{prefix}_l_mm`` ... ``{prefix}_f_mm``)
+    and falls back to legacy uniform/anisotropic params so previously-saved
+    pipelines keep working. Legacy anisotropic (symmetric per array axis) is
+    mapped to the two anatomical directions along that axis (axial assumption).
+    """
+    keys = ("l", "r", "a", "p", "h", "f")
+    if any(f"{prefix}_{k}_mm" in params for k in keys):
+        return {k: float(params.get(f"{prefix}_{k}_mm", 0.0) or 0.0) for k in keys}
+    variant = params.get("variant", "UNIFORM")
+    if variant == "ANISOTROPIC":
+        x = float(params.get("margin_x_mm", 0.0) or 0.0)
+        y = float(params.get("margin_y_mm", 0.0) or 0.0)
+        z = float(params.get("margin_z_mm", 0.0) or 0.0)
+        return {"h": x, "f": x, "a": y, "p": y, "l": z, "r": z}
+    m = float(params.get("margin_mm", 0.0) or 0.0)
+    return {k: m for k in keys}
+
+
 # ---------------------------------------------------------------------------
 # Per-operation handlers
 # ---------------------------------------------------------------------------
@@ -104,19 +125,8 @@ def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image
 
 def _h_margin(roles, params, image=None):
     source = _single(roles, "source", "margin")
-    variant = params.get("variant", "UNIFORM")
-    if variant == VARIANT_ANISO:
-        return operations.apply_anisotropic_margin(
-            source,
-            params["margin_x_mm"],
-            params["margin_y_mm"],
-            params["margin_z_mm"],
-        )
-    return operations.apply_uniform_margin(
-        source,
-        params.get("margin_mm", 0.0),
-        params.get("kernel_type", "ball"),
-    )
+    margins = _margin_directional(params, "margin")
+    return operations.apply_directional_margin(source, margins)
 
 
 def _h_union(roles, params, image=None):
@@ -315,7 +325,12 @@ def execute_operation(
     # rely on the op id for direction: ``expand`` grows, ``contract`` shrinks.
     # Apply that sign so both map onto the canonical signed ``margin`` op.
     if canonical == "margin" and op_id == "contract":
-        for key in ("margin_mm", "margin_x_mm", "margin_y_mm", "margin_z_mm"):
+        for key in (
+            "margin_mm",
+            "margin_x_mm", "margin_y_mm", "margin_z_mm",
+            "margin_l_mm", "margin_r_mm", "margin_a_mm",
+            "margin_p_mm", "margin_h_mm", "margin_f_mm",
+        ):
             if key in params and params[key]:
                 params[key] = -float(params[key])
     # Validate that every required role is present (raises a clear error).

@@ -274,16 +274,34 @@ class SegmentationEngine:
         config = rule.margin_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-        params = self._margin_params(
+        params = self._directional_margin_params(config, "margin")
+        return execute_operation("margin", {"source": source_mask}, params)
+
+    def _directional_margin_params(
+        self, config, prefix: str
+    ) -> Dict[str, Any]:
+        """Build margin params from the six patient-anatomical directional
+        fields (``{prefix}_l_mm`` ... ``{prefix}_f_mm``; negative = contract).
+
+        Falls back to the legacy uniform/anisotropic params for pre-existing
+        rules that have no directional values set, so they keep working.
+        """
+        keys = ("l", "r", "a", "p", "h", "f")
+        directional = {
+            f"{prefix}_{k}_mm": (getattr(config, f"{prefix}_{k}_mm") or 0.0)
+            for k in keys
+        }
+        if any(directional.values()):
+            return directional
+        return self._margin_params(
             config.variant,
-            "margin",
+            prefix,
             config.margin_mm,
             config.margin_x_mm,
             config.margin_y_mm,
             config.margin_z_mm,
             config.kernel_type,
         )
-        return execute_operation("margin", {"source": source_mask}, params)
 
     def _evaluate_ring_rule(self, rule: PipelineRule) -> sitk.Image:
         """Ring/shell: expand(source, thickness) - source."""

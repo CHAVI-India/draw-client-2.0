@@ -205,6 +205,12 @@ def _rule_to_json(rule):
             "margin_y_mm": cfg.margin_y_mm,
             "margin_z_mm": cfg.margin_z_mm,
             "kernel_type": cfg.kernel_type,
+            "margin_l_mm": cfg.margin_l_mm,
+            "margin_r_mm": cfg.margin_r_mm,
+            "margin_a_mm": cfg.margin_a_mm,
+            "margin_p_mm": cfg.margin_p_mm,
+            "margin_h_mm": cfg.margin_h_mm,
+            "margin_f_mm": cfg.margin_f_mm,
         }
     elif rule.rule_type == "CROP":
         cfg = rule.crop_config
@@ -1192,7 +1198,7 @@ def _save_intensity_config(rule, config):
 
 
 def _save_margin_config(rule, config):
-    """Save margin rule configuration."""
+    """Save margin rule configuration (six-directional, with legacy fallback)."""
     MarginRuleConfig.objects.create(
         pipeline_rule=rule,
         variant=config.get("variant", "UNIFORM"),
@@ -1202,6 +1208,12 @@ def _save_margin_config(rule, config):
         margin_y_mm=config.get("margin_y_mm"),
         margin_z_mm=config.get("margin_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        margin_l_mm=config.get("margin_l_mm"),
+        margin_r_mm=config.get("margin_r_mm"),
+        margin_a_mm=config.get("margin_a_mm"),
+        margin_p_mm=config.get("margin_p_mm"),
+        margin_h_mm=config.get("margin_h_mm"),
+        margin_f_mm=config.get("margin_f_mm"),
     )
 
 

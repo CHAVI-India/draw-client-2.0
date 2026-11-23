@@ -35,6 +35,38 @@ KERNEL_BOX = "box"
 KERNEL_CROSS = "cross"
 KERNEL_CHOICES = [KERNEL_BALL, KERNEL_BOX, KERNEL_CROSS]
 
+# Six patient-anatomical directions (DICOM RCS): L/R, A/P, H(=superior)/F(=inferior).
+DIRECTIONAL_LABELS = [
+    ("l", "Left"),
+    ("r", "Right"),
+    ("a", "Anterior"),
+    ("p", "Posterior"),
+    ("h", "Superior"),
+    ("f", "Inferior"),
+]
+
+
+def _directional_params(prefix: str = "margin", allow_negative: bool = True) -> List["Parameter"]:
+    """Six per-direction distance knobs (mm) in patient-anatomical coordinates.
+
+    ``prefix`` selects the field names (``margin_*``, ``thickness_*``, ...). A
+    positive value expands the structure toward that side; a negative value
+    contracts it (``allow_negative``). This replaces the old uniform/anisotropic
+    split and the kernel choice: expansion is always specified along the six
+    directions L/R, A/P, superior/inferior.
+    """
+    return [
+        Parameter(
+            name=f"{prefix}_{key}_mm",
+            label=f"{label} (mm)",
+            type="number",
+            default=0.0,
+            step=0.5,
+            allow_negative=allow_negative,
+        )
+        for key, label in DIRECTIONAL_LABELS
+    ]
+
 
 def _margin_params(prefix: str = "margin", allow_negative: bool = False) -> List["Parameter"]:
     """Uniform + anisotropic distance knobs for a margin-like operation.
@@ -138,6 +170,7 @@ class Parameter:
     default: Any = None
     min: Optional[float] = None
     step: Optional[float] = None
+    allow_negative: bool = False  # number inputs: permit values < 0 (no min clamp)
     options: Optional[List[str]] = None
     show_when: Optional[Dict[str, str]] = None  # e.g. {"variant": "UNIFORM"}
 
@@ -149,6 +182,8 @@ class Parameter:
             d["min"] = self.min
         if self.step is not None:
             d["step"] = self.step
+        if self.allow_negative:
+            d["allow_negative"] = True
         if self.options:
             d["options"] = self.options
         if self.show_when:
@@ -197,12 +232,16 @@ OPERATIONS: Dict[str, OperationSpec] = {
     "margin": OperationSpec(
         id="margin",
         name="Margin (Grow / Shrink)",
-        description="Expand or contract a structure by a distance (uniform or anisotropic).",
+        description=(
+            "Expand or contract a structure by a different distance along each "
+            "anatomical direction (L/R, A/P, superior/inferior). A negative value "
+            "contracts that side."
+        ),
         category="margin",
         icon="⊕",
         color="blue",
         structure_roles=[StructureRole("source", "Source structure")],
-        parameters=_margin_params("margin", allow_negative=True),
+        parameters=_directional_params("margin", allow_negative=True),
         legacy_ids=["expand", "contract", "margin_uniform", "anisotropic_margin"],
     ),
     # ---- Boolean ---------------------------------------------------------
