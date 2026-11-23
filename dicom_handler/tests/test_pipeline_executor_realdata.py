@@ -210,6 +210,27 @@ class AdditionalStructuresRealDataTests(SimpleTestCase):
         self.assertTrue(self._subset(cropped, body), "cropped target lies in BODY")
         self.assertGreater(self._vox(result), 0)
 
+    def test_margin_directional_grows_and_contracts(self):
+        """The new six-directional params work end-to-end on real data:
+        a single-direction growth expands, a negative value contracts."""
+        ex = self._executor()
+        lad = self._arr(ex.load_structure("LAD"))
+        grown = ex.execute_pipeline({"operations": [
+            {"type": "margin", "structures": ["LAD"],
+             "parameters": {"margin_h_mm": 5.0}},
+        ]})
+        self.assertIsNotNone(grown)
+        self._assert_shaped(grown)
+        self.assertTrue(self._subset(lad, self._arr(grown)),
+                        "superior margin must contain the original LAD")
+        self.assertGreater(self._vox(grown), self._vox(lad), "must grow LAD")
+        # A pure contraction must shrink it.
+        shrunk = ex.execute_pipeline({"operations": [
+            {"type": "margin", "structures": ["LAD"],
+             "parameters": {"margin_h_mm": -5.0}},
+        ]})
+        self.assertLess(self._vox(shrunk), self._vox(lad), "negative margin contracts")
+
     # ---- Write-back (add_result_to_rtstruct) on real data -----------------
 
     def test_add_result_to_rtstruct_roundtrip(self):

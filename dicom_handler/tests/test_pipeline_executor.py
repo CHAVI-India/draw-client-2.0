@@ -188,7 +188,7 @@ class StructureOperationsCatalogAPITests(TestCase):
             self.assertIn(expected, ids)
         margin = next(o for o in ops if o["id"] == "margin")
         self.assertTrue(any(r0["name"] == "source" for r0 in margin["structure_roles"]))
-        self.assertTrue(any(p["name"] == "margin_mm" for p in margin["parameters"]))
+        self.assertTrue(any(p["name"] == "margin_l_mm" for p in margin["parameters"]))
 
     def test_requires_login(self):
         anon = Client()

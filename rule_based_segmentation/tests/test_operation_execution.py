@@ -61,8 +61,9 @@ class OperationCatalogTests(TestCase):
         # Each operation exposes its structure roles and parameter schemas.
         margin = get_operation("margin").to_dict()
         self.assertTrue(any(r["name"] == "source" for r in margin["structure_roles"]))
-        self.assertTrue(any(p["name"] == "margin_mm" for p in margin["parameters"]))
-        self.assertTrue(any(p["name"] == "margin_x_mm" for p in margin["parameters"]))
+        self.assertTrue(any(p["name"] == "margin_l_mm" for p in margin["parameters"]))
+        self.assertTrue(any(p["name"] == "margin_h_mm" for p in margin["parameters"]))
+        self.assertTrue(any(p.get("allow_negative") for p in margin["parameters"]))
 
     def test_catalog_category_filter(self):
         refine = to_frontend_catalog(categories=["refine"])
@@ -239,3 +240,79 @@ class OperationExecutionRoleCoercionTests(TestCase):
     def test_single_role_tolerates_single_element_list(self):
         result = execute_operation("margin", {"source": [self.A]}, {"variant": "UNIFORM", "margin_mm": 1.0})
         self.assertEqual(result.GetSize(), self.A.GetSize())
+
+
+class DirectionalMarginTests(TestCase):
+    """Six-directional (patient-anatomical) margin: L/R, A/P, H(superior)/F(inferior).
+
+    The mask A is a 6x6x6 cube at indices [2:8] on every axis (20^3 volume, 1 mm
+    spacing, identity orientation). Under identity orientation the anatomical
+    directions map as: L=+x, R=-x, A=-y, P=+y, H=+z, F=-z.
+    """
+
+    def setUp(self):
+        a = np.zeros((20, 20, 20), dtype=np.uint8)
+        a[2:8, 2:8, 2:8] = 1
+        self.A = _image(a)
+
+    def _arr(self, mask):
+        return sitk.GetArrayFromImage(mask) > 0
+
+    def _x_range(self, mask):
+        xs = np.where(self._arr(mask).any(axis=(0, 1)))[0]
+        return int(xs.min()), int(xs.max())
+
+    def _z_range(self, mask):
+        zs = np.where(self._arr(mask).any(axis=(1, 2)))[0]
+        return int(zs.min()), int(zs.max())
+
+    def test_left_grows_only_positive_x(self):
+        r = execute_operation("margin", {"source": self.A}, {"margin_l_mm": 1.0})
+        self.assertEqual(self._x_range(r), (2, 8))  # +x edge grows, -x edge fixed
+        self.assertEqual(_vox(r), 6 * 6 * 7)
+
+    def test_right_grows_only_negative_x(self):
+        r = execute_operation("margin", {"source": self.A}, {"margin_r_mm": 1.0})
+        self.assertEqual(self._x_range(r), (1, 7))
+        self.assertEqual(_vox(r), 6 * 6 * 7)
+
+    def test_superior_grows_positive_z(self):
+        r = execute_operation("margin", {"source": self.A}, {"margin_h_mm": 1.0})
+        self.assertEqual(self._z_range(r), (2, 8))
+        self.assertEqual(_vox(r), 7 * 6 * 6)
+
+    def test_inferior_grows_negative_z(self):
+        r = execute_operation("margin", {"source": self.A}, {"margin_f_mm": 1.0})
+        self.assertEqual(self._z_range(r), (1, 7))
+        self.assertEqual(_vox(r), 7 * 6 * 6)
+
+    def test_negative_contracts(self):
+        r = execute_operation("margin", {"source": self.A}, {"margin_h_mm": -1.0})
+        self.assertEqual(self._z_range(r), (2, 6))
+        self.assertEqual(_vox(r), 5 * 6 * 6)
+
+    def test_left_and_right(self):
+        r = execute_operation(
+            "margin", {"source": self.A}, {"margin_l_mm": 1.0, "margin_r_mm": 1.0}
+        )
+        self.assertEqual(self._x_range(r), (1, 8))
+        self.assertEqual(_vox(r), 6 * 6 * 8)
+
+    def test_all_six_equal_uniform(self):
+        params = {f"margin_{k}_mm": 1.0 for k in ("l", "r", "a", "p", "h", "f")}
+        r = execute_operation("margin", {"source": self.A}, params)
+        self.assertEqual(self._x_range(r), (1, 8))
+        self.assertEqual(self._z_range(r), (1, 8))
+        self.assertEqual(_vox(r), 8 * 8 * 8)
+
+    def test_legacy_uniform_backcompat(self):
+        r = execute_operation(
+            "margin", {"source": self.A}, {"variant": "UNIFORM", "margin_mm": 1.0}
+        )
+        self.assertEqual(self._x_range(r), (1, 8))
+        self.assertEqual(self._z_range(r), (1, 8))
+        self.assertEqual(_vox(r), 8 * 8 * 8)
+
+    def test_legacy_contract_alias(self):
+        r = execute_operation("contract", {"source": self.A}, {"margin_h_mm": 1.0})
+        self.assertEqual(self._z_range(r), (2, 6))
