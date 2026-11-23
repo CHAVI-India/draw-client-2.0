@@ -70,14 +70,9 @@
                                         name="rt_roi_interpreted_type"
                                         class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
                                     <option value="">-- Select Type --</option>
-                                    <option value="ORGAN" {% if structure.rt_roi_interpreted_type == 'ORGAN' %}selected{% endif %}>ORGAN</option>
-                                    <option value="PTV" {% if structure.rt_roi_interpreted_type == 'PTV' %}selected{% endif %}>PTV</option>
-                                    <option value="CTV" {% if structure.rt_roi_interpreted_type == 'CTV' %}selected{% endif %}>CTV</option>
-                                    <option value="GTV" {% if structure.rt_roi_interpreted_type == 'GTV' %}selected{% endif %}>GTV</option>
-                                    <option value="EXTERNAL" {% if structure.rt_roi_interpreted_type == 'EXTERNAL' %}selected{% endif %}>EXTERNAL</option>
-                                    <option value="AVOIDANCE" {% if structure.rt_roi_interpreted_type == 'AVOIDANCE' %}selected{% endif %}>AVOIDANCE</option>
-                                    <option value="CAVITY" {% if structure.rt_roi_interpreted_type == 'CAVITY' %}selected{% endif %}>CAVITY</option>
-                                    <option value="CONTROL" {% if structure.rt_roi_interpreted_type == 'CONTROL' %}selected{% endif %}>CONTROL</option>
+                                    {% for value, label in roi_type_choices %}
+                                    <option value="{{ value }}" {% if structure and structure.rt_roi_interpreted_type == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
                                 </select>
                             </div>
                             
@@ -156,7 +151,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/pipeline_builder.js' %}"></script>
+<script src="{% static 'js/pipeline_builder.js' %}?v={{ js_cache_bust }}"></script>
 <script>
     // Color conversion functions
     function hexToRgb(hex) {

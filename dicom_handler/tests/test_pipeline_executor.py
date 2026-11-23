@@ -223,6 +223,20 @@ class PipelineBuilderViewCatalogTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("operationCatalog", r.content.decode())
 
+    def test_structure_type_dropdown_matches_rbs(self):
+        """The Structure Type dropdown must offer the same ROI types as rule-based
+        extraction (PipelineRule.ROI_TYPE_CHOICES), not a shorter hardcoded list."""
+        from rule_based_segmentation.models import PipelineRule
+
+        r = self.client.get(reverse("dicom_handler:pipeline_builder_new", args=[self.template.id]))
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        for value, _label in PipelineRule.ROI_TYPE_CHOICES:
+            self.assertIn(f'<option value="{value}"', html, f"missing ROI type {value}")
+        # Types that were absent from the old hardcoded 8-value list:
+        for value in ("TREATED_VOLUME", "OAR", "MARKER", "BRACHY_CHANNEL", "DOSE_MEASUREMENT"):
+            self.assertIn(f'<option value="{value}"', html)
+
 
 class ExecutorOrientationTests(TestCase):
     """Real rt-utils round-trip: load_structure and add_result_to_rtstruct must

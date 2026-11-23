@@ -4,6 +4,8 @@ Views for the Pipeline Builder - dedicated page for building ROI generation logi
 
 import logging
 import json
+import os
+from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib import messages
@@ -17,8 +19,25 @@ from .models import (
     AutosegmentationStructure
 )
 from .utils.structure_generation import to_frontend_catalog
+from rule_based_segmentation.models import PipelineRule
 
 logger = logging.getLogger(__name__)
+
+
+def _builder_js_cache_bust() -> str:
+    """Short content hash of pipeline_builder.js, appended to the <script> URL
+    so any change to the builder JS busts the browser cache automatically.
+    Returns '' if the file is missing (dev / edge case)."""
+    import hashlib
+
+    js_path = os.path.join(
+        settings.STATICFILES_DIRS[0], "js", "pipeline_builder.js"
+    )
+    try:
+        with open(js_path, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        return ""
 
 
 @login_required
@@ -39,6 +58,8 @@ def pipeline_builder_new(request, template_id):
         'template': template,
         'available_structures': json.dumps(available_structures),  # Serialize to JSON
         'operation_catalog': json.dumps(to_frontend_catalog()),
+        'roi_type_choices': PipelineRule.ROI_TYPE_CHOICES,
+        'js_cache_bust': _builder_js_cache_bust(),
         'mode': 'new',
         'structure': None,
         'initial_pipeline': None
@@ -69,6 +90,8 @@ def pipeline_builder_edit(request, structure_id):
         'template': template,
         'available_structures': json.dumps(available_structures),  # Serialize to JSON
         'operation_catalog': json.dumps(to_frontend_catalog()),
+        'roi_type_choices': PipelineRule.ROI_TYPE_CHOICES,
+        'js_cache_bust': _builder_js_cache_bust(),
         'mode': 'edit',
         'structure': structure,
         'initial_pipeline': json.dumps(initial_pipeline) if initial_pipeline else None

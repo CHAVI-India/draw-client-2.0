@@ -343,12 +343,13 @@ class PipelineBuilder {
 
     _renderParam(op, param) {
         const value = op.parameters[param.name] !== undefined ? op.parameters[param.name] : (param.default ?? '');
-        const common = `data-op-id="${op.id}" data-param-name="${param.name}" class="param-input border border-gray-300 rounded focus:ring-1 focus:ring-primary-500"`;
+        const dataAttrs = `data-op-id="${op.id}" data-param-name="${param.name}"`;
+        const baseClass = 'param-input border border-gray-300 rounded focus:ring-1 focus:ring-primary-500';
         if (param.type === 'select') {
             return `
                 <div class="flex items-center justify-between">
                     <label class="text-xs font-medium text-gray-700">${this._escapeHtml(param.label)}:</label>
-                    <select ${common} class="${common} w-40 px-2 py-1 text-xs">
+                    <select ${dataAttrs} class="${baseClass} w-40 px-2 py-1 text-xs">
                         ${(param.options || []).map((opt) => `<option value="${this._escapeAttr(opt)}" ${value === opt ? 'selected' : ''}>${this._escapeHtml(opt)}</option>`).join('')}
                     </select>
                 </div>`;
@@ -357,14 +358,14 @@ class PipelineBuilder {
             return `
                 <div class="flex items-center justify-between">
                     <label class="text-xs font-medium text-gray-700">${this._escapeHtml(param.label)}:</label>
-                    <input type="checkbox" ${common} ${value ? 'checked' : ''}>
+                    <input type="checkbox" ${dataAttrs} class="${baseClass}" ${value ? 'checked' : ''}>
                 </div>`;
         }
         // number (default)
         return `
             <div class="flex items-center justify-between">
                 <label class="text-xs font-medium text-gray-700">${this._escapeHtml(param.label)}:</label>
-                <input type="number" ${common} class="${common} w-28 px-2 py-1 text-xs" value="${value}" min="${param.min !== undefined ? param.min : 0}" step="${param.step !== undefined ? param.step : 1}">
+                <input type="number" ${dataAttrs} class="${baseClass} w-28 px-2 py-1 text-xs" value="${value}" min="${param.min !== undefined ? param.min : 0}" step="${param.step !== undefined ? param.step : 1}">
             </div>`;
     }
 
@@ -431,7 +432,10 @@ class PipelineBuilder {
     }
 
     _op(opId) {
-        return this.operations.find((o) => o.id === opId);
+        // dataset values are strings; o.id is a number. Coerce so lookups from
+        // DOM events (data-op-id) reliably match.
+        const id = parseInt(opId, 10);
+        return this.operations.find((o) => o.id === id);
     }
 
     // ------------------------------------------------------------------
