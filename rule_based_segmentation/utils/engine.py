@@ -242,46 +242,10 @@ class SegmentationEngine:
             image=self.image,
         )
 
-    def _margin_params(
-        self,
-        variant: str,
-        prefix: str,
-        uniform_mm: Optional[float],
-        x_mm: Optional[float],
-        y_mm: Optional[float],
-        z_mm: Optional[float],
-        kernel_type: Optional[str],
-    ) -> Dict[str, Any]:
-        """Build the param dict for a margin-like op (uniform or anisotropic).
-
-        ``prefix`` selects the distance field names (``margin``/``thickness``/
-        ``distance``) so the catalog params line up per operation.
-        """
-        if variant == "ANISOTROPIC":
-            return {
-                "variant": "ANISOTROPIC",
-                f"{prefix}_x_mm": x_mm or 0.0,
-                f"{prefix}_y_mm": y_mm or 0.0,
-                f"{prefix}_z_mm": z_mm or 0.0,
-            }
-        return {
-            "variant": "UNIFORM",
-            f"{prefix}_mm": uniform_mm or 0.0,
-            "kernel_type": kernel_type or "ball",
-        }
-
-    def _evaluate_margin_rule(self, rule: PipelineRule) -> sitk.Image:
-        config = rule.margin_config
-        source_mask = self.available_masks[config.source]
-        self._ensure_mask_not_empty(source_mask, config.source)
-        params = self._directional_margin_params(config, "margin")
-        return execute_operation("margin", {"source": source_mask}, params)
-
-    def _directional_margin_params(
-        self, config, prefix: str
-    ) -> Dict[str, Any]:
+    def _directional_margin_params(self, config, prefix: str) -> Dict[str, Any]:
         """Build margin params from the six patient-anatomical directional
-        fields (``{prefix}_l_mm`` ... ``{prefix}_f_mm``; negative = contract).
+        fields (``{prefix}_l_mm`` ... ``{prefix}_f_mm``; for the generic
+        margin rule, negative = contract).
 
         Falls back to the legacy uniform/anisotropic params for pre-existing
         rules that have no directional values set, so they keep working.
@@ -293,30 +257,28 @@ class SegmentationEngine:
         }
         if any(directional.values()):
             return directional
-        return self._margin_params(
-            config.variant,
-            prefix,
-            config.margin_mm,
-            config.margin_x_mm,
-            config.margin_y_mm,
-            config.margin_z_mm,
-            config.kernel_type,
-        )
+        return {
+            "variant": config.variant,
+            f"{prefix}_mm": getattr(config, f"{prefix}_mm") or 0.0,
+            f"{prefix}_x_mm": getattr(config, f"{prefix}_x_mm") or 0.0,
+            f"{prefix}_y_mm": getattr(config, f"{prefix}_y_mm") or 0.0,
+            f"{prefix}_z_mm": getattr(config, f"{prefix}_z_mm") or 0.0,
+            "kernel_type": config.kernel_type or "ball",
+        }
+
+    def _evaluate_margin_rule(self, rule: PipelineRule) -> sitk.Image:
+        config = rule.margin_config
+        source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
+        params = self._directional_margin_params(config, "margin")
+        return execute_operation("margin", {"source": source_mask}, params)
 
     def _evaluate_ring_rule(self, rule: PipelineRule) -> sitk.Image:
         """Ring/shell: expand(source, thickness) - source."""
         config = rule.ring_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-        params = self._margin_params(
-            config.variant,
-            "thickness",
-            config.thickness_mm,
-            config.thickness_x_mm,
-            config.thickness_y_mm,
-            config.thickness_z_mm,
-            config.kernel_type,
-        )
+        params = self._directional_margin_params(config, "thickness")
         return execute_operation("ring", {"source": source_mask}, params)
 
     def _evaluate_overlap_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -334,15 +296,7 @@ class SegmentationEngine:
         config = rule.expand_subtract_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
-        params = self._margin_params(
-            config.variant,
-            "distance",
-            config.distance_mm,
-            config.distance_x_mm,
-            config.distance_y_mm,
-            config.distance_z_mm,
-            config.kernel_type,
-        )
+        params = self._directional_margin_params(config, "distance")
         roles = {"source": source_mask, "subtract": self.available_masks[config.subtract]}
         return execute_operation("expand_subtract", roles, params)
 
@@ -353,15 +307,7 @@ class SegmentationEngine:
         self._ensure_mask_not_empty(source_mask, config.source)
         avoid_mask = self.available_masks[config.avoid]
         self._ensure_mask_not_empty(avoid_mask, config.avoid)
-        params = self._margin_params(
-            config.variant,
-            "margin",
-            config.margin_mm,
-            config.margin_x_mm,
-            config.margin_y_mm,
-            config.margin_z_mm,
-            config.kernel_type,
-        )
+        params = self._directional_margin_params(config, "margin")
         roles = {"source": source_mask, "avoid": avoid_mask}
         return execute_operation("avoid_margin", roles, params)
 

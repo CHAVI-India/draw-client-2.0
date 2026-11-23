@@ -14,9 +14,11 @@ and both executors dispatch through :mod:`.execution` which reads the same
 ``id``/roles/params. This keeps the two systems offering the SAME operations
 and prevents them from drifting apart.
 
-Parameter naming follows the existing RBS model fields so that the RBS rule
-configs map 1:1 onto the catalog (e.g. RING uses ``thickness_mm``,
-EXPAND_SUBTRACT uses ``distance_mm``, MARGIN/AVOID_MARGIN use ``margin_mm``).
+All margin-like operations are specified along the six patient-anatomical
+directions (L/R, A/P, superior/inferior); to apply the same distance on every
+side, set the same value in all six fields. The old uniform (isotropic) /
+anisotropic (x/y/z) split is no longer offered by the UIs — it is only still
+accepted as a read-side fallback for previously-saved pipelines.
 """
 
 from dataclasses import dataclass, field
@@ -26,6 +28,10 @@ from typing import Any, Dict, List, Optional
 # Choices shared across operations
 # ---------------------------------------------------------------------------
 
+# Legacy margin-variant / kernel tokens. NOT offered by any UI anymore; kept
+# only so previously-saved pipelines (``variant`` + ``*_mm`` / ``*_x_mm`` /
+# ``kernel_type`` params) keep executing through the read-side fallback in
+# :mod:`.execution`.
 VARIANT_UNIFROM = "UNIFORM"
 VARIANT_ANISO = "ANISOTROPIC"
 VARIANT_CHOICES = [VARIANT_UNIFROM, VARIANT_ANISO]
@@ -65,70 +71,6 @@ def _directional_params(prefix: str = "margin", allow_negative: bool = True) -> 
             allow_negative=allow_negative,
         )
         for key, label in DIRECTIONAL_LABELS
-    ]
-
-
-def _margin_params(prefix: str = "margin", allow_negative: bool = False) -> List["Parameter"]:
-    """Uniform + anisotropic distance knobs for a margin-like operation.
-
-    ``prefix`` selects the field names (``margin_*``, ``thickness_*``,
-    ``distance_*``) so the catalog matches the per-rule RBS model fields.
-    ``allow_negative`` permits contraction (used by the generic ``margin`` op,
-    where a negative distance shrinks the structure).
-    """
-    dmin = None if allow_negative else 0.0
-    return [
-        Parameter(
-            name="variant",
-            label="Margin type",
-            type="select",
-            default=VARIANT_UNIFROM,
-            options=list(VARIANT_CHOICES),
-        ),
-        Parameter(
-            name=f"{prefix}_mm",
-            label="Margin (mm)",
-            type="number",
-            default=5.0,
-            min=dmin,
-            step=0.5,
-            show_when={"variant": VARIANT_UNIFROM},
-        ),
-        Parameter(
-            name="kernel_type",
-            label="Kernel",
-            type="select",
-            default=KERNEL_BALL,
-            options=list(KERNEL_CHOICES),
-            show_when={"variant": VARIANT_UNIFROM},
-        ),
-        Parameter(
-            name=f"{prefix}_x_mm",
-            label="Margin X (mm)",
-            type="number",
-            default=5.0,
-            min=dmin,
-            step=0.5,
-            show_when={"variant": VARIANT_ANISO},
-        ),
-        Parameter(
-            name=f"{prefix}_y_mm",
-            label="Margin Y (mm)",
-            type="number",
-            default=5.0,
-            min=dmin,
-            step=0.5,
-            show_when={"variant": VARIANT_ANISO},
-        ),
-        Parameter(
-            name=f"{prefix}_z_mm",
-            label="Margin Z (mm)",
-            type="number",
-            default=5.0,
-            min=dmin,
-            step=0.5,
-            show_when={"variant": VARIANT_ANISO},
-        ),
     ]
 
 
@@ -324,12 +266,16 @@ OPERATIONS: Dict[str, OperationSpec] = {
     "ring": OperationSpec(
         id="ring",
         name="Ring / Shell",
-        description="Expand the source by a thickness, then remove the source (a shell).",
+        description=(
+            "Expand the source by a per-direction thickness (L/R, A/P, "
+            "superior/inferior), then remove the source — a shell. Set the same "
+            "value in every direction for a uniform ring; 0 leaves a side unchanged."
+        ),
         category="composite",
         icon="◎",
         color="teal",
         structure_roles=[StructureRole("source", "Source structure")],
-        parameters=_margin_params("thickness"),
+        parameters=_directional_params("thickness"),
     ),
     "overlap": OperationSpec(
         id="overlap",
@@ -346,7 +292,11 @@ OPERATIONS: Dict[str, OperationSpec] = {
     "expand_subtract": OperationSpec(
         id="expand_subtract",
         name="Expand & Subtract",
-        description="Expand the source by a distance, then remove the subtract structure.",
+        description=(
+            "Expand the source by a per-direction distance (L/R, A/P, "
+            "superior/inferior), then remove the subtract structure. Set the same "
+            "value in every direction for a uniform expansion; 0 leaves a side unchanged."
+        ),
         category="composite",
         icon="⊖",
         color="amber",
@@ -354,12 +304,16 @@ OPERATIONS: Dict[str, OperationSpec] = {
             StructureRole("source", "Source structure"),
             StructureRole("subtract", "Subtract structure"),
         ],
-        parameters=_margin_params("distance"),
+        parameters=_directional_params("distance"),
     ),
     "avoid_margin": OperationSpec(
         id="avoid_margin",
         name="Avoid with Margin",
-        description="Remove a margin around the avoid structure from the source.",
+        description=(
+            "Remove a per-direction margin (L/R, A/P, superior/inferior) around "
+            "the avoid structure from the source. Set the same value in every "
+            "direction for a uniform avoidance margin; 0 leaves a side unchanged."
+        ),
         category="composite",
         icon="⊘",
         color="rose",
@@ -367,7 +321,7 @@ OPERATIONS: Dict[str, OperationSpec] = {
             StructureRole("source", "Source structure"),
             StructureRole("avoid", "Avoid structure"),
         ],
-        parameters=_margin_params("margin"),
+        parameters=_directional_params("margin"),
     ),
     # ---- Refinement / cleanup -------------------------------------------
     "smooth": OperationSpec(

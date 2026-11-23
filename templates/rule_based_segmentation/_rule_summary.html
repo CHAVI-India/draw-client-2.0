@@ -20,30 +20,59 @@
             {% if cfg.margin_h_mm %} H {{ cfg.margin_h_mm }}mm{% endif %}
             {% if cfg.margin_f_mm %} F {{ cfg.margin_f_mm }}mm{% endif %}
             {% if not cfg.margin_l_mm and not cfg.margin_r_mm and not cfg.margin_a_mm and not cfg.margin_p_mm and not cfg.margin_h_mm and not cfg.margin_f_mm %} {{ cfg.margin_mm|default:"0" }} mm (legacy uniform){% endif %}
-        {% endwith %}
-    {% elif rule.rule_type == "CROP" %}
+        {% endwith %}    {% elif rule.rule_type == "CROP" %}
         Crop {{ rule.crop_config.source }} to {% for b in rule.crop_config.boundaries.all %}{{ b.boundary_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
     {% elif rule.rule_type == "CLEANUP" %}
         {{ rule.cleanup_config.get_operation_display }} on {{ rule.cleanup_config.source }}
     {% elif rule.rule_type == "RING" %}
-        {% if rule.ring_config.variant == "UNIFORM" %}
-            Ring around {{ rule.ring_config.source }}: {{ rule.ring_config.thickness_mm }} mm ({{ rule.ring_config.kernel_type }})
-        {% else %}
-            Anisotropic ring around {{ rule.ring_config.source }}: x={{ rule.ring_config.thickness_x_mm }} y={{ rule.ring_config.thickness_y_mm }} z={{ rule.ring_config.thickness_z_mm }} mm
-        {% endif %}
+        {% with cfg=rule.ring_config %}
+            {% if cfg.thickness_l_mm or cfg.thickness_r_mm or cfg.thickness_a_mm or cfg.thickness_p_mm or cfg.thickness_h_mm or cfg.thickness_f_mm %}
+                Ring around {{ cfg.source }}:
+                {% if cfg.thickness_l_mm %} L {{ cfg.thickness_l_mm }}mm{% endif %}
+                {% if cfg.thickness_r_mm %} R {{ cfg.thickness_r_mm }}mm{% endif %}
+                {% if cfg.thickness_a_mm %} A {{ cfg.thickness_a_mm }}mm{% endif %}
+                {% if cfg.thickness_p_mm %} P {{ cfg.thickness_p_mm }}mm{% endif %}
+                {% if cfg.thickness_h_mm %} H {{ cfg.thickness_h_mm }}mm{% endif %}
+                {% if cfg.thickness_f_mm %} F {{ cfg.thickness_f_mm }}mm{% endif %}
+            {% elif cfg.variant == "UNIFORM" %}
+                Ring around {{ cfg.source }}: {{ cfg.thickness_mm }} mm (legacy uniform)
+            {% else %}
+                Anisotropic ring around {{ cfg.source }}: x={{ cfg.thickness_x_mm }} y={{ cfg.thickness_y_mm }} z={{ cfg.thickness_z_mm }} mm (legacy)
+            {% endif %}
+        {% endwith %}
     {% elif rule.rule_type == "OVERLAP" %}
         Overlap {{ rule.overlap_config.source }} with {% for o in rule.overlap_config.others.all %}{{ o.other_roi }}{% if not forloop.last %}, {% endif %}{% endfor %}
     {% elif rule.rule_type == "EXPAND_SUBTRACT" %}
-        {% if rule.expand_subtract_config.variant == "UNIFORM" %}
-            Expand {{ rule.expand_subtract_config.source }} by {{ rule.expand_subtract_config.distance_mm }} mm, subtract {{ rule.expand_subtract_config.subtract }}
-        {% else %}
-            Anisotropic expand {{ rule.expand_subtract_config.source }} (x={{ rule.expand_subtract_config.distance_x_mm }} y={{ rule.expand_subtract_config.distance_y_mm }} z={{ rule.expand_subtract_config.distance_z_mm }} mm), subtract {{ rule.expand_subtract_config.subtract }}
-        {% endif %}
+        {% with cfg=rule.expand_subtract_config %}
+            {% if cfg.distance_l_mm or cfg.distance_r_mm or cfg.distance_a_mm or cfg.distance_p_mm or cfg.distance_h_mm or cfg.distance_f_mm %}
+                Expand {{ cfg.source }} by
+                {% if cfg.distance_l_mm %} L {{ cfg.distance_l_mm }}mm{% endif %}
+                {% if cfg.distance_r_mm %} R {{ cfg.distance_r_mm }}mm{% endif %}
+                {% if cfg.distance_a_mm %} A {{ cfg.distance_a_mm }}mm{% endif %}
+                {% if cfg.distance_p_mm %} P {{ cfg.distance_p_mm }}mm{% endif %}
+                {% if cfg.distance_h_mm %} H {{ cfg.distance_h_mm }}mm{% endif %}
+                {% if cfg.distance_f_mm %} F {{ cfg.distance_f_mm }}mm{% endif %}, subtract {{ cfg.subtract }}
+            {% elif cfg.variant == "UNIFORM" %}
+                Expand {{ cfg.source }} by {{ cfg.distance_mm }} mm (legacy uniform), subtract {{ cfg.subtract }}
+            {% else %}
+                Anisotropic expand {{ cfg.source }} (x={{ cfg.distance_x_mm }} y={{ cfg.distance_y_mm }} z={{ cfg.distance_z_mm }} mm, legacy), subtract {{ cfg.subtract }}
+            {% endif %}
+        {% endwith %}
     {% elif rule.rule_type == "AVOID_MARGIN" %}
-        {% if rule.avoid_margin_config.variant == "UNIFORM" %}
-            Avoid {{ rule.avoid_margin_config.avoid }} by {{ rule.avoid_margin_config.margin_mm }} mm from {{ rule.avoid_margin_config.source }}
-        {% else %}
-            Anisotropic avoid {{ rule.avoid_margin_config.avoid }} (x={{ rule.avoid_margin_config.margin_x_mm }} y={{ rule.avoid_margin_config.margin_y_mm }} z={{ rule.avoid_margin_config.margin_z_mm }} mm) from {{ rule.avoid_margin_config.source }}
-        {% endif %}
+        {% with cfg=rule.avoid_margin_config %}
+            {% if cfg.margin_l_mm or cfg.margin_r_mm or cfg.margin_a_mm or cfg.margin_p_mm or cfg.margin_h_mm or cfg.margin_f_mm %}
+                Avoid {{ cfg.avoid }} by
+                {% if cfg.margin_l_mm %} L {{ cfg.margin_l_mm }}mm{% endif %}
+                {% if cfg.margin_r_mm %} R {{ cfg.margin_r_mm }}mm{% endif %}
+                {% if cfg.margin_a_mm %} A {{ cfg.margin_a_mm }}mm{% endif %}
+                {% if cfg.margin_p_mm %} P {{ cfg.margin_p_mm }}mm{% endif %}
+                {% if cfg.margin_h_mm %} H {{ cfg.margin_h_mm }}mm{% endif %}
+                {% if cfg.margin_f_mm %} F {{ cfg.margin_f_mm }}mm{% endif %} from {{ cfg.source }}
+            {% elif cfg.variant == "UNIFORM" %}
+                Avoid {{ cfg.avoid }} by {{ cfg.margin_mm }} mm (legacy uniform) from {{ cfg.source }}
+            {% else %}
+                Anisotropic avoid {{ cfg.avoid }} (x={{ cfg.margin_x_mm }} y={{ cfg.margin_y_mm }} z={{ cfg.margin_z_mm }} mm, legacy) from {{ cfg.source }}
+            {% endif %}
+        {% endwith %}
     {% endif %}
 </div>

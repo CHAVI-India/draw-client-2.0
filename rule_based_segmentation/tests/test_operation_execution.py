@@ -70,6 +70,29 @@ class OperationCatalogTests(TestCase):
         self.assertTrue(all(op["category"] == "refine" for op in refine))
         self.assertIn("keep_largest", [op["id"] for op in refine])
 
+    def test_margin_like_ops_offer_only_six_directional_params(self):
+        # The old isotropic/anisotropic margin facility (variant select,
+        # kernel choice, *_mm / *_x_mm / *_y_mm / *_z_mm) must NOT be offered
+        # any more; every margin-like op is specified along the six
+        # anatomical directions (same value in all six = uniform).
+        for op_id, prefix in (
+            ("margin", "margin"),
+            ("ring", "thickness"),
+            ("expand_subtract", "distance"),
+            ("avoid_margin", "margin"),
+        ):
+            spec = get_operation(op_id).to_dict()
+            names = {p["name"] for p in spec["parameters"]}
+            with self.subTest(op=op_id):
+                for k in ("l", "r", "a", "p", "h", "f"):
+                    self.assertIn(f"{prefix}_{k}_mm", names)
+                self.assertNotIn("variant", names)
+                self.assertNotIn("kernel_type", names)
+                self.assertNotIn(f"{prefix}_mm", names)
+                self.assertNotIn(f"{prefix}_x_mm", names)
+                self.assertNotIn(f"{prefix}_y_mm", names)
+                self.assertNotIn(f"{prefix}_z_mm", names)
+
 
 class OperationExecutionTests(TestCase):
     def setUp(self):
@@ -316,3 +339,75 @@ class DirectionalMarginTests(TestCase):
     def test_legacy_contract_alias(self):
         r = execute_operation("contract", {"source": self.A}, {"margin_h_mm": 1.0})
         self.assertEqual(self._z_range(r), (2, 6))
+
+
+class DirectionalCompositeTests(TestCase):
+    """Six-directional params for the composite margin-like ops (ring,
+    expand_subtract, avoid_margin) through the shared dispatcher.
+
+    Geometry as in DirectionalMarginTests: A = 6x6x6 cube at [2:8],
+    B = 8x8x8 cube at [6:14], C = disjoint cube at [14:18].
+    """
+
+    def setUp(self):
+        a = np.zeros((20, 20, 20), dtype=np.uint8)
+        a[2:8, 2:8, 2:8] = 1
+        b = np.zeros((20, 20, 20), dtype=np.uint8)
+        b[6:14, 6:14, 6:14] = 1
+        self.A = _image(a)
+        self.B = _image(b)
+
+    def _arr(self, mask):
+        return sitk.GetArrayFromImage(mask) > 0
+
+    def _x_range(self, mask):
+        xs = np.where(self._arr(mask).any(axis=(0, 1)))[0]
+        return int(xs.min()), int(xs.max())
+
+    def test_ring_single_direction_is_a_slab(self):
+        # 1 mm shell toward +x only: exactly the 6x6 slab at x=8.
+        r = execute_operation("ring", {"source": self.A}, {"thickness_l_mm": 1.0})
+        self.assertEqual(self._x_range(r), (8, 8))
+        self.assertEqual(_vox(r), 6 * 6)
+
+    def test_ring_uniform_via_six_equal_directions(self):
+        params = {f"thickness_{k}_mm": 1.0 for k in ("l", "r", "a", "p", "h", "f")}
+        r = execute_operation("ring", {"source": self.A}, params)
+        # (9^3 shell around the 6-cube via six one-sided 1-voxel dilations):
+        # 8x8x8 bounding box minus the interior cube.
+        self.assertEqual(_vox(r), 8 * 8 * 8 - 6 * 6 * 6)
+
+    def test_ring_zero_thickness_is_empty(self):
+        params = {f"thickness_{k}_mm": 0.0 for k in ("l", "r", "a", "p", "h", "f")}
+        r = execute_operation("ring", {"source": self.A}, params)
+        self.assertEqual(_vox(r), 0)
+
+    def test_expand_subtract_single_direction(self):
+        # A grown 1 mm toward +x (L) now spans x=2..8, so it overlaps B over
+        # x=6..8 (3) * y=6..7 (2) * z=6..7 (2) = 12 voxels: 252 - 12 = 240.
+        r = execute_operation(
+            "expand_subtract", {"source": self.A, "subtract": self.B}, {"distance_l_mm": 1.0}
+        )
+        self.assertEqual(_vox(r), 216 + 6 * 6 - 12)
+
+    def test_avoid_margin_single_direction(self):
+        # All-zero directions: plain subtraction A - B = 208.
+        params = {f"margin_{k}_mm": 0.0 for k in ("l", "r", "a", "p", "h", "f")}
+        r = execute_operation("avoid_margin", {"source": self.A, "avoid": self.B}, params)
+        self.assertEqual(_vox(r), 216 - 8)
+        # Growing the avoid structure 1 mm toward -z (F, toward A) eats more.
+        grown = execute_operation(
+            "avoid_margin", {"source": self.A, "avoid": self.B}, {"margin_f_mm": 1.0}
+        )
+        self.assertLess(_vox(grown), _vox(r))
+        self.assertEqual(_vox(grown), 216 - 12)
+
+    def test_legacy_ring_uniform_still_executes(self):
+        # Pre-existing pipelines keep working through the legacy params.
+        r = execute_operation(
+            "ring", {"source": self.A}, {"variant": "UNIFORM", "thickness_mm": 1.0, "kernel_type": "ball"}
+        )
+        self.assertGreater(_vox(r), 0)
+        arr = self._arr(r)
+        original = self._arr(self.A)
+        self.assertEqual(int(np.count_nonzero(arr & original)), 0)

@@ -575,6 +575,10 @@
     
     // Event delegation for edit and delete buttons
     document.addEventListener('DOMContentLoaded', function() {
+        // Load the operation catalog up front so the pipeline builder is
+        // fully functional the first time a modal opens.
+        loadOperationCatalog();
+
         // Handle edit button clicks
         document.addEventListener('click', function(e) {
             const editBtn = e.target.closest('.edit-structure-btn');
@@ -606,6 +610,25 @@
     
     // Pipeline Builder Integration
     let pipelineBuilder = null;
+    let operationCatalog = [];
+
+    // Load the shared structure-operation catalog (same source as the
+    // Rule-Based Segmentation pipeline builder) so the visual builder offers
+    // the canonical operations — including the six-directional margin.
+    async function loadOperationCatalog() {
+        try {
+            const res = await fetch("{% url 'dicom_handler:structure_operations_catalog' %}", {
+                headers: { 'Accept': 'application/json' },
+                credentials: 'same-origin'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                operationCatalog = data.operations || [];
+            }
+        } catch (e) {
+            console.error('Failed to load operation catalog:', e);
+        }
+    }
     
     // Get available structures for this template
     function getAvailableStructures() {
@@ -626,18 +649,40 @@
         return structures;
     }
     
-    // Initialize pipeline builder
+    // Initialize pipeline builder (waits for the catalog if it has not
+    // loaded yet, so the builder is never created without operations).
     function initializePipelineBuilder() {
-        if (!pipelineBuilder) {
+        if (pipelineBuilder) return;
+
+        const createBuilder = (catalog) => {
+            if (pipelineBuilder) return;
             const availableStructures = getAvailableStructures();
-            
+
             pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
                 availableStructures: availableStructures,
+                catalog: catalog || [],
                 onPipelineChange: (pipeline) => {
                     // Auto-update hidden field for form submission
                     document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
                 }
             });
+
+            // If the form already carries a pipeline (edit mode), load it into
+            // the builder now that it exists.
+            const existing = document.getElementById('roi_generation_logic').value.trim();
+            if (existing) {
+                try {
+                    pipelineBuilder.loadFromJson(existing);
+                } catch (e) {
+                    console.error('Failed to load existing pipeline:', e);
+                }
+            }
+        };
+
+        if (operationCatalog.length) {
+            createBuilder(operationCatalog);
+        } else {
+            loadOperationCatalog().then(() => createBuilder(operationCatalog));
         }
     }
     

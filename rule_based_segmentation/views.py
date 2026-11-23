@@ -240,6 +240,12 @@ def _rule_to_json(rule):
             "thickness_y_mm": cfg.thickness_y_mm,
             "thickness_z_mm": cfg.thickness_z_mm,
             "kernel_type": cfg.kernel_type,
+            "thickness_l_mm": cfg.thickness_l_mm,
+            "thickness_r_mm": cfg.thickness_r_mm,
+            "thickness_a_mm": cfg.thickness_a_mm,
+            "thickness_p_mm": cfg.thickness_p_mm,
+            "thickness_h_mm": cfg.thickness_h_mm,
+            "thickness_f_mm": cfg.thickness_f_mm,
         }
     elif rule.rule_type == "OVERLAP":
         cfg = rule.overlap_config
@@ -258,6 +264,12 @@ def _rule_to_json(rule):
             "distance_y_mm": cfg.distance_y_mm,
             "distance_z_mm": cfg.distance_z_mm,
             "kernel_type": cfg.kernel_type,
+            "distance_l_mm": cfg.distance_l_mm,
+            "distance_r_mm": cfg.distance_r_mm,
+            "distance_a_mm": cfg.distance_a_mm,
+            "distance_p_mm": cfg.distance_p_mm,
+            "distance_h_mm": cfg.distance_h_mm,
+            "distance_f_mm": cfg.distance_f_mm,
         }
     elif rule.rule_type == "AVOID_MARGIN":
         cfg = rule.avoid_margin_config
@@ -270,6 +282,12 @@ def _rule_to_json(rule):
             "margin_y_mm": cfg.margin_y_mm,
             "margin_z_mm": cfg.margin_z_mm,
             "kernel_type": cfg.kernel_type,
+            "margin_l_mm": cfg.margin_l_mm,
+            "margin_r_mm": cfg.margin_r_mm,
+            "margin_a_mm": cfg.margin_a_mm,
+            "margin_p_mm": cfg.margin_p_mm,
+            "margin_h_mm": cfg.margin_h_mm,
+            "margin_f_mm": cfg.margin_f_mm,
         }
 
     return data
@@ -1247,7 +1265,7 @@ def _save_cleanup_config(rule, config):
 
 
 def _save_ring_config(rule, config):
-    """Save RING (ring/shell) rule configuration."""
+    """Save RING (ring/shell) rule configuration (six-directional, with legacy fallback)."""
     RingRuleConfig.objects.create(
         pipeline_rule=rule,
         variant=config.get("variant", "UNIFORM"),
@@ -1257,6 +1275,12 @@ def _save_ring_config(rule, config):
         thickness_y_mm=config.get("thickness_y_mm"),
         thickness_z_mm=config.get("thickness_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        thickness_l_mm=config.get("thickness_l_mm"),
+        thickness_r_mm=config.get("thickness_r_mm"),
+        thickness_a_mm=config.get("thickness_a_mm"),
+        thickness_p_mm=config.get("thickness_p_mm"),
+        thickness_h_mm=config.get("thickness_h_mm"),
+        thickness_f_mm=config.get("thickness_f_mm"),
     )
 
 
@@ -1276,7 +1300,7 @@ def _save_overlap_config(rule, config):
 
 
 def _save_expand_subtract_config(rule, config):
-    """Save EXPAND_SUBTRACT rule configuration."""
+    """Save EXPAND_SUBTRACT rule configuration (six-directional, with legacy fallback)."""
     ExpandSubtractRuleConfig.objects.create(
         pipeline_rule=rule,
         variant=config.get("variant", "UNIFORM"),
@@ -1287,11 +1311,17 @@ def _save_expand_subtract_config(rule, config):
         distance_y_mm=config.get("distance_y_mm"),
         distance_z_mm=config.get("distance_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        distance_l_mm=config.get("distance_l_mm"),
+        distance_r_mm=config.get("distance_r_mm"),
+        distance_a_mm=config.get("distance_a_mm"),
+        distance_p_mm=config.get("distance_p_mm"),
+        distance_h_mm=config.get("distance_h_mm"),
+        distance_f_mm=config.get("distance_f_mm"),
     )
 
 
 def _save_avoid_margin_config(rule, config):
-    """Save AVOID_MARGIN rule configuration."""
+    """Save AVOID_MARGIN rule configuration (six-directional, with legacy fallback)."""
     AvoidMarginRuleConfig.objects.create(
         pipeline_rule=rule,
         variant=config.get("variant", "UNIFORM"),
@@ -1302,6 +1332,12 @@ def _save_avoid_margin_config(rule, config):
         margin_y_mm=config.get("margin_y_mm"),
         margin_z_mm=config.get("margin_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        margin_l_mm=config.get("margin_l_mm"),
+        margin_r_mm=config.get("margin_r_mm"),
+        margin_a_mm=config.get("margin_a_mm"),
+        margin_p_mm=config.get("margin_p_mm"),
+        margin_h_mm=config.get("margin_h_mm"),
+        margin_f_mm=config.get("margin_f_mm"),
     )
 
 
@@ -1343,6 +1379,12 @@ def _duplicate_rule(pipeline, rule):
             margin_y_mm=old_config.margin_y_mm,
             margin_z_mm=old_config.margin_z_mm,
             kernel_type=old_config.kernel_type,
+            margin_l_mm=old_config.margin_l_mm,
+            margin_r_mm=old_config.margin_r_mm,
+            margin_a_mm=old_config.margin_a_mm,
+            margin_p_mm=old_config.margin_p_mm,
+            margin_h_mm=old_config.margin_h_mm,
+            margin_f_mm=old_config.margin_f_mm,
         )
     elif rule.rule_type == "CROP":
         old_config = rule.crop_config
@@ -1380,6 +1422,12 @@ def _duplicate_rule(pipeline, rule):
             thickness_y_mm=old_config.thickness_y_mm,
             thickness_z_mm=old_config.thickness_z_mm,
             kernel_type=old_config.kernel_type,
+            thickness_l_mm=old_config.thickness_l_mm,
+            thickness_r_mm=old_config.thickness_r_mm,
+            thickness_a_mm=old_config.thickness_a_mm,
+            thickness_p_mm=old_config.thickness_p_mm,
+            thickness_h_mm=old_config.thickness_h_mm,
+            thickness_f_mm=old_config.thickness_f_mm,
         )
     elif rule.rule_type == "OVERLAP":
         old_config = rule.overlap_config
@@ -1405,6 +1453,12 @@ def _duplicate_rule(pipeline, rule):
             distance_y_mm=old_config.distance_y_mm,
             distance_z_mm=old_config.distance_z_mm,
             kernel_type=old_config.kernel_type,
+            distance_l_mm=old_config.distance_l_mm,
+            distance_r_mm=old_config.distance_r_mm,
+            distance_a_mm=old_config.distance_a_mm,
+            distance_p_mm=old_config.distance_p_mm,
+            distance_h_mm=old_config.distance_h_mm,
+            distance_f_mm=old_config.distance_f_mm,
         )
     elif rule.rule_type == "AVOID_MARGIN":
         old_config = rule.avoid_margin_config
@@ -1418,6 +1472,12 @@ def _duplicate_rule(pipeline, rule):
             margin_y_mm=old_config.margin_y_mm,
             margin_z_mm=old_config.margin_z_mm,
             kernel_type=old_config.kernel_type,
+            margin_l_mm=old_config.margin_l_mm,
+            margin_r_mm=old_config.margin_r_mm,
+            margin_a_mm=old_config.margin_a_mm,
+            margin_p_mm=old_config.margin_p_mm,
+            margin_h_mm=old_config.margin_h_mm,
+            margin_f_mm=old_config.margin_f_mm,
         )
 
 

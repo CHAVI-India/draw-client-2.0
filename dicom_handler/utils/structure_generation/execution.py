@@ -30,6 +30,10 @@ import SimpleITK as sitk
 from . import advanced_operations, operations
 from .operation_catalog import VARIANT_ANISO, get_operation, resolve_operation_id
 
+# The six patient-anatomical directions used by the canonical
+# six-directional params (``{prefix}_l_mm`` ... ``{prefix}_f_mm``).
+_DIRECTIONS = ("l", "r", "a", "p", "h", "f")
+
 
 class OperationExecutionError(Exception):
     """Raised when an operation cannot be executed (bad roles/params)."""
@@ -76,12 +80,28 @@ def _fold(mask: sitk.Image, others: List[sitk.Image], fn) -> sitk.Image:
     return mask
 
 
-def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image:
-    """Expand ``mask`` by a UNIFORM or ANISOTROPIC distance (mm).
+def _directional_margins(params: Dict[str, Any], prefix: str) -> Optional[Dict[str, float]]:
+    """Return the six-directional margin dict (mm) if the op was given any of
+    the canonical per-direction params (``{prefix}_l_mm`` ... ``{prefix}_f_mm``),
+    else ``None`` (caller falls back to legacy params)."""
+    if not any(f"{prefix}_{k}_mm" in params for k in _DIRECTIONS):
+        return None
+    return {k: float(params.get(f"{prefix}_{k}_mm", 0.0) or 0.0) for k in _DIRECTIONS}
 
-    Reads ``{prefix}_mm`` / ``{prefix}_x_mm`` / ``{prefix}_y_mm`` /
-    ``{prefix}_z_mm`` / ``kernel_type`` / ``variant`` from ``params``.
+
+def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image:
+    """Expand ``mask`` by the six per-direction distances (mm) for ``prefix``.
+
+    The canonical params are ``{prefix}_l_mm`` ... ``{prefix}_f_mm`` (positive
+    = expand toward that side, 0 = unchanged). To apply the same distance on
+    every side, pass the same value in all six. Previously-saved pipelines
+    that still carry the legacy ``variant`` / ``{prefix}_mm`` /
+    ``{prefix}_x/y/z_mm`` / ``kernel_type`` params keep working through the
+    legacy primitives (uniform ball dilation / per-axis anisotropic margin).
     """
+    margins = _directional_margins(params, prefix)
+    if margins is not None:
+        return operations.apply_directional_margin(mask, margins)
     variant = params.get("variant", "UNIFORM")
     if variant == VARIANT_ANISO:
         return operations.apply_anisotropic_margin(
@@ -98,14 +118,15 @@ def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image
 
 
 def _margin_directional(params: Dict[str, Any], prefix: str = "margin") -> Dict[str, float]:
-    """Return the six-directional margin dict (mm) for a margin-like op.
+    """Return the six-directional margin dict (mm) for the canonical ``margin`` op.
 
-    Handles the new per-direction params (``{prefix}_l_mm`` ... ``{prefix}_f_mm``)
-    and falls back to legacy uniform/anisotropic params so previously-saved
-    pipelines keep working. Legacy anisotropic (symmetric per array axis) is
-    mapped to the two anatomical directions along that axis (axial assumption).
+    Prefers the per-direction params (``{prefix}_l_mm`` ...
+    ``{prefix}_f_mm``) and maps legacy uniform/anisotropic params so
+    previously-saved pipelines keep working. Legacy anisotropic (symmetric per
+    array axis) is mapped to the two anatomical directions along that axis
+    (axial assumption).
     """
-    keys = ("l", "r", "a", "p", "h", "f")
+    keys = _DIRECTIONS
     if any(f"{prefix}_{k}_mm" in params for k in keys):
         return {k: float(params.get(f"{prefix}_{k}_mm", 0.0) or 0.0) for k in keys}
     variant = params.get("variant", "UNIFORM")

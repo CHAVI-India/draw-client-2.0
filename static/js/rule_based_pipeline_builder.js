@@ -38,12 +38,6 @@
     "FIXATION", "DOSE_REGION", "CONTROL", "DOSE_MEASUREMENT",
   ];
 
-  const MARGIN_KERNELS = [
-    { value: "ball", label: "Ball" },
-    { value: "box", label: "Box" },
-    { value: "cross", label: "Cross" },
-  ];
-
   const CLEANUP_OPERATIONS = {
     SMOOTH_STRUCTURE: { label: "Smooth Surface", params: ["smoothing_mm", "iterations"] },
     GAUSSIAN_SMOOTH: { label: "Gaussian Smooth", params: ["sigma_mm", "threshold"] },
@@ -140,18 +134,46 @@
     }
 
     _normalizeRuleConfig(ruleType, config) {
-      // Convert legacy MARGIN configs (variant/margin_mm or x/y/z) onto the
-      // six-directional form so previously-saved rules keep working.
-      if (ruleType !== "MARGIN" || !config) return config;
-      const hasDir = ["l", "r", "a", "p", "h", "f"].some((k) => config[`margin_${k}_mm`] !== undefined && config[`margin_${k}_mm`] !== null);
-      if (hasDir) return config;
-      if (config.margin_mm === undefined && config.margin_x_mm === undefined) return config;
-      if (config.variant === "ANISOTROPIC" && (config.margin_x_mm !== undefined || config.margin_y_mm !== undefined || config.margin_z_mm !== undefined)) {
-        const x = config.margin_x_mm || 0, y = config.margin_y_mm || 0, z = config.margin_z_mm || 0;
-        return { source: config.source, margin_h_mm: x, margin_f_mm: x, margin_a_mm: y, margin_p_mm: y, margin_l_mm: z, margin_r_mm: z };
+      // Convert legacy margin-like configs (variant/uniform_mm or x/y/z) onto
+      // the six-directional form so previously-saved rules keep working.
+      if (!config) return config;
+      const prefix = {
+        MARGIN: "margin",
+        RING: "thickness",
+        EXPAND_SUBTRACT: "distance",
+        AVOID_MARGIN: "margin",
+      }[ruleType];
+      if (!prefix) return config;
+      const keys = ["l", "r", "a", "p", "h", "f"];
+      if (keys.some((k) => config[`${prefix}_${k}_mm`] !== undefined && config[`${prefix}_${k}_mm`] !== null)) {
+        return config;
       }
-      const m = config.margin_mm || 0;
-      return { source: config.source, margin_l_mm: m, margin_r_mm: m, margin_a_mm: m, margin_p_mm: m, margin_h_mm: m, margin_f_mm: m };
+      const hasLegacy =
+        config[`${prefix}_mm`] !== undefined ||
+        config[`${prefix}_x_mm`] !== undefined ||
+        config[`${prefix}_y_mm`] !== undefined ||
+        config[`${prefix}_z_mm`] !== undefined;
+      if (!hasLegacy) return config;
+      let directional;
+      if (config.variant === "ANISOTROPIC" && (config[`${prefix}_x_mm`] !== undefined || config[`${prefix}_y_mm`] !== undefined || config[`${prefix}_z_mm`] !== undefined)) {
+        const x = config[`${prefix}_x_mm`] || 0,
+              y = config[`${prefix}_y_mm`] || 0,
+              z = config[`${prefix}_z_mm`] || 0;
+        directional = { h: x, f: x, a: y, p: y, l: z, r: z };
+      } else {
+        const m = config[`${prefix}_mm`] || 0;
+        directional = { l: m, r: m, a: m, p: m, h: m, f: m };
+      }
+      const out = {};
+      for (const k of Object.keys(config)) {
+        if (k === "variant" || k === "kernel_type" || k === `${prefix}_mm` ||
+            k === `${prefix}_x_mm` || k === `${prefix}_y_mm` || k === `${prefix}_z_mm`) {
+          continue;
+        }
+        out[k] = config[k];
+      }
+      for (const k of keys) out[`${prefix}_${k}_mm`] = directional[k];
+      return out;
     }
 
     _defaultConfig(ruleType) {
@@ -182,37 +204,37 @@
           return { operation: "SMOOTH_STRUCTURE", source: "", smoothing_mm: 2.0, iterations: 1 };
         case "RING":
           return {
-            variant: "UNIFORM",
             source: "",
-            thickness_mm: 5.0,
-            thickness_x_mm: 0.0,
-            thickness_y_mm: 0.0,
-            thickness_z_mm: 0.0,
-            kernel_type: "ball",
+            thickness_l_mm: 0.0,
+            thickness_r_mm: 0.0,
+            thickness_a_mm: 0.0,
+            thickness_p_mm: 0.0,
+            thickness_h_mm: 0.0,
+            thickness_f_mm: 0.0,
           };
         case "OVERLAP":
           return { source: "", others: [""] };
         case "EXPAND_SUBTRACT":
           return {
-            variant: "UNIFORM",
             source: "",
             subtract: "",
-            distance_mm: 5.0,
-            distance_x_mm: 0.0,
-            distance_y_mm: 0.0,
-            distance_z_mm: 0.0,
-            kernel_type: "ball",
+            distance_l_mm: 0.0,
+            distance_r_mm: 0.0,
+            distance_a_mm: 0.0,
+            distance_p_mm: 0.0,
+            distance_h_mm: 0.0,
+            distance_f_mm: 0.0,
           };
         case "AVOID_MARGIN":
           return {
-            variant: "UNIFORM",
             source: "",
             avoid: "",
-            margin_mm: 5.0,
-            margin_x_mm: 0.0,
-            margin_y_mm: 0.0,
-            margin_z_mm: 0.0,
-            kernel_type: "ball",
+            margin_l_mm: 0.0,
+            margin_r_mm: 0.0,
+            margin_a_mm: 0.0,
+            margin_p_mm: 0.0,
+            margin_h_mm: 0.0,
+            margin_f_mm: 0.0,
           };
         default:
           return {};
@@ -453,20 +475,18 @@
         case "CLEANUP":
           return `${CLEANUP_OPERATIONS[cfg.operation].label} on ${cfg.source}`;
         case "RING":
-          return cfg.variant === "UNIFORM"
-            ? `Ring around ${cfg.source} (${cfg.thickness_mm} mm, ${cfg.kernel_type})`
-            : `Anisotropic ring around ${cfg.source}: [${cfg.thickness_x_mm}, ${cfg.thickness_y_mm}, ${cfg.thickness_z_mm}] mm`;
+          return this._summarizeDirectional(cfg, "thickness", `Ring around ${cfg.source}`);
         case "OVERLAP": {
           const n = (cfg.others || []).length;
           return `Overlap ${cfg.source} with ${n} structure(s)`;
         }
         case "EXPAND_SUBTRACT": {
-          const d = cfg.variant === "ANISOTROPIC" ? `${cfg.distance_x_mm}/${cfg.distance_y_mm}/${cfg.distance_z_mm} mm` : `${cfg.distance_mm} mm`;
-          return `Expand ${cfg.source} by ${d}, subtract ${cfg.subtract}`;
+          const d = this._summarizeDirectionalValues(cfg, "distance");
+          return d ? `Expand ${cfg.source} by ${d}, subtract ${cfg.subtract}` : `No expansion on ${cfg.source}, subtract ${cfg.subtract}`;
         }
         case "AVOID_MARGIN": {
-          const d = cfg.variant === "ANISOTROPIC" ? `${cfg.margin_x_mm}/${cfg.margin_y_mm}/${cfg.margin_z_mm} mm` : `${cfg.margin_mm} mm`;
-          return `Avoid ${cfg.avoid} by ${d} from ${cfg.source}`;
+          const d = this._summarizeDirectionalValues(cfg, "margin");
+          return d ? `Avoid ${cfg.avoid} by ${d} from ${cfg.source}` : `No avoidance margin around ${cfg.avoid} from ${cfg.source}`;
         }
         default:
           return "";
@@ -747,36 +767,60 @@
       `;
     }
 
+    // Summary fragment for the non-zero directions of a six-directional
+    // config, e.g. "L 5mm, R 3mm". Returns null when no direction is set.
+    _summarizeDirectionalValues(cfg, prefix) {
+      const labels = { l: "L", r: "R", a: "A", p: "P", h: "S", f: "I" };
+      const dirs = ["l", "r", "a", "p", "h", "f"].filter((k) => cfg[`${prefix}_${k}_mm`]);
+      if (!dirs.length) return null;
+      return dirs.map((k) => `${labels[k]} ${cfg[`${prefix}_${k}_mm`]}mm`).join(", ");
+    }
+
+    _summarizeDirectional(cfg, prefix, prefixLabel) {
+      const d = this._summarizeDirectionalValues(cfg, prefix);
+      return d ? `${prefixLabel}: ${d}` : `${prefixLabel} (no thickness set)`;
+    }
+
+    // Six per-direction number inputs, ids `${idPrefix}-${k}`.
+    _directionalInputGrid(idPrefix, prefix, cfg) {
+      const dirs = [
+        ["l", "Left"], ["r", "Right"], ["a", "Anterior"],
+        ["p", "Posterior"], ["h", "Superior (Head)"], ["f", "Inferior (Feet)"],
+      ];
+      const inputs = dirs.map(
+        ([k, label]) => `
+          <div>
+            <label class="block text-sm font-medium text-gray-700">${label} (mm)</label>
+            <input type="number" step="any" min="0" id="${idPrefix}-${k}" value="${cfg[`${prefix}_${k}_mm`] ?? 0}"
+                   class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+          </div>`
+      ).join("");
+      return `<div class="grid grid-cols-2 gap-3">${inputs}</div>`;
+    }
+
+    _directionalHelpBox(expandWord) {
+      return `
+        <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 leading-relaxed">
+          Set a distance in millimetres for each direction. A value expands
+          (${expandWord}) the structure toward that side; leave at <b>0</b> to
+          leave that side unchanged. Set the same value in all six directions
+          for a uniform margin.
+        </div>`;
+    }
+
     _renderRingEditor(config) {
       return `
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700">Variant</label>
-            <select id="rbs-ring-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
-              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
-            </select>
-          </div>
-          <div>
             <label class="block text-sm font-medium text-gray-700">Source Structure</label>
             ${this._renderStructureSelect("rbs-ring-source", config.source)}
           </div>
-          <div id="rbs-ring-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Ring thickness (mm)</label>
-            <input type="number" step="any" id="rbs-ring-mm" value="${config.thickness_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
-            <select id="rbs-ring-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
-            </select>
+          ${this._directionalHelpBox("thicken")}
+          <div class="rounded-md border border-gray-200 px-3 py-2 text-xs text-gray-600">
+            The source structure itself is removed — the result is a shell of the
+            given thickness around it.
           </div>
-          <div id="rbs-ring-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Thickness X (mm)</label>
-            <input type="number" step="any" id="rbs-ring-x" value="${config.thickness_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Thickness Y (mm)</label>
-            <input type="number" step="any" id="rbs-ring-y" value="${config.thickness_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Thickness Z (mm)</label>
-            <input type="number" step="any" id="rbs-ring-z" value="${config.thickness_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-          </div>
+          ${this._directionalInputGrid("rbs-ring", "thickness", config)}
         </div>
       `;
     }
@@ -811,13 +855,6 @@
       return `
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700">Variant</label>
-            <select id="rbs-es-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
-              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
-            </select>
-          </div>
-          <div>
             <label class="block text-sm font-medium text-gray-700">Structure to Expand</label>
             ${this._renderStructureSelect("rbs-es-source", config.source)}
           </div>
@@ -825,22 +862,8 @@
             <label class="block text-sm font-medium text-gray-700">Structure to Subtract</label>
             ${this._renderStructureSelect("rbs-es-subtract", config.subtract, true)}
           </div>
-          <div id="rbs-es-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Expansion distance (mm)</label>
-            <input type="number" step="any" id="rbs-es-mm" value="${config.distance_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
-            <select id="rbs-es-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
-            </select>
-          </div>
-          <div id="rbs-es-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Distance X (mm)</label>
-            <input type="number" step="any" id="rbs-es-x" value="${config.distance_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Distance Y (mm)</label>
-            <input type="number" step="any" id="rbs-es-y" value="${config.distance_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Distance Z (mm)</label>
-            <input type="number" step="any" id="rbs-es-z" value="${config.distance_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-          </div>
+          ${this._directionalHelpBox("expand")}
+          ${this._directionalInputGrid("rbs-es", "distance", config)}
         </div>
       `;
     }
@@ -849,13 +872,6 @@
       return `
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-gray-700">Variant</label>
-            <select id="rbs-am-variant" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              <option value="UNIFORM" ${config.variant === "UNIFORM" ? "selected" : ""}>Uniform</option>
-              <option value="ANISOTROPIC" ${config.variant === "ANISOTROPIC" ? "selected" : ""}>Anisotropic</option>
-            </select>
-          </div>
-          <div>
             <label class="block text-sm font-medium text-gray-700">Structure to Keep</label>
             ${this._renderStructureSelect("rbs-am-source", config.source)}
           </div>
@@ -863,22 +879,8 @@
             <label class="block text-sm font-medium text-gray-700">Structure to Avoid</label>
             ${this._renderStructureSelect("rbs-am-avoid", config.avoid, true)}
           </div>
-          <div id="rbs-am-uniform" class="${config.variant !== "UNIFORM" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Avoidance margin (mm)</label>
-            <input type="number" step="any" id="rbs-am-mm" value="${config.margin_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Kernel</label>
-            <select id="rbs-am-kernel" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-              ${MARGIN_KERNELS.map((k) => `<option value="${k.value}" ${config.kernel_type === k.value ? "selected" : ""}>${k.label}</option>`).join("")}
-            </select>
-          </div>
-          <div id="rbs-am-anisotropic" class="${config.variant !== "ANISOTROPIC" ? "hidden" : ""}">
-            <label class="block text-sm font-medium text-gray-700">Margin X (mm)</label>
-            <input type="number" step="any" id="rbs-am-x" value="${config.margin_x_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Y (mm)</label>
-            <input type="number" step="any" id="rbs-am-y" value="${config.margin_y_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-            <label class="block text-sm font-medium text-gray-700 mt-2">Margin Z (mm)</label>
-            <input type="number" step="any" id="rbs-am-z" value="${config.margin_z_mm}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
-          </div>
+          ${this._directionalHelpBox("expand")}
+          ${this._directionalInputGrid("rbs-am", "margin", config)}
         </div>
       `;
     }
@@ -1070,15 +1072,6 @@
             if (select.value) cfg.boundaries.push(select.value);
           });
           break;
-        case "RING":
-          cfg.variant = this.container.querySelector("#rbs-ring-variant").value;
-          cfg.source = this._getValue("#rbs-ring-source");
-          cfg.thickness_mm = parseFloat(this._getValue("#rbs-ring-mm")) || 0;
-          cfg.thickness_x_mm = parseFloat(this._getValue("#rbs-ring-x")) || 0;
-          cfg.thickness_y_mm = parseFloat(this._getValue("#rbs-ring-y")) || 0;
-          cfg.thickness_z_mm = parseFloat(this._getValue("#rbs-ring-z")) || 0;
-          cfg.kernel_type = this._getValue("#rbs-ring-kernel");
-          break;
         case "OVERLAP":
           cfg.source = this._getValue("#rbs-overlap-source");
           cfg.others = [];
@@ -1087,24 +1080,30 @@
           });
           break;
         case "EXPAND_SUBTRACT":
-          cfg.variant = this.container.querySelector("#rbs-es-variant").value;
           cfg.source = this._getValue("#rbs-es-source");
           cfg.subtract = this._getValue("#rbs-es-subtract");
-          cfg.distance_mm = parseFloat(this._getValue("#rbs-es-mm")) || 0;
-          cfg.distance_x_mm = parseFloat(this._getValue("#rbs-es-x")) || 0;
-          cfg.distance_y_mm = parseFloat(this._getValue("#rbs-es-y")) || 0;
-          cfg.distance_z_mm = parseFloat(this._getValue("#rbs-es-z")) || 0;
-          cfg.kernel_type = this._getValue("#rbs-es-kernel");
+          for (const k of ["l", "r", "a", "p", "h", "f"]) {
+            cfg[`distance_${k}_mm`] = parseFloat(this._getValue(`#rbs-es-${k}`)) || 0;
+          }
+          delete cfg.variant;
+          delete cfg.kernel_type;
+          delete cfg.distance_mm;
+          delete cfg.distance_x_mm;
+          delete cfg.distance_y_mm;
+          delete cfg.distance_z_mm;
           break;
         case "AVOID_MARGIN":
-          cfg.variant = this.container.querySelector("#rbs-am-variant").value;
           cfg.source = this._getValue("#rbs-am-source");
           cfg.avoid = this._getValue("#rbs-am-avoid");
-          cfg.margin_mm = parseFloat(this._getValue("#rbs-am-mm")) || 0;
-          cfg.margin_x_mm = parseFloat(this._getValue("#rbs-am-x")) || 0;
-          cfg.margin_y_mm = parseFloat(this._getValue("#rbs-am-y")) || 0;
-          cfg.margin_z_mm = parseFloat(this._getValue("#rbs-am-z")) || 0;
-          cfg.kernel_type = this._getValue("#rbs-am-kernel");
+          for (const k of ["l", "r", "a", "p", "h", "f"]) {
+            cfg[`margin_${k}_mm`] = parseFloat(this._getValue(`#rbs-am-${k}`)) || 0;
+          }
+          delete cfg.variant;
+          delete cfg.kernel_type;
+          delete cfg.margin_mm;
+          delete cfg.margin_x_mm;
+          delete cfg.margin_y_mm;
+          delete cfg.margin_z_mm;
           break;
         case "CLEANUP":
           cfg.operation = this.container.querySelector("#rbs-cleanup-operation").value;
@@ -1153,12 +1152,7 @@
       }
 
       if (ruleType === "RING") {
-        const variant = this.container.querySelector("#rbs-ring-variant");
-        variant.addEventListener("change", () => {
-          const isUniform = variant.value === "UNIFORM";
-          this.container.querySelector("#rbs-ring-uniform").classList.toggle("hidden", !isUniform);
-          this.container.querySelector("#rbs-ring-anisotropic").classList.toggle("hidden", isUniform);
-        });
+        // Six-directional ring thickness; nothing to wire up.
       }
       if (ruleType === "OVERLAP") {
         this.container.querySelector("#rbs-add-overlap-other").addEventListener("click", () => {
@@ -1175,20 +1169,10 @@
         this._attachOverlapRemoveListeners();
       }
       if (ruleType === "EXPAND_SUBTRACT") {
-        const variant = this.container.querySelector("#rbs-es-variant");
-        variant.addEventListener("change", () => {
-          const isUniform = variant.value === "UNIFORM";
-          this.container.querySelector("#rbs-es-uniform").classList.toggle("hidden", !isUniform);
-          this.container.querySelector("#rbs-es-anisotropic").classList.toggle("hidden", isUniform);
-        });
+        // Six-directional distances; nothing to wire up.
       }
       if (ruleType === "AVOID_MARGIN") {
-        const variant = this.container.querySelector("#rbs-am-variant");
-        variant.addEventListener("change", () => {
-          const isUniform = variant.value === "UNIFORM";
-          this.container.querySelector("#rbs-am-uniform").classList.toggle("hidden", !isUniform);
-          this.container.querySelector("#rbs-am-anisotropic").classList.toggle("hidden", isUniform);
-        });
+        // Six-directional margins; nothing to wire up.
       }
 
       if (ruleType === "CROP") {

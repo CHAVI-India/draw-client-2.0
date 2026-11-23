@@ -86,31 +86,48 @@ class PipelineBuilder {
         return role.name === "source" && this.chainSourceOps.has(op.type);
     }
 
+    _legacyMarginPrefix(type) {
+        // Parameter prefix for the legacy uniform/anisotropic margin params of
+        // each margin-like op (the canonical form is six per-direction
+        // ``{prefix}_{l,r,a,p,h,f}_mm`` fields).
+        return {
+            margin: 'margin',
+            ring: 'thickness',
+            expand_subtract: 'distance',
+            avoid_margin: 'margin',
+        }[type] || null;
+    }
+
     _normalizeLegacyMargin(operation, sign) {
         // Map legacy margin params (variant/margin_mm or margin_x/y/z_mm) onto
         // the canonical six-directional form so old pipelines keep working and
         // re-serialize cleanly. `contract` stored a positive distance, so flip
         // its sign to a (negative) contraction.
+        const prefix = this._legacyMarginPrefix(operation.type);
+        if (!prefix) return;
         const p = operation.parameters || {};
-        const hasLegacy =
-            'margin_mm' in p || 'margin_x_mm' in p || 'margin_y_mm' in p || 'margin_z_mm' in p;
-        if (!hasLegacy) return;
+        const legacyKeys = [`${prefix}_mm`, `${prefix}_x_mm`, `${prefix}_y_mm`, `${prefix}_z_mm`];
+        if (!legacyKeys.some((k) => k in p)) return;
         if (sign < 0) {
-            for (const k of ['margin_mm', 'margin_x_mm', 'margin_y_mm', 'margin_z_mm']) {
+            const signed = [...legacyKeys];
+            if (prefix === 'margin') {
+                for (const k of ['l', 'r', 'a', 'p', 'h', 'f']) signed.push(`margin_${k}_mm`);
+            }
+            for (const k of signed) {
                 if (p[k] && p[k] > 0) p[k] = -p[k];
             }
         }
-        if (p.margin_x_mm !== undefined || p.margin_y_mm !== undefined || p.margin_z_mm !== undefined) {
-            const x = p.margin_x_mm || 0, y = p.margin_y_mm || 0, z = p.margin_z_mm || 0;
-            p.margin_h_mm = x; p.margin_f_mm = x;
-            p.margin_a_mm = y; p.margin_p_mm = y;
-            p.margin_l_mm = z; p.margin_r_mm = z;
+        if (p[`${prefix}_x_mm`] !== undefined || p[`${prefix}_y_mm`] !== undefined || p[`${prefix}_z_mm`] !== undefined) {
+            const x = p[`${prefix}_x_mm`] || 0, y = p[`${prefix}_y_mm`] || 0, z = p[`${prefix}_z_mm`] || 0;
+            p[`${prefix}_h_mm`] = x; p[`${prefix}_f_mm`] = x;
+            p[`${prefix}_a_mm`] = y; p[`${prefix}_p_mm`] = y;
+            p[`${prefix}_l_mm`] = z; p[`${prefix}_r_mm`] = z;
         } else {
-            const m = p.margin_mm || 0;
-            for (const k of ['l', 'r', 'a', 'p', 'h', 'f']) p[`margin_${k}_mm`] = m;
+            const m = p[`${prefix}_mm`] || 0;
+            for (const k of ['l', 'r', 'a', 'p', 'h', 'f']) p[`${prefix}_${k}_mm`] = m;
         }
         delete p.variant; delete p.kernel_type;
-        delete p.margin_mm; delete p.margin_x_mm; delete p.margin_y_mm; delete p.margin_z_mm;
+        for (const k of legacyKeys) delete p[k];
     }
 
     // ------------------------------------------------------------------
@@ -451,7 +468,7 @@ class PipelineBuilder {
                 if (e.target.type === 'checkbox') value = e.target.checked;
                 else if (e.target.type === 'number') value = e.target.value === '' ? null : parseFloat(value);
                 op.parameters[name] = value;
-                // Re-render if this param drives other params' visibility (e.g. variant).
+                // Re-render if this param drives other params' visibility (show_when).
                 if (this._drivesVisibility(op, name)) this.renderOperations();
                 this.updateJsonPreview();
             });
@@ -518,8 +535,7 @@ class PipelineBuilder {
                     if (structures.length) opData.structures = structures;
                 }
                 // Include only the parameters currently visible (per show_when),
-                // dropping empty values. Hidden params (e.g. margin_mm when the
-                // variant is ANISOTROPIC) are omitted.
+                // dropping empty values. Hidden params are omitted.
                 const params = {};
                 if (spec) {
                     (spec.parameters || []).forEach((p) => {

@@ -3,6 +3,15 @@
 from django.core.exceptions import ValidationError
 
 
+def _has_directional(config, prefix: str) -> bool:
+    """True if any of the six per-directional ``{prefix}_{l,r,a,p,h,f}_mm``
+    fields is set on a margin-like config."""
+    return any(
+        getattr(config, f"{prefix}_{k}_mm") is not None
+        for k in ("l", "r", "a", "p", "h", "f")
+    )
+
+
 def validate_boolean_rule(rule):
     """Validate a boolean rule has exactly one well-formed tree."""
     try:
@@ -172,11 +181,17 @@ def validate_ring_rule(rule):
     except Exception:
         return
 
-    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
-        raise ValidationError({"variant": "Ring variant must be Uniform or Anisotropic."})
-
     if not config.source:
         raise ValidationError({"source": "Source structure is required."})
+
+    # Six-directional thicknesses (preferred): any set value makes this a
+    # directional ring; unset directions are treated as 0 (no change).
+    if _has_directional(config, "thickness"):
+        return
+
+    # Legacy uniform/anisotropic fallback.
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Ring variant must be Uniform or Anisotropic."})
 
     if config.variant == "UNIFORM":
         if config.thickness_mm is None:
@@ -216,14 +231,19 @@ def validate_expand_subtract_rule(rule):
     except Exception:
         return
 
-    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
-        raise ValidationError({"variant": "Expand & Subtract variant must be Uniform or Anisotropic."})
-
     if not config.source:
         raise ValidationError({"source": "Source structure is required."})
 
     if not config.subtract:
         raise ValidationError({"subtract": "Structure to subtract is required."})
+
+    # Six-directional distances (preferred).
+    if _has_directional(config, "distance"):
+        return
+
+    # Legacy uniform/anisotropic fallback.
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Expand & Subtract variant must be Uniform or Anisotropic."})
 
     if config.variant == "UNIFORM":
         if config.distance_mm is None:
@@ -249,14 +269,19 @@ def validate_avoid_margin_rule(rule):
     except Exception:
         return
 
-    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
-        raise ValidationError({"variant": "Avoid with Margin variant must be Uniform or Anisotropic."})
-
     if not config.source:
         raise ValidationError({"source": "Source structure is required."})
 
     if not config.avoid:
         raise ValidationError({"avoid": "Structure to avoid is required."})
+
+    # Six-directional margins (preferred).
+    if _has_directional(config, "margin"):
+        return
+
+    # Legacy uniform/anisotropic fallback.
+    if config.variant not in {"UNIFORM", "ANISOTROPIC"}:
+        raise ValidationError({"variant": "Avoid with Margin variant must be Uniform or Anisotropic."})
 
     if config.variant == "UNIFORM":
         if config.margin_mm is None:

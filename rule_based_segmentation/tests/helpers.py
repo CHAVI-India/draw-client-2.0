@@ -316,6 +316,12 @@ def _create_margin_config(rule, config):
         margin_y_mm=config.get("margin_y_mm"),
         margin_z_mm=config.get("margin_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        margin_l_mm=config.get("margin_l_mm"),
+        margin_r_mm=config.get("margin_r_mm"),
+        margin_a_mm=config.get("margin_a_mm"),
+        margin_p_mm=config.get("margin_p_mm"),
+        margin_h_mm=config.get("margin_h_mm"),
+        margin_f_mm=config.get("margin_f_mm"),
     )
 
 
@@ -329,6 +335,12 @@ def _create_ring_config(rule, config):
         thickness_y_mm=config.get("thickness_y_mm"),
         thickness_z_mm=config.get("thickness_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        thickness_l_mm=config.get("thickness_l_mm"),
+        thickness_r_mm=config.get("thickness_r_mm"),
+        thickness_a_mm=config.get("thickness_a_mm"),
+        thickness_p_mm=config.get("thickness_p_mm"),
+        thickness_h_mm=config.get("thickness_h_mm"),
+        thickness_f_mm=config.get("thickness_f_mm"),
     )
 
 
@@ -357,6 +369,12 @@ def _create_expand_subtract_config(rule, config):
         distance_y_mm=config.get("distance_y_mm"),
         distance_z_mm=config.get("distance_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        distance_l_mm=config.get("distance_l_mm"),
+        distance_r_mm=config.get("distance_r_mm"),
+        distance_a_mm=config.get("distance_a_mm"),
+        distance_p_mm=config.get("distance_p_mm"),
+        distance_h_mm=config.get("distance_h_mm"),
+        distance_f_mm=config.get("distance_f_mm"),
     )
 
 
@@ -371,6 +389,12 @@ def _create_avoid_margin_config(rule, config):
         margin_y_mm=config.get("margin_y_mm"),
         margin_z_mm=config.get("margin_z_mm"),
         kernel_type=config.get("kernel_type", "ball"),
+        margin_l_mm=config.get("margin_l_mm"),
+        margin_r_mm=config.get("margin_r_mm"),
+        margin_a_mm=config.get("margin_a_mm"),
+        margin_p_mm=config.get("margin_p_mm"),
+        margin_h_mm=config.get("margin_h_mm"),
+        margin_f_mm=config.get("margin_f_mm"),
     )
 
 

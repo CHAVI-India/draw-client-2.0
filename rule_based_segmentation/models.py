@@ -404,6 +404,8 @@ class RingRuleConfig(models.Model):
         related_name="ring_config",
         limit_choices_to={"rule_type": "RING"},
     )
+    # Legacy uniform/anisotropic fields (kept for backward compatibility with
+    # pre-existing rules; no longer editable in the UI).
     variant = models.CharField(max_length=20, choices=VARIANT_CHOICES)
     source = models.CharField(max_length=256)
     thickness_mm = models.FloatField(null=True, blank=True)
@@ -417,6 +419,16 @@ class RingRuleConfig(models.Model):
         null=True,
         blank=True,
     )
+    # Six patient-anatomical directional thicknesses (mm): L/R, A/P,
+    # H(=superior)/F(=inferior). These are the canonical ring fields; the
+    # uniform/anisotropic fields above are used only as a read-side fallback
+    # when none of these are set.
+    thickness_l_mm = models.FloatField(null=True, blank=True)
+    thickness_r_mm = models.FloatField(null=True, blank=True)
+    thickness_a_mm = models.FloatField(null=True, blank=True)
+    thickness_p_mm = models.FloatField(null=True, blank=True)
+    thickness_h_mm = models.FloatField(null=True, blank=True)
+    thickness_f_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -478,6 +490,8 @@ class ExpandSubtractRuleConfig(models.Model):
         related_name="expand_subtract_config",
         limit_choices_to={"rule_type": "EXPAND_SUBTRACT"},
     )
+    # Legacy uniform/anisotropic fields (kept for backward compatibility;
+    # no longer editable in the UI).
     variant = models.CharField(max_length=20, choices=VARIANT_CHOICES)
     source = models.CharField(max_length=256)
     subtract = models.CharField(max_length=256)
@@ -492,6 +506,15 @@ class ExpandSubtractRuleConfig(models.Model):
         null=True,
         blank=True,
     )
+    # Six patient-anatomical directional distances (mm): L/R, A/P,
+    # H(=superior)/F(=inferior). Canonical fields; legacy fields above are a
+    # read-side fallback only.
+    distance_l_mm = models.FloatField(null=True, blank=True)
+    distance_r_mm = models.FloatField(null=True, blank=True)
+    distance_a_mm = models.FloatField(null=True, blank=True)
+    distance_p_mm = models.FloatField(null=True, blank=True)
+    distance_h_mm = models.FloatField(null=True, blank=True)
+    distance_f_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -515,6 +538,8 @@ class AvoidMarginRuleConfig(models.Model):
         related_name="avoid_margin_config",
         limit_choices_to={"rule_type": "AVOID_MARGIN"},
     )
+    # Legacy uniform/anisotropic fields (kept for backward compatibility;
+    # no longer editable in the UI).
     variant = models.CharField(max_length=20, choices=VARIANT_CHOICES)
     source = models.CharField(max_length=256)
     avoid = models.CharField(max_length=256)
@@ -529,6 +554,15 @@ class AvoidMarginRuleConfig(models.Model):
         null=True,
         blank=True,
     )
+    # Six patient-anatomical directional margins (mm): L/R, A/P,
+    # H(=superior)/F(=inferior). Canonical fields; legacy fields above are a
+    # read-side fallback only.
+    margin_l_mm = models.FloatField(null=True, blank=True)
+    margin_r_mm = models.FloatField(null=True, blank=True)
+    margin_a_mm = models.FloatField(null=True, blank=True)
+    margin_p_mm = models.FloatField(null=True, blank=True)
+    margin_h_mm = models.FloatField(null=True, blank=True)
+    margin_f_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
