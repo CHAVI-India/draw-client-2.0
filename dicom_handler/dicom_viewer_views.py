@@ -10,8 +10,6 @@ from django.http import Http404, JsonResponse, HttpResponse
 from django.views.decorators.http import require_http_methods
 from .models import DICOMSeries, RTStructureFileImport, DICOMInstance, RTStructureFileVOIData, ContourModificationTypeChoices
 import os
-import tempfile
-import shutil
 import json
 import base64
 import hashlib
@@ -162,6 +160,94 @@ def _roi_cache_filename(roi_name, ext):
     return f"{digest}{ext}"
 
 
+SLICE_ORDER_FILENAME = 'slice_order.json'
+
+
+def _resolve_rt_struct_path(rt_structure):
+    """Return an existing path for the RT Structure file of this import."""
+    path = rt_structure.reidentified_rt_structure_file_path
+    if not path or not os.path.exists(path):
+        path = rt_structure.deidentified_rt_structure_file_path
+    if not path or not os.path.exists(path):
+        raise RuntimeError('RT Structure file not found')
+    return path
+
+
+def _viewer_cache_dir(rt_structure):
+    """
+    Per-RT-Structure viewer cache directory, created next to the RT
+    Structure file itself on the shared datastore volume so that both the
+    web and the Celery containers can see it. Holds the slice ordering
+    (``slice_order.json``) and the mask cache pickles, and intentionally
+    outlives a single viewer session so the next open is faster.
+    """
+    rt_path = _resolve_rt_struct_path(rt_structure)
+    cache_dir = os.path.join(
+        os.path.dirname(rt_path) or '.', f"dicom_viewer_cache_{rt_structure.id}"
+    )
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+
+def _rtstruct_signature(path):
+    """
+    Small signature of an RT Structure file's (mtime, size). Used to
+    namespace the mask cache so a re-segmented file (same path, new
+    contents) can never be served stale mask pickles.
+    """
+    try:
+        st = os.stat(path)
+        return hashlib.sha256(
+            f"{st.st_mtime_ns}:{st.st_size}".encode('utf-8')
+        ).hexdigest()[:12]
+    except OSError:
+        return None
+
+
+def _mask_cache_dir(temp_dir, rt_struct_path):
+    """Mask cache directory, namespaced by the RT Structure signature."""
+    sig = _rtstruct_signature(rt_struct_path)
+    if sig:
+        cache_dir = os.path.join(temp_dir, 'mask_cache', sig)
+    else:
+        cache_dir = os.path.join(temp_dir, 'mask_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+
+# Process-level cache of ordered slice paths: {temp_dir: [paths]}
+_SLICE_PATHS_CACHE = {}
+
+
+def _get_slice_paths(temp_dir):
+    """
+    Return the DICOM file paths in viewer order for a prepared series.
+
+    Modern viewer cache directories carry ``slice_order.json`` written by
+    ``prepare_dicom_viewer_data``; the paths point at the original files on
+    the datastore (nothing is copied). Legacy directories that still hold
+    ``instance_NNNN.dcm`` copies fall back to filename order.
+    """
+    cached = _SLICE_PATHS_CACHE.get(temp_dir)
+    if cached is not None:
+        return cached
+
+    order_file = os.path.join(temp_dir, SLICE_ORDER_FILENAME)
+    if os.path.exists(order_file):
+        with open(order_file) as f:
+            paths = [entry['path'] for entry in json.load(f)['slices']]
+    else:
+        paths = sorted([
+            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+            if f.startswith('instance_') and f.endswith('.dcm')
+        ])
+
+    if len(_SLICE_PATHS_CACHE) >= 4:
+        _SLICE_PATHS_CACHE.pop(next(iter(_SLICE_PATHS_CACHE)))
+    _SLICE_PATHS_CACHE[temp_dir] = paths
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers: RT structure caching, image encoding, contour geometry
 # ---------------------------------------------------------------------------
@@ -189,9 +275,17 @@ def _get_rtstruct_bundle(temp_dir, rt_struct_path):
         return entry['bundle']
 
     logger.info(f"Building RT structure bundle from {rt_struct_path}")
+    # Load the CT series from its original files (viewer order from
+    # slice_order.json); rt_utils accepts a list of in-memory datasets.
+    series_paths = _get_slice_paths(temp_dir)
+    with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 1) * 2)) as executor:
+        series_datasets = list(executor.map(
+            lambda p: pydicom.dcmread(p, force=True), series_paths
+        ))
     rtstruct = RTStructBuilder.create_from(
-        dicom_series_path=temp_dir,
-        rt_struct_path=rt_struct_path
+        dicom_series_path=series_datasets,
+        rt_struct_path=rt_struct_path,
+        force=True,
     )
     available_rois = rtstruct.get_roi_names()
     series_data = rtstruct.series_data
@@ -327,20 +421,26 @@ def _get_viewer_sops(temp_dir):
     if cached is not None:
         return cached
 
-    dicom_files = sorted([
-        os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
-        if f.startswith('instance_') and f.endswith('.dcm')
-    ])
+    order_file = os.path.join(temp_dir, SLICE_ORDER_FILENAME)
+    if os.path.exists(order_file):
+        with open(order_file) as f:
+            sops = [entry.get('sop_instance_uid') for entry in json.load(f)['slices']]
+    else:
+        # Legacy viewer directories: read SOP UIDs from instance_NNNN.dcm
+        dicom_files = sorted([
+            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
+            if f.startswith('instance_') and f.endswith('.dcm')
+        ])
 
-    def _read_sop(path):
-        try:
-            return pydicom.dcmread(path, stop_before_pixels=True).SOPInstanceUID
-        except Exception as e:
-            logger.warning(f"Failed to read SOP Instance UID from {os.path.basename(path)}: {e}")
-            return None
+        def _read_sop(path):
+            try:
+                return pydicom.dcmread(path, stop_before_pixels=True).SOPInstanceUID
+            except Exception as e:
+                logger.warning(f"Failed to read SOP Instance UID from {os.path.basename(path)}: {e}")
+                return None
 
-    with ThreadPoolExecutor(max_workers=16) as executor:
-        sops = list(executor.map(_read_sop, dicom_files))
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            sops = list(executor.map(_read_sop, dicom_files))
 
     if len(_VIEWER_SOP_CACHE) >= 4:
         _VIEWER_SOP_CACHE.pop(next(iter(_VIEWER_SOP_CACHE)))
@@ -431,19 +531,24 @@ def _roi_geometry_for_slice(sparse_mask, rt_slice_index):
 
 def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
     """
-    Prepare viewer data: copy the series into a temporary directory, sort the
-    slices, load the RT structure and pre-build every structure mask.
+    Prepare viewer data for a series + RT Structure pair.
+
+    No CT files are copied: slices are read on demand from their original
+    location on the shared datastore. The preparation work is (1) reading
+    every slice header to build a deterministic viewer ordering, (2)
+    persisting that ordering as ``slice_order.json`` next to the RT
+    Structure file, and (3) pre-building the per-ROI mask cache pickles in
+    the same directory.
 
     Runs the (potentially long) preparation work. Used both by the
     synchronous ``load_dicom_data`` endpoint and by the Celery task
     ``dicom_handler.prepare_dicom_viewer``.
 
     progress: optional callback ``progress(stage, done, total)`` where stage
-    is one of ``'copy'``, ``'sort'`` or ``'structures'``.
+    is one of ``'copy'`` (header scan), ``'sort'`` or ``'structures'``.
 
-    Returns a dict with ``temp_dir``, ``temp_rt_struct``,
-    ``instance_files``, ``roi_names`` and ``roi_colors``.
-    Raises on failure (the temporary directory is removed).
+    Returns a dict with ``temp_dir`` (the shared cache directory),
+    ``temp_rt_struct``, ``instance_files``, ``roi_names`` and ``roi_colors``.
     """
     def _emit(stage, done, total):
         if progress is not None:
@@ -452,35 +557,41 @@ def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
     series = get_object_or_404(DICOMSeries, series_instance_uid=series_uid)
     rt_structure = get_object_or_404(RTStructureFileImport, id=rt_structure_id)
 
-    # Create temporary directory for this session
-    temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
+    rt_struct_path = _resolve_rt_struct_path(rt_structure)
+
+    # Shared cache directory next to the RT Structure file (visible to both
+    # web and Celery containers); it outlives the session on purpose.
+    temp_dir = _viewer_cache_dir(rt_structure)
+    order_path = os.path.join(temp_dir, SLICE_ORDER_FILENAME)
 
     try:
         # Get DICOM instances from database
         instances = list(DICOMInstance.objects.filter(series_instance_uid=series))
 
-        # STEP 1: Byte-copy all DICOM files into the temp dir (one read per
-        # file from the source, no re-serialization)
+        # STEP 1: Read headers only (stop before pixel data) from the
+        # original files on the datastore, in parallel, to get sort keys
         max_workers = min(16, (os.cpu_count() or 1) * 4)
-        logger.info(f"Copying {len(instances)} DICOM files in parallel using {max_workers} workers")
+        logger.info(f"Scanning {len(instances)} DICOM file headers in parallel using {max_workers} workers")
 
-        def _copy_instance(idx, instance):
+        def _scan_instance(instance):
             if not instance.instance_path or not os.path.exists(instance.instance_path):
                 return None
-            dest = os.path.join(temp_dir, f'raw_{idx:05d}.dcm')
             try:
-                shutil.copyfile(instance.instance_path, dest)
-                return {'index': idx, 'sop_instance_uid': instance.sop_instance_uid, 'path': dest}
+                ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True, force=True)
+                return {
+                    'sop_instance_uid': instance.sop_instance_uid,
+                    'path': instance.instance_path,
+                    'instance_number': int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0,
+                    'slice_location': float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0,
+                    'image_position': float(ds.ImagePositionPatient[2]) if hasattr(ds, 'ImagePositionPatient') else 0.0,
+                }
             except Exception as e:
-                logger.warning(f"Failed to copy DICOM file {instance.sop_instance_uid}: {e}")
+                logger.warning(f"Failed to read header for {instance.sop_instance_uid}: {e}")
                 return None
 
-        copied = []
+        entries = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(_copy_instance, i, inst)
-                for i, inst in enumerate(instances)
-            ]
+            futures = [executor.submit(_scan_instance, inst) for inst in instances]
             done_count = 0
             for future in as_completed(futures):
                 done_count += 1
@@ -488,68 +599,40 @@ def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
                     _emit('copy', done_count, len(futures))
                 result = future.result()
                 if result is not None:
-                    copied.append(result)
+                    entries.append(result)
 
-        logger.info(f"Copied {len(copied)} out of {len(instances)} DICOM files")
+        logger.info(f"Scanned {len(entries)} out of {len(instances)} DICOM file headers")
 
-        if not copied:
-            raise RuntimeError('No DICOM files could be copied for this series')
+        if not entries:
+            raise RuntimeError('No DICOM files could be read for this series')
 
-        # STEP 2: Read headers only (stop before pixel data) to get sort keys
+        # STEP 2: Sort and persist the viewer ordering. Nothing is copied or
+        # renamed: slice N resolves to slices[N]['path'] via
+        # slice_order.json, which both web and worker processes read.
+        entries.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
+        logger.info(f"Sorted {len(entries)} DICOM slices by instance number and slice location")
+
         _emit('sort', 0, 1)
-
-        def _read_sort_keys(entry):
-            try:
-                ds = pydicom.dcmread(entry['path'], stop_before_pixels=True, force=True)
-                entry['instance_number'] = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
-                entry['slice_location'] = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
-                entry['image_position'] = float(ds.ImagePositionPatient[2]) if hasattr(ds, 'ImagePositionPatient') else 0.0
-            except Exception as e:
-                logger.warning(f"Failed to read header for {entry['sop_instance_uid']}: {e}")
-                return None
-            return entry
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            copied = [entry for entry in executor.map(_read_sort_keys, copied) if entry is not None]
-
-        # STEP 3: Sort and rename to the ordered instance_NNNN.dcm names
-        copied.sort(key=lambda x: (x['instance_number'], x['slice_location'], x['image_position']))
-        logger.info(f"Sorted {len(copied)} DICOM files by instance number and slice location")
-
         instance_files = []
-        for idx, entry in enumerate(copied):
-            final_path = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
-            os.rename(entry['path'], final_path)
+        for idx, entry in enumerate(entries):
             instance_files.append({
                 'index': idx,
-                'temp_path': final_path,
+                'path': entry['path'],
                 'sop_instance_uid': entry['sop_instance_uid'],
             })
+        with open(order_path + '.tmp', 'w') as f:
+            json.dump({
+                'series_uid': series.series_instance_uid,
+                'slices': instance_files,
+            }, f)
+        os.replace(order_path + '.tmp', order_path)
 
         _emit('sort', 1, 1)
-        logger.info(f"Prepared {len(instance_files)} sorted DICOM files in {temp_dir}")
-
-        # Copy RT Structure file to temp directory
-        rt_struct_path = rt_structure.reidentified_rt_structure_file_path
-        if not rt_struct_path or not os.path.exists(rt_struct_path):
-            # Fallback to deidentified path
-            rt_struct_path = rt_structure.deidentified_rt_structure_file_path
-
-        if not rt_struct_path or not os.path.exists(rt_struct_path):
-            raise RuntimeError('RT Structure file not found')
-
-        temp_rt_struct = os.path.join(temp_dir, 'rtstruct.dcm')
-        try:
-            # Read and save RT Structure with proper format enforcement
-            rt_ds = pydicom.dcmread(rt_struct_path, force=True)
-            rt_ds.save_as(temp_rt_struct, enforce_file_format=True)
-        except Exception as e:
-            logger.error(f"Failed to save RT Structure file: {e}")
-            raise RuntimeError(f'Failed to process RT Structure file: {e}')
+        logger.info(f"Prepared {len(instance_files)} sorted DICOM slices (order in {order_path})")
 
         # Load RT Structure to get ROI names and colors (cached for later slice requests)
         try:
-            bundle = _get_rtstruct_bundle(temp_dir, temp_rt_struct)
+            bundle = _get_rtstruct_bundle(temp_dir, rt_struct_path)
             roi_names = bundle['available_rois']
             roi_colors = {
                 name: {
@@ -567,8 +650,7 @@ def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
         # Pre-build the sparse mask cache for every structure up front so the
         # viewer is fully ready before the first slice is shown
         if roi_names:
-            cache_dir = os.path.join(temp_dir, 'mask_cache')
-            os.makedirs(cache_dir, exist_ok=True)
+            cache_dir = _mask_cache_dir(temp_dir, rt_struct_path)
             total = len(roi_names)
             for i, roi_name in enumerate(roi_names, start=1):
                 cache_file = os.path.join(cache_dir, _roi_cache_filename(roi_name, '.pkl'))
@@ -585,13 +667,19 @@ def prepare_dicom_viewer_data(series_uid, rt_structure_id, progress=None):
 
         return {
             'temp_dir': temp_dir,
-            'temp_rt_struct': temp_rt_struct,
+            'temp_rt_struct': rt_struct_path,
             'instance_files': instance_files,
             'roi_names': roi_names,
             'roi_colors': roi_colors,
         }
     except Exception:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        # Drop only the ordering file: the mask cache next to the RT
+        # Structure is intentionally kept for reuse.
+        for p in (order_path, order_path + '.tmp'):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
         raise
 
 
@@ -725,18 +813,20 @@ def get_dicom_slice(request):
         temp_dir = request.session.get('dicom_temp_dir')
         rt_struct_path = request.session.get('rt_struct_path')
         
-        if not temp_dir or not os.path.exists(temp_dir):
+        if not temp_dir:
             return JsonResponse({
                 'success': False,
                 'error': 'Session expired. Please reload the page.'
             }, status=400)
-        
-        # Get list of DICOM files
-        dicom_files = sorted([
-            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
-            if f.startswith('instance_') and f.endswith('.dcm')
-        ])
-        
+        if not os.path.exists(temp_dir):
+            return JsonResponse({
+                'success': False,
+                'error': 'Viewer data not found on this server. Please reload the page.'
+            }, status=400)
+
+        # Ordered slice paths (originals on the datastore, via slice_order.json)
+        dicom_files = _get_slice_paths(temp_dir)
+
         if slice_index < 0 or slice_index >= len(dicom_files):
             return JsonResponse({
                 'success': False,
@@ -775,8 +865,7 @@ def get_dicom_slice(request):
             try:
                 logger.info(f"Selected ROIs: {selected_rois}")
                 
-                cache_dir = os.path.join(temp_dir, 'mask_cache')
-                os.makedirs(cache_dir, exist_ok=True)
+                cache_dir = _mask_cache_dir(temp_dir, rt_struct_path)
                 
                 # Cached RT structure bundle (built once per series, not per slice)
                 bundle = _get_rtstruct_bundle(temp_dir, rt_struct_path)
@@ -823,7 +912,6 @@ def get_dicom_slice(request):
                             continue
                         
                         contours = _roi_geometry_for_slice(sparse_mask, rt_slice_index)
-                        contours = _roi_geometry_for_slice(mask_3d, rt_slice_index)
                         contours_found += len(contours)
                         geometry[roi_name] = {
                             'color': _rgb_to_hex(roi_color_map[roi_name]),
@@ -876,12 +964,17 @@ def get_structure_geometry(request):
         temp_dir = request.session.get('dicom_temp_dir')
         rt_struct_path = request.session.get('rt_struct_path')
         
-        if not temp_dir or not os.path.exists(temp_dir):
+        if not temp_dir:
             return JsonResponse({
                 'success': False,
                 'error': 'Session expired. Please reload the page.'
             }, status=400)
-        
+        if not os.path.exists(temp_dir):
+            return JsonResponse({
+                'success': False,
+                'error': 'Viewer data not found on this server. Please reload the page.'
+            }, status=400)
+
         failed_rois = []
         structures = {}
         
@@ -900,8 +993,7 @@ def get_structure_geometry(request):
                     if rt_idx is not None:
                         rt_to_viewer[rt_idx] = viewer_idx
                 
-                cache_dir = os.path.join(temp_dir, 'mask_cache')
-                os.makedirs(cache_dir, exist_ok=True)
+                cache_dir = _mask_cache_dir(temp_dir, rt_struct_path)
                 
                 for roi_name in selected_rois:
                     if roi_name not in available_rois:
@@ -971,18 +1063,20 @@ def render_all_slices(request):
         temp_dir = request.session.get('dicom_temp_dir')
         rt_struct_path = request.session.get('rt_struct_path')
         
-        if not temp_dir or not os.path.exists(temp_dir):
+        if not temp_dir:
             return JsonResponse({
                 'success': False,
                 'error': 'Session expired. Please reload the page.'
             }, status=400)
-        
-        # Get list of DICOM files
-        dicom_files = sorted([
-            os.path.join(temp_dir, f) for f in os.listdir(temp_dir)
-            if f.startswith('instance_') and f.endswith('.dcm')
-        ])
-        
+        if not os.path.exists(temp_dir):
+            return JsonResponse({
+                'success': False,
+                'error': 'Viewer data not found on this server. Please reload the page.'
+            }, status=400)
+
+        # Ordered slice paths (originals on the datastore, via slice_order.json)
+        dicom_files = _get_slice_paths(temp_dir)
+
         logger.info(f"Pre-rendering {len(dicom_files)} slices with window C/W: {window_center}/{window_width}")
         
         # Prepare RT Structure data if needed (cached bundle, built once per series)
@@ -1001,8 +1095,7 @@ def render_all_slices(request):
                 available_rois = bundle['available_rois']
                 
                 # Pre-load masks
-                cache_dir = os.path.join(temp_dir, 'mask_cache')
-                os.makedirs(cache_dir, exist_ok=True)
+                cache_dir = _mask_cache_dir(temp_dir, rt_struct_path)
                 
                 for roi_name in selected_rois:
                     if roi_name not in available_rois:
@@ -1046,7 +1139,7 @@ def render_all_slices(request):
                     if rt_slice_index is None:
                         rt_slice_index = slice_idx
                     
-                    cache_dir = os.path.join(temp_dir, 'mask_cache')
+                    cache_dir = _mask_cache_dir(temp_dir, rt_struct_path)
                     
                     for roi_name in selected_rois:
                         if roi_name not in roi_color_map:
@@ -1116,12 +1209,9 @@ def cleanup_temp_files(request):
     API endpoint to cleanup temporary files when viewer is closed
     """
     try:
-        temp_dir = request.session.get('dicom_temp_dir')
-        
-        if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        
-        # Clear session variables
+        # Clear session variables. The shared cache (slice order + mask
+        # pickles) next to the RT Structure is intentionally kept so the
+        # next viewer session for the same series/structure pair can reuse it.
         request.session.pop('dicom_temp_dir', None)
         request.session.pop('rt_struct_path', None)
         request.session.modified = True

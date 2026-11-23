@@ -43,24 +43,17 @@ User clicks "Open Viewer" button for a specific RT Structure → opens interacti
 
 ### File Management
 
-Files are copied to a temporary directory when the viewer loads to ensure fast access and avoid conflicts: 
-
+No CT files are copied when the viewer loads. Slices are read on demand from
+their original location on the shared datastore, and a small per-RT-Structure
+cache directory is created next to the RT Structure file (visible to both web
+and Celery processes) holding `slice_order.json` and the mask cache pickles;
+its path is stored in the session as `dicom_temp_dir`.
 
 ```python
-# Files are copied to temporary directory when viewer loads
-temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
-
-# DICOM instances copied from database paths
-for instance in instances:
-    temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
-    shutil.copy2(instance.instance_path, temp_file)
-
-# RT Structure file copied
-temp_rt_struct = os.path.join(temp_dir, 'rtstruct.dcm')
-shutil.copy2(rt_struct_path, temp_rt_struct)
-
-# Temp directory path stored in session
-request.session['dicom_temp_dir'] = temp_dir
+cache_dir = f"{os.path.dirname(rt_struct_path)}/dicom_viewer_cache_{rt_structure.id}"
+with open(os.path.join(cache_dir, 'slice_order.json'), 'w') as f:
+    json.dump({'series_uid': series_uid, 'slices': instance_files}, f)
+request.session['dicom_temp_dir'] = cache_dir
 ```
 
 ### DICOM Image Rendering

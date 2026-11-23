@@ -3102,25 +3102,29 @@ User clicks "Open Viewer" button for a specific RT Structure → opens interacti
 
 ### File Management
 
-Files are copied to a temporary directory when the viewer loads to ensure fast access and avoid conflicts: 
-
+No CT files are copied when the viewer loads. Slices are read on demand from
+their original location on the shared datastore, and a small per-RT-Structure
+cache directory is created next to the RT Structure file so both the web and
+the Celery processes can see it:
 
 ```python
-# Files are copied to temporary directory when viewer loads
-temp_dir = tempfile.mkdtemp(prefix='dicom_viewer_')
+# Cache directory next to the RT Structure file (shared datastore volume)
+cache_dir = f"{os.path.dirname(rt_struct_path)}/dicom_viewer_cache_{rt_structure.id}"
 
-# DICOM instances copied from database paths
-for instance in instances:
-    temp_file = os.path.join(temp_dir, f'instance_{idx:04d}.dcm')
-    shutil.copy2(instance.instance_path, temp_file)
+# Slice ordering persisted so slice N resolves to the same original file in
+every process (no copies, no renames)
+with open(os.path.join(cache_dir, 'slice_order.json'), 'w') as f:
+    json.dump({'series_uid': series_uid, 'slices': instance_files}, f)
 
-# RT Structure file copied
-temp_rt_struct = os.path.join(temp_dir, 'rtstruct.dcm')
-shutil.copy2(rt_struct_path, temp_rt_struct)
+# Pre-built ROI mask pickles live in cache_dir/mask_cache/<rtstruct signature>
 
-# Temp directory path stored in session
-request.session['dicom_temp_dir'] = temp_dir
+# Cache directory path stored in session
+request.session['dicom_temp_dir'] = cache_dir
 ```
+
+The cache is intentionally kept after the viewer closes, so the next viewer
+session for the same series/structure pair reuses the slice order and mask
+cache (only invalidated when the RT Structure file itself changes).
 
 ### DICOM Image Rendering
 
@@ -3223,9 +3227,9 @@ def find_contours(mask_slice, level=0.5):
 - Legend showing structure names
 
 ### 4. Performance Optimization
-- Files loaded into temporary directory on viewer open
-- Session-based temporary file management
-- Automatic cleanup on page unload
+- CT slices read in place from the shared datastore (no per-session copies)
+- Slice order persisted as slice_order.json; mask cache pickles pre-built and reused across sessions
+- Session-based viewer state (cache directory path, RT Structure path)
 - Base64-encoded image transmission
 
 ## Dependencies
