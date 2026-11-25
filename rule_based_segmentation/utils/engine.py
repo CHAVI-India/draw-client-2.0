@@ -412,13 +412,15 @@ class SegmentationEngine:
             return execute_operation(
                 "smooth",
                 {"source": source_mask},
-                {"smoothing_mm": config.smoothing_mm, "iterations": config.iterations},
+                {"smoothing_mm": config.smoothing_mm or 2.0,
+                 "iterations": config.iterations or 1},
             )
         if operation == "GAUSSIAN_SMOOTH":
             return execute_operation(
                 "gaussian_smooth",
                 {"source": source_mask},
-                {"sigma_mm": config.sigma_mm, "threshold": config.threshold},
+                {"sigma_mm": config.sigma_mm or 1.0,
+                 "threshold": config.threshold if config.threshold is not None else 0.5},
             )
         if operation == "FILL_HOLES":
             return execute_operation(
@@ -430,7 +432,7 @@ class SegmentationEngine:
             return execute_operation(
                 "remove_small_components",
                 {"source": source_mask},
-                {"min_size_mm3": config.min_size_mm3},
+                {"min_size_mm3": config.min_size_mm3 or 100.0},
             )
         if operation == "KEEP_LARGEST_COMPONENT":
             return execute_operation("keep_largest", {"source": source_mask}, {})
