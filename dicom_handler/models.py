@@ -250,6 +250,15 @@ class AdditionalStructures(models.Model):
     rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
     roi_display_color = models.CharField(max_length=256, null=True, blank = True)
     roi_generation_logic = models.JSONField(null=True, blank=True, help_text = "This field will define the logic that will be used for generate the ROI.")
+    # RBS pipeline that generates this ROI (Phase 4). A pipeline with zero
+    # rules (or None) means "create the ROI empty, no derivation".
+    pipeline = models.ForeignKey(
+        "rule_based_segmentation.SegmentationPipeline",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="additional_structures",
+        help_text="Rule-based segmentation pipeline that generates this ROI (empty = plain ROI).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -259,6 +268,11 @@ class AdditionalStructures(models.Model):
     
     def __str__(self):
         return self.roi_label
+    
+    @property
+    def is_generated(self) -> bool:
+        """True when this additional structure is derived from a pipeline with rules."""
+        return bool(self.pipeline_id and self.pipeline.rules.exists())
     
     def clean(self):
         """
