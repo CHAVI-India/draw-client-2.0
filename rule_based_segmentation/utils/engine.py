@@ -90,6 +90,28 @@ class SegmentationEngine:
         }
         return engine
 
+    @classmethod
+    def from_rtstruct(cls, rtstruct, image, series=None) -> "SegmentationEngine":
+        """Build an engine around in-memory objects (no file, no work dir).
+
+        Used by :class:`inline_runner.InlineSegmentationRunner` to evaluate a
+        list of rules against an already-loaded RTStruct + reference image, so
+        generated ROIs can be folded into an existing structure set in place.
+        """
+        engine = cls.__new__(cls)
+        engine.rtstruct_path = None
+        engine.rtstruct = rtstruct
+        engine.image = image
+        engine.series = series
+        engine.available_masks = load_roi_masks(rtstruct, image)
+        engine.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "intermediate_rois": [],
+            "failed_rules": [],
+        }
+        return engine
+
     def run_pipeline(
         self,
         pipeline,
