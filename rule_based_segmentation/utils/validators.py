@@ -164,6 +164,9 @@ def validate_cleanup_rule(rule):
         "FILL_HOLES": ["fully_connected"],
         "REMOVE_SMALL_COMPONENTS": ["min_size_mm3"],
         "KEEP_LARGEST_COMPONENT": [],
+        "KEEP_N_LARGEST_COMPONENT": ["n"],
+        "CLOSE_GAPS": ["gap_size_mm"],
+        "REMOVE_PROTRUSIONS": ["protrusion_size_mm"],
     }
 
     params = required_params.get(config.operation, [])

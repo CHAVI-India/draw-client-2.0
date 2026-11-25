@@ -365,6 +365,20 @@ class SegmentationEngine:
             )
         if operation == "KEEP_LARGEST_COMPONENT":
             return execute_operation("keep_largest", {"source": source_mask}, {})
+        if operation == "KEEP_N_LARGEST_COMPONENT":
+            return execute_operation(
+                "keep_n_largest", {"source": source_mask}, {"n": config.n or 1}
+            )
+        if operation == "CLOSE_GAPS":
+            return execute_operation(
+                "close_gaps", {"source": source_mask},
+                {"gap_size_mm": config.gap_size_mm or 2.0},
+            )
+        if operation == "REMOVE_PROTRUSIONS":
+            return execute_operation(
+                "remove_protrusions", {"source": source_mask},
+                {"protrusion_size_mm": config.protrusion_size_mm or 2.0},
+            )
 
         raise RuleEvaluationError(f"Unknown cleanup operation: {operation}")
 

@@ -203,3 +203,51 @@ class IntermediateActionTests(TestCase):
         self.assertEqual(eng.rtstruct.added, [])
         self.assertIn("grown", eng.summary["intermediate_rois"])
         self.assertNotIn("grown", eng.summary["created_rois"])
+
+
+class CleanupExtraOpsTests(TestCase):
+    """The three refinement ops missing from the legacy CLEANUP rule."""
+
+    def _engine_with(self, source):
+        from ..utils.engine import SegmentationEngine
+
+        eng = SegmentationEngine.__new__(SegmentationEngine)
+        eng.available_masks = {"src": source}
+        eng.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "intermediate_rois": [],
+            "failed_rules": [],
+        }
+        return eng
+
+    def _make_cleanup_rule(self, operation, **fields):
+        pipeline = SegmentationPipeline.objects.create(name="p")
+        rule = PipelineRule.objects.create(
+            pipeline=pipeline, order=1, rule_type="CLEANUP", name="out"
+        )
+        from ..models import CleanupRuleConfig
+
+        CleanupRuleConfig.objects.create(
+            pipeline_rule=rule, operation=operation, source="src", **fields
+        )
+        return rule
+
+    def test_keep_n_largest_rule(self):
+        src = create_box_mask((20, 20, 20), (0, 0, 0), (20, 20, 20))
+        rule = self._make_cleanup_rule("KEEP_N_LARGEST_COMPONENT", n=1)
+        out = self._engine_with(src)._evaluate_cleanup_rule(rule)
+        self.assertIsNotNone(out)
+        self.assertGreater(int(np.sum(sitk.GetArrayFromImage(out).astype(bool))), 0)
+
+    def test_close_gaps_rule(self):
+        src = create_box_mask((20, 20, 20), (4, 4, 4), (8, 8, 8))
+        rule = self._make_cleanup_rule("CLOSE_GAPS", gap_size_mm=2.0)
+        out = self._engine_with(src)._evaluate_cleanup_rule(rule)
+        self.assertIsNotNone(out)
+
+    def test_remove_protrusions_rule(self):
+        src = create_box_mask((20, 20, 20), (4, 4, 4), (8, 8, 8))
+        rule = self._make_cleanup_rule("REMOVE_PROTRUSIONS", protrusion_size_mm=2.0)
+        out = self._engine_with(src)._evaluate_cleanup_rule(rule)
+        self.assertIsNotNone(out)

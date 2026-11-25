@@ -370,6 +370,9 @@ class CleanupRuleConfig(models.Model):
         ("FILL_HOLES", "Fill Holes"),
         ("REMOVE_SMALL_COMPONENTS", "Remove Small Components"),
         ("KEEP_LARGEST_COMPONENT", "Keep Largest Component"),
+        ("KEEP_N_LARGEST_COMPONENT", "Keep N Largest Components"),
+        ("CLOSE_GAPS", "Close Gaps"),
+        ("REMOVE_PROTRUSIONS", "Remove Protrusions"),
     ]
 
     pipeline_rule = models.OneToOneField(
@@ -386,6 +389,9 @@ class CleanupRuleConfig(models.Model):
     fully_connected = models.BooleanField(null=True, blank=True)
     sigma_mm = models.FloatField(null=True, blank=True)
     threshold = models.FloatField(null=True, blank=True)
+    n = models.PositiveIntegerField(null=True, blank=True)
+    gap_size_mm = models.FloatField(null=True, blank=True)
+    protrusion_size_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

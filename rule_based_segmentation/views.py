@@ -229,6 +229,9 @@ def _rule_to_json(rule):
             "fully_connected": cfg.fully_connected,
             "sigma_mm": cfg.sigma_mm,
             "threshold": cfg.threshold,
+            "n": cfg.n,
+            "gap_size_mm": cfg.gap_size_mm,
+            "protrusion_size_mm": cfg.protrusion_size_mm,
         }
     elif rule.rule_type == "RING":
         cfg = rule.ring_config
@@ -1263,6 +1266,9 @@ def _save_cleanup_config(rule, config):
         fully_connected=config.get("fully_connected"),
         sigma_mm=config.get("sigma_mm"),
         threshold=config.get("threshold"),
+        n=config.get("n"),
+        gap_size_mm=config.get("gap_size_mm"),
+        protrusion_size_mm=config.get("protrusion_size_mm"),
     )
 
 
