@@ -970,6 +970,89 @@ def api_validate_pipeline(request):
         return JsonResponse({"valid": False, "missing_structures": [], "error": str(e)})
 
 
+def _describe_rule_source(rule) -> str:
+    """Best-effort primary source/operand name for a rule (for preview display)."""
+    rt = rule.rule_type
+    try:
+        if rt == "BOOLEAN":
+            from .utils.expression_evaluator import collect_boolean_roi_names, get_boolean_root
+            root = get_boolean_root(rule)
+            names = sorted(collect_boolean_roi_names(root))
+            return ", ".join(names)
+        if rt == "INTENSITY":
+            cfg = getattr(rule, "intensity_config", None)
+            if cfg:
+                return cfg.seed_roi or cfg.boundary_roi or "(image)"
+            return "(image)"
+        accessor = {
+            "MARGIN": "margin_config", "CLEANUP": "cleanup_config",
+            "CROP": "crop_config", "RING": "ring_config", "OVERLAP": "overlap_config",
+            "EXPAND_SUBTRACT": "expand_subtract_config",
+            "AVOID_MARGIN": "avoid_margin_config",
+        }.get(rt)
+        if accessor:
+            cfg = getattr(rule, accessor, None)
+            if cfg:
+                return getattr(cfg, "source", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+@login_required
+def api_template_preview(request):
+    """Read-only preview of the RBS rules task2 would synthesize for a template.
+
+    GET ?template_id=<uuid>. Synthesizes each AdditionalStructure's
+    roi_generation_logic chain into RBS rules (in a transient, deleted pipeline)
+    and returns them as JSON, so a clinician can see what will be generated
+    before importing the series.
+    """
+    from uuid import uuid4 as _uuid4
+    from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
+    from .utils.legacy_synthesis import synthesize_rules
+
+    template_id = request.GET.get("template_id") or request.POST.get("template_id")
+    if not template_id:
+        return JsonResponse({"error": "template_id is required"}, status=400)
+    try:
+        template = AutosegmentationTemplate.objects.get(pk=template_id)
+    except (AutosegmentationTemplate.DoesNotExist, ValueError):
+        return JsonResponse({"error": "template not found"}, status=404)
+
+    pipeline = SegmentationPipeline.objects.create(
+        name=f"preview-{_uuid4().hex[:8]}", is_public=False, is_active=False
+    )
+    try:
+        structures = []
+        extras = AdditionalStructures.objects.filter(
+            autosegmentation_template=template
+        ).order_by("roi_label")
+        for extra in extras:
+            rules, _ = synthesize_rules(extra, pipeline=pipeline)
+            structures.append({
+                "roi_label": extra.roi_label,
+                "rt_roi_interpreted_type": extra.rt_roi_interpreted_type,
+                "roi_display_color": extra.roi_display_color,
+                "rules": [
+                    {
+                        "order": r.order,
+                        "name": r.name,
+                        "rule_type": r.rule_type,
+                        "output_action": r.output_action,
+                        "source": _describe_rule_source(r),
+                    }
+                    for r in rules
+                ],
+            })
+        return JsonResponse({
+            "template_id": str(template.pk),
+            "structures": structures,
+        })
+    finally:
+        pipeline.delete()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

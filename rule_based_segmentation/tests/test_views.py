@@ -10,6 +10,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from ..models import PipelineRule, RuleStep, SegmentationJob, SegmentationPipeline
+from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
 from .helpers import create_minimal_rtstruct_file, make_in_memory_file
 
 User = get_user_model()
@@ -562,3 +563,65 @@ class JobRetryTests(TestCase):
             reverse("rule_based_segmentation:job_retry", args=[self.job.id])
         )
         self.assertEqual(resp.status_code, 405)
+
+
+class TemplatePreviewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="prevuser", password="x")
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def _template(self):
+        template = AutosegmentationTemplate.objects.create(template_name="t")
+        AdditionalStructures.objects.create(
+            autosegmentation_template=template,
+            roi_label="PTV_final",
+            rt_roi_interpreted_type="PTV",
+            roi_display_color="255\\0\\0",
+            roi_generation_logic={"operations": [
+                {"type": "margin", "structures": ["CTV"],
+                 "parameters": {"margin_mm": 5.0, "variant": "UNIFORM"}},
+                {"type": "crop_to_boundary", "structures": ["Body"], "parameters": {}},
+            ]},
+        )
+        AdditionalStructures.objects.create(
+            autosegmentation_template=template,
+            roi_label="Spa",
+            rt_roi_interpreted_type="OAR",
+        )
+        return template
+
+    def test_preview_lists_synthesized_rules(self):
+        template = self._template()
+        from ..models import SegmentationPipeline
+
+        before = SegmentationPipeline.objects.count()
+        resp = self.client.get(
+            reverse("rule_based_segmentation:api_template_preview"),
+            {"template_id": str(template.pk)},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        labels = {s["roi_label"] for s in data["structures"]}
+        self.assertEqual(labels, {"PTV_final", "Spa"})
+        ptv = next(s for s in data["structures"] if s["roi_label"] == "PTV_final")
+        self.assertEqual(len(ptv["rules"]), 2)
+        self.assertEqual(ptv["rules"][0]["output_action"], "INTERMEDIATE")
+        self.assertEqual(ptv["rules"][1]["output_action"], "CREATE_NEW")
+        self.assertEqual(ptv["rules"][1]["name"], "PTV_final")
+        # empty structure has no rules
+        spa = next(s for s in data["structures"] if s["roi_label"] == "Spa")
+        self.assertEqual(spa["rules"], [])
+        # the transient preview pipeline is cleaned up
+        self.assertEqual(SegmentationPipeline.objects.count(), before)
+
+    def test_preview_requires_template_id(self):
+        resp = self.client.get(reverse("rule_based_segmentation:api_template_preview"))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_preview_unknown_template_404(self):
+        resp = self.client.get(
+            reverse("rule_based_segmentation:api_template_preview"),
+            {"template_id": "00000000-0000-0000-0000-000000000000"},
+        )
+        self.assertEqual(resp.status_code, 404)

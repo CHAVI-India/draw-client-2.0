@@ -87,4 +87,9 @@ urlpatterns = [
         views.api_validate_pipeline,
         name="api_validate_pipeline",
     ),
+    path(
+        "api/template-preview/",
+        views.api_template_preview,
+        name="api_template_preview",
+    ),
 ]
