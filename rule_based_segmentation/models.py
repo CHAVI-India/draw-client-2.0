@@ -110,8 +110,10 @@ class PipelineRule(models.Model):
     order = models.PositiveIntegerField()
     rule_type = models.CharField(max_length=20, choices=RULE_TYPE_CHOICES)
     name = models.CharField(
-        max_length=16,
-        help_text="Output ROI name. Must be unique within the RTStruct or will be replaced/renamed.",
+        max_length=54,
+        help_text="Output ROI name (up to 54 chars for Eclipse Clinical-Goal "
+                  "naming). Must be unique within the RTStruct or will be "
+                  "replaced/renamed.",
     )
     output_action = models.CharField(
         max_length=20,

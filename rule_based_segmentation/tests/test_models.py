@@ -111,3 +111,23 @@ class RuleStepTests(TestCase):
         second = RuleStep.objects.create(job=job, rule=rule, order=2)
         self.assertEqual(second.order, 2)
         self.assertEqual(job.steps.count(), 2)
+
+
+class NameLengthTests(TestCase):
+    """ROI names must support the 54-char Eclipse Clinical-Goal convention."""
+
+    def test_rule_name_accepts_54_chars(self):
+        pipeline = SegmentationPipeline.objects.create(name="p")
+        rule = PipelineRule(
+            pipeline=pipeline, order=1, rule_type="MARGIN", name="L" * 54
+        )
+        rule.full_clean()  # must not raise
+        self.assertEqual(len(rule.name), 54)
+
+    def test_rule_name_rejects_55_chars(self):
+        pipeline = SegmentationPipeline.objects.create(name="p")
+        rule = PipelineRule(
+            pipeline=pipeline, order=1, rule_type="MARGIN", name="L" * 55
+        )
+        with self.assertRaises(ValidationError):
+            rule.full_clean()

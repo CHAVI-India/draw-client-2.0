@@ -184,7 +184,7 @@ class StructureProperties(models.Model):
     '''
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     autosegmentation_structure = models.OneToOneField(AutosegmentationStructure,on_delete=models.CASCADE,null=True,blank=True)
-    roi_label = models.CharField(max_length=16, null=True, blank=True, verbose_name = "Preferred Name for the Structure (ROI)")
+    roi_label = models.CharField(max_length=54, null=True, blank=True, verbose_name = "Preferred Name for the Structure (ROI)")
     rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
     roi_display_color = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Display Color of the Structure (ROI)")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -213,9 +213,9 @@ class StructureProperties(models.Model):
         super().clean()
         
         # Validate ROI label length
-        if self.roi_label and len(self.roi_label) > 16:
+        if self.roi_label and len(self.roi_label) > 54:
             raise ValidationError({
-                'roi_label': 'ROI Label cannot exceed 16 characters as per TG263 standard.'
+                'roi_label': 'ROI Label cannot exceed 54 characters (Eclipse Clinical-Goal naming allows up to 54).'
             })
         
         # Validate ROI display color
@@ -265,16 +265,16 @@ class AdditionalStructures(models.Model):
         Validate AdditionalStructures fields.
         
         Validates:
-        - ROI label length (max 16 characters per TG263 standard)
+        - ROI label length (max 54 characters, matching Eclipse Clinical-Goal naming)
         - ROI display color format (R\\G\\B with values 0-255)
         - ROI label uniqueness within the template (no duplicates with StructureProperties or AutosegmentationStructure)
         """
         super().clean()
         
         # Validate ROI label length
-        if self.roi_label and len(self.roi_label) > 16:
+        if self.roi_label and len(self.roi_label) > 54:
             raise ValidationError({
-                'roi_label': 'ROI Label cannot exceed 16 characters as per TG263 standard.'
+                'roi_label': 'ROI Label cannot exceed 54 characters (Eclipse Clinical-Goal naming allows up to 54).'
             })
         
         # Validate ROI display color

@@ -1325,7 +1325,7 @@
     _roiNameMaxLength() {
       const raw = this.container.getAttribute("data-roi-name-max-length");
       const n = parseInt(raw, 10);
-      return Number.isFinite(n) && n > 0 ? n : 16;
+      return Number.isFinite(n) && n > 0 ? n : 54;
     }
 
     validate() {
