@@ -71,6 +71,7 @@ class PipelineRule(models.Model):
     OUTPUT_ACTION_CHOICES = [
         ("CREATE_NEW", "Create new ROI"),
         ("REPLACE_EXISTING", "Replace existing ROI"),
+        ("INTERMEDIATE", "Intermediate (in-memory only, not exported)"),
     ]
 
     ROI_TYPE_CHOICES = [
@@ -163,6 +164,10 @@ class PipelineRule(models.Model):
 
     def __str__(self):
         return f"{self.order}. {self.name} ({self.rule_type})"
+
+    def is_intermediate(self) -> bool:
+        """True if this rule's output is held in memory and not exported."""
+        return self.output_action == "INTERMEDIATE"
 
 
 class BooleanExpressionNode(models.Model):

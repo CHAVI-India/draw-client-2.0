@@ -555,6 +555,7 @@
               <select id="rbs-rule-output-action" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
                 <option value="CREATE_NEW" ${rule.output_action === "CREATE_NEW" ? "selected" : ""}>Create new ROI</option>
                 <option value="REPLACE_EXISTING" ${rule.output_action === "REPLACE_EXISTING" ? "selected" : ""}>Replace existing ROI</option>
+                <option value="INTERMEDIATE" ${rule.output_action === "INTERMEDIATE" ? "selected" : ""}>Intermediate (not exported)</option>
               </select>
             </div>
             <div>

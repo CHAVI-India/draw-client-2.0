@@ -30,6 +30,16 @@ from .rtstruct_io import (
 
 logger = logging.getLogger(__name__)
 
+# Eclipse Clinical-Goal naming allows up to 54 characters. This is the cap
+# applied when a dedup suffix would otherwise push a renamed ROI over the limit.
+RULE_NAME_LIMIT = 54
+
+
+def _trim_to_limit(base: str, suffix: int, limit: int) -> str:
+    """Build '<base>_<suffix>' truncated so the total length is <= limit."""
+    tail = f"_{suffix}"
+    return f"{base[: limit - len(tail)]}{tail}"
+
 
 class SegmentationEngine:
     """Execute a SegmentationPipeline on an RTStruct."""
@@ -45,6 +55,7 @@ class SegmentationEngine:
         self.summary: Dict[str, Any] = {
             "created_rois": [],
             "replaced_rois": [],
+            "intermediate_rois": [],
             "failed_rules": [],
         }
 
@@ -74,6 +85,7 @@ class SegmentationEngine:
         engine.summary = {
             "created_rois": [],
             "replaced_rois": [],
+            "intermediate_rois": [],
             "failed_rules": [],
         }
         return engine
@@ -106,7 +118,10 @@ class SegmentationEngine:
 
             try:
                 output_name = self.run_rule(rule)
-                if rule.output_action == "REPLACE_EXISTING":
+                if rule.output_action == "INTERMEDIATE":
+                    # already recorded in intermediate_rois by _add_rule_output_to_rtstruct
+                    pass
+                elif rule.output_action == "REPLACE_EXISTING":
                     self.summary["replaced_rois"].append(output_name)
                 else:
                     self.summary["created_rois"].append(output_name)
@@ -378,17 +393,26 @@ class SegmentationEngine:
         color = self._parse_color(rule.output_color)
         name = rule.name
 
+        if rule.output_action == "INTERMEDIATE":
+            # Hold in memory for later rules; do NOT write to the RTStruct.
+            self.available_masks[name] = mask
+            if name not in self.summary["intermediate_rois"]:
+                self.summary["intermediate_rois"].append(name)
+            return name
+
         # CREATE_NEW outputs must be unique in the RTStruct. If the name
         # already exists, append a numeric suffix to avoid duplicates.
         if rule.output_action == "CREATE_NEW" and name in self.rtstruct.get_roi_names():
             suffix = 1
-            while f"{name}_{suffix}" in self.rtstruct.get_roi_names():
+            base = name
+            while f"{base}_{suffix}" in self.rtstruct.get_roi_names():
                 suffix += 1
-            name = f"{name}_{suffix}"
+            name = _trim_to_limit(base, suffix, RULE_NAME_LIMIT)
             logger.warning(
                 f"ROI name '{rule.name}' already exists; renamed output to '{name}'"
             )
 
+        self.available_masks[name] = mask
         add_mask_as_roi(
             self.rtstruct,
             mask,

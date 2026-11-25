@@ -147,3 +147,59 @@ class MarginRuleConfigTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             rule.full_clean()
+
+
+class IntermediateActionTests(TestCase):
+    """INTERMEDIATE rules are evaluated but never written to the RTStruct."""
+
+    def _make_engine(self, masks):
+        from ..utils.engine import SegmentationEngine
+
+        eng = SegmentationEngine.__new__(SegmentationEngine)
+        eng.available_masks = masks
+        eng.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "intermediate_rois": [],
+            "failed_rules": [],
+        }
+        return eng
+
+    class _FakeRtstruct:
+        def __init__(self):
+            self.added = []
+
+        def get_roi_names(self):
+            return list(self.added)
+
+        def add_roi(self, **kwargs):
+            self.added.append(kwargs["name"])
+
+    def test_intermediate_is_not_exported_but_is_reusable(self):
+        seed = create_box_mask((24, 24, 24), (6, 6, 6), (12, 12, 12))
+        pipeline = SegmentationPipeline.objects.create(name="p")
+        rule = PipelineRule.objects.create(
+            pipeline=pipeline,
+            order=1,
+            rule_type="MARGIN",
+            name="grown",
+            output_action="INTERMEDIATE",
+            output_color="255\\255\\0",
+        )
+        MarginRuleConfig.objects.create(
+            pipeline_rule=rule,
+            variant="UNIFORM",
+            source="seed",
+            margin_mm=3.0,
+        )
+
+        eng = self._make_engine({"seed": seed})
+        eng.rtstruct = self._FakeRtstruct()
+
+        out = eng.run_rule(rule)
+
+        self.assertEqual(out, "grown")
+        self.assertIn("grown", eng.available_masks)
+        self.assertEqual(eng.rtstruct.added, [])
+        self.assertIn("grown", eng.summary["intermediate_rois"])
+        self.assertNotIn("grown", eng.summary["created_rois"])

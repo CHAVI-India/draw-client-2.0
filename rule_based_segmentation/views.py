@@ -957,8 +957,10 @@ def api_validate_pipeline(request):
         for rule in pipeline.rules.all().order_by("order"):
             required = _collect_rule_structure_names(rule)
             missing.extend(sorted(required - available))
-            if rule.output_action == "CREATE_NEW" or rule.name in available:
-                available.add(rule.name)
+            # Every rule produces a named result that later rules may reference:
+            # CREATE_NEW / REPLACE_EXISTING live in the RTStruct; INTERMEDIATE
+            # lives in memory. Add the name to the running available set either way.
+            available.add(rule.name)
 
         return JsonResponse({"valid": not missing, "missing_structures": missing})
     except Exception as e:
