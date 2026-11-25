@@ -1120,6 +1120,133 @@ trivial, independently-rolled-back step.
 
 ---
 
+# Phase 4 — Centralize additional-ROI authoring on RBS (single authoring surface)
+
+## Invariant (hard requirement)
+
+> **task2 must produce exactly ONE RTStruct file.** Template-driven generation runs
+> **in-memory** via `InlineSegmentationRunner` (no work-dir, no `SegmentationJob`,
+> no separate output RTStruct). Generated ROIs fold into task2's single reidentified
+> RTStruct (temp file → copy sequences back → delete temp). Never invoke the
+> `SegmentationJob`/work-dir path from task2.
+
+## Design (confirmed)
+
+- **Binding stays** `AdditionalStructures` (template → one target ROI: `roi_label`,
+  `rt_roi_interpreted_type`, `roi_display_color`). Add a **FK**
+  `AdditionalStructures.pipeline → SegmentationPipeline` holding the derivation rules
+  (authored in the RBS builder).
+- **Empty ROI = "no step":** a pipeline with **0 rules** (or `pipeline=None`) means
+  "create the ROI empty, no derivation" — the existing empty-ROI path.
+- **Final-ROI identity belongs to the binding.** When a pipeline is saved for an
+  additional structure, its **last rule is pinned** to `name=roi_label`,
+  `output_action=CREATE_NEW`, `output_color/type` from the binding; every earlier rule
+  is forced to `INTERMEDIATE`. (This matches `synthesize_rules` exactly.)
+- **Input structures** for authoring = the template's base ROIs
+  (`AutosegmentationStructure.structureproperties.roi_label`) + sibling
+  `AdditionalStructures.roi_label`. Referenced structures must exist in that set.
+- **`roi_generation_logic`** is frozen after the one-off migration (read-only fallback
+  until Phase 5 removes it).
+
+## Task 14: Model — FK `AdditionalStructures.pipeline → SegmentationPipeline`
+
+**Files:** Modify `dicom_handler/models.py`; migration `dicom_handler/migrations/0061_*.py`.
+- `pipeline = models.ForeignKey("rule_based_segmentation.SegmentationPipeline",
+  null=True, blank=True, on_delete=models.SET_NULL,
+  related_name="additional_structures", help_text="RBS pipeline that generates this ROI")`
+- Helper: `AdditionalStructures.is_generated` → `bool(self.pipeline_id and self.pipeline.rules.exists())`.
+- **Test** (`dicom_handler/tests/test_additional_structures_pipeline.py`):
+  empty-ROI semantics — a structure with `pipeline=None` or an empty pipeline is not generated.
+
+## Task 15: One-off data migration — `roi_generation_logic` → `SegmentationPipeline`
+
+**Files:** migration `dicom_handler/migrations/0062_*.py` (data) — import
+`rule_based_segmentation.utils.legacy_synthesis.synthesize_rules`.
+- For each `AdditionalStructures` with non-empty `roi_generation_logic` and no `pipeline`:
+  create a `SegmentationPipeline` (name `f"{roi_label} generation"`, `is_public=False`,
+  `is_active=False`), run `synthesize_rules(additional_struct, pipeline=pipeline)`,
+  then **pin the final rule** (name=roi_label, action=CREATE_NEW, color/type from binding) and
+  force earlier rules to INTERMEDIATE; set `additional_struct.pipeline = pipeline`.
+- Idempotent: skip rows that already have a `pipeline`. Keep `roi_generation_logic` populated.
+- **Test:** a fixture chain (margin→crop→smooth) migrates to a pipeline with 3 rules
+  (INTERMEDIATE, INTERMEDIATE, CREATE_NEW named `roi_label`); re-running is a no-op.
+
+## Task 16: Extract reusable RBS pipeline-persistence util
+
+**Files:** Create `rule_based_segmentation/utils/pipeline_persistence.py`; modify `views.py` to import it.
+- Move `_parse_pipeline_data`, `_create_or_update_pipeline`, `_save_rule`,
+  `_validate_pipeline_rules`, `_collect_required_structure_names`, `_collect_boolean_operand_names`,
+  and the `_save_*_config` helpers into `pipeline_persistence.py`.
+- Expose `save_pipeline_from_dict(data, user, pipeline=None)` → `SegmentationPipeline`
+  and `pipeline_data_from_pipeline(pipeline)` (the inverse of `_rule_to_json` list).
+- Add a `pin_final_rule(pipeline, name, color, roi_type)` helper (last rule pinned, rest INTERMEDIATE).
+- **Test:** RBS view tests still pass unchanged (behavior identical).
+
+## Task 17: Wire task2 to run the FK pipeline (drop runtime synthesis for FK-set rows)
+
+**Files:** Modify `dicom_handler/import_services/task2_reidentify_rtstruct.py`.
+- In `_add_additional_structures_to_rtstruct`, per additional structure:
+  - `pipeline = additional_struct.pipeline`:
+    - **no rules** → empty ROI (existing direct-add path).
+    - **has rules** → `runner.run_rules(list(pipeline.rules.all().order_by('order')), skip_existing=…)`.
+  - Fallback (safety): if `pipeline_id is None` and `roi_generation_logic` present →
+    `synthesize_rules` (unchanged).
+- Preserve the **single-RTStruct invariant**: inline runner only; temp in parent dir; copy
+  sequences back to `ds`; delete temp. Do NOT create a work-dir or a second RTStruct.
+- **Test** (`dicom_handler/tests/test_task2_pipeline_fk.py`):
+  a template whose additional structure points at a RBS pipeline generates the ROI with the
+  binding's color/type, exports no intermediate, and leaves **exactly one** RTStruct in the
+  series dir (assert no `*_output*`/second structure-set file is created).
+
+## Task 18: UI — swap the legacy builder for the RBS builder
+
+**Files:** Modify `templates/dicom_handler/template_detail_pipeline_modal.html` (+ any template
+editor that embeds the legacy builder); remove the legacy `pipeline_builder.js` include there.
+- Embed `rule_based_pipeline_builder.js` instead, seeded with:
+  - `availableStructures` = template base ROIs + sibling additional-structure labels;
+  - `ruleTypes` = backend rule types (already injected);
+  - existing rules = the additional structure's pipeline via `pipeline_data`.
+- **No step** (empty builder) → empty pipeline → empty ROI.
+- The form posts `pipeline_data` (RBS JSON) in place of `roi_generation_logic`.
+- **Test (manual):** builder lists base structures; adding no steps saves an empty pipeline.
+
+## Task 19: Views — add/edit additional structure manage a `SegmentationPipeline`
+
+**Files:** Modify `dicom_handler/additional_structure_views.py`.
+- `add_additional_structure` / `edit_additional_structure`:
+  - read `pipeline_data`; call `pipeline_persistence.save_pipeline_from_dict(...)` to create/refresh
+    the pipeline (name `f"{roi_label} generation"`, private, inactive);
+  - `pin_final_rule(pipeline, roi_label, roi_display_color, rt_roi_interpreted_type)`;
+  - set `structure.pipeline = pipeline`;
+  - validate every referenced structure is in the template's available set.
+- Stop writing `roi_generation_logic` (leave the field for the frozen legacy rows).
+- **Test:** POST with `pipeline_data` creates a pipeline + FK; the final rule is pinned to
+  `roi_label`; an out-of-set reference is rejected.
+
+## Task 20: Validate referenced input structures
+
+**Files:** Modify `dicom_handler/additional_structure_views.py` (+ `pipeline_persistence` if needed).
+- After save, confirm each referenced structure name is among the template's base ROIs or sibling
+  additional-structure labels; reject otherwise with a clear message.
+- **Test:** a rule referencing a non-existent structure is rejected.
+
+## Task 21: Tests (aggregate acceptance)
+
+- FK model + empty-ROI (no-step) semantics.
+- Migration converts a known chain; idempotent.
+- task2: FK pipeline runs; **exactly one RTStruct**; correct color/type; no intermediate.
+- View: posting `pipeline_data` creates pipeline + FK; final rule pinned.
+- **Command:** `./venv/bin/python manage.py test rule_based_segmentation dicom_handler.tests.test_task2_pipeline_fk dicom_handler.tests.test_additional_structures_pipeline --keepdb`
+
+## Task 22 (Phase 5, follow-up — after a stable deploy): Retire the legacy path
+
+- Remove `static/js/pipeline_builder.js`, `templates/dicom_handler/pipeline_builder.html`,
+  `templates/dicom_handler/template_detail_pipeline_modal.html` (if fully replaced).
+- Drop `AdditionalStructures.roi_generation_logic` + the `synthesize_rules` runtime fallback.
+- Update `rule_based_segmentation/README.md` (authoring is now RBS-only).
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
