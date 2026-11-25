@@ -294,6 +294,12 @@ class SegmentationEngine:
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
         params = self._directional_margin_params(config, "thickness")
+        if self._params_all_zero(params, "thickness"):
+            raise RuleEvaluationError(
+                f"Ring/Shell rule '{rule.name}' has zero thickness (all direction "
+                "thicknesses are 0); the shell would be empty. Set a per-direction "
+                "thickness."
+            )
         return execute_operation("ring", {"source": source_mask}, params)
 
     def _evaluate_overlap_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -306,13 +312,45 @@ class SegmentationEngine:
         roles = {"source": source_mask, "others": [self.available_masks[n] for n in others]}
         return execute_operation("overlap", roles, {})
 
+    def _params_all_zero(self, params: Dict[str, Any], prefix: str) -> bool:
+        """True if a margin-like rule's distances/margins are all unset/zero.
+
+        Used to catch the silent no-op trap: an expand/ring/avoid with no
+        distance set produces an identical (or empty) result that looks like
+        the input structure rather than a derived one. ``params`` is the dict
+        returned by :meth:`_directional_margin_params` (six-directional or the
+        legacy uniform/anisotropic fallback).
+        """
+        keys = ("l", "r", "a", "p", "h", "f")
+        if any(f"{prefix}_{k}_mm" in params for k in keys):
+            return not any(params.get(f"{prefix}_{k}_mm") for k in keys)
+        if params.get("variant") == "ANISOTROPIC":
+            return not (
+                params.get(f"{prefix}_x_mm")
+                or params.get(f"{prefix}_y_mm")
+                or params.get(f"{prefix}_z_mm")
+            )
+        return not params.get(f"{prefix}_mm")
+
     def _evaluate_expand_subtract_rule(self, rule: PipelineRule) -> sitk.Image:
         """Expand & Subtract: expand(source, distance) - subtract."""
         config = rule.expand_subtract_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
         params = self._directional_margin_params(config, "distance")
-        roles = {"source": source_mask, "subtract": self.available_masks[config.subtract]}
+        if self._params_all_zero(params, "distance"):
+            raise RuleEvaluationError(
+                f"Expand & Subtract rule '{rule.name}' has no expansion distance "
+                "set (all direction distances are 0); the result would equal the "
+                "source structure. Set a per-direction distance."
+            )
+        subtract_mask = self.available_masks[config.subtract]
+        if not np.any(sitk.GetArrayFromImage(subtract_mask)):
+            logger.warning(
+                f"Expand & Subtract rule '{rule.name}': subtract structure "
+                f"'{config.subtract}' is empty; nothing will be subtracted."
+            )
+        roles = {"source": source_mask, "subtract": subtract_mask}
         return execute_operation("expand_subtract", roles, params)
 
     def _evaluate_avoid_margin_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -323,13 +361,22 @@ class SegmentationEngine:
         avoid_mask = self.available_masks[config.avoid]
         self._ensure_mask_not_empty(avoid_mask, config.avoid)
         params = self._directional_margin_params(config, "margin")
+        if self._params_all_zero(params, "margin"):
+            raise RuleEvaluationError(
+                f"Avoid with Margin rule '{rule.name}' has a zero margin (all "
+                "direction margins are 0); nothing would be avoided. Set a "
+                "per-direction margin."
+            )
         roles = {"source": source_mask, "avoid": avoid_mask}
         return execute_operation("avoid_margin", roles, params)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config
         source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
         boundaries = [self.available_masks[b.boundary_roi] for b in config.boundaries.all()]
+        for b in boundaries:
+            self._ensure_mask_not_empty(b, "(crop boundary)")
         roles = {"source": source_mask, "boundaries": boundaries}
         return execute_operation("crop_to_boundary", roles, {})
 

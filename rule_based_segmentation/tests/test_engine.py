@@ -251,3 +251,156 @@ class CleanupExtraOpsTests(TestCase):
         rule = self._make_cleanup_rule("REMOVE_PROTRUSIONS", protrusion_size_mm=2.0)
         out = self._engine_with(src)._evaluate_cleanup_rule(rule)
         self.assertIsNotNone(out)
+
+
+class CompositeEngineRegressionTests(TestCase):
+    """Reproduce the client-reported composite-op symptoms at the engine level
+    (six-directional + legacy param plumbing, in-memory masks).
+
+    Expected-correct behavior:
+      * Expand & Subtract must change the source (a disjoint subtract removes
+        nothing, so a real expansion grows it) — never return the source as-is.
+      * Crop to Boundary must be `source AND boundary`, not a NOR/complement.
+      * Ring/Shell must expand then remove the source interior.
+    """
+
+    def _engine(self, masks):
+        from ..utils.engine import SegmentationEngine
+
+        eng = SegmentationEngine.__new__(SegmentationEngine)
+        eng.available_masks = masks
+        eng.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "intermediate_rois": [],
+            "failed_rules": [],
+        }
+        return eng
+
+    def _vox(self, mask):
+        return int(np.sum(sitk.GetArrayFromImage(mask).astype(bool)))
+
+    def _arr(self, mask):
+        return sitk.GetArrayFromImage(mask).astype(bool)
+
+    def _make_rule(self, rule_type, name):
+        pipeline = SegmentationPipeline.objects.create(name="p")
+        return PipelineRule.objects.create(
+            pipeline=pipeline, order=1, rule_type=rule_type, name=name
+        )
+
+    # ---- Expand & Subtract ------------------------------------------------
+    def test_expand_subtract_legacy_uniform_grows(self):
+        from ..models import ExpandSubtractRuleConfig
+
+        source = create_box_mask((20, 20, 20), (4, 4, 4), (8, 8, 8))
+        subtract = create_box_mask((20, 20, 20), (12, 12, 12), (16, 16, 16))
+        rule = self._make_rule("EXPAND_SUBTRACT", "out")
+        ExpandSubtractRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source",
+            subtract="subtract", distance_mm=5.0, kernel_type="ball",
+        )
+        out = self._engine({"source": source, "subtract": subtract})._evaluate_expand_subtract_rule(rule)
+        self.assertGreater(self._vox(out), self._vox(source))
+        # A disjoint subtract removes nothing, so the expansion must contain
+        # every source voxel (the result is strictly larger, not the source).
+        self.assertTrue(
+            bool(np.all(self._arr(out) >= self._arr(source)))
+        )
+
+    def test_expand_subtract_six_directional_grows(self):
+        from ..models import ExpandSubtractRuleConfig
+
+        source = create_box_mask((20, 20, 20), (4, 4, 4), (8, 8, 8))
+        subtract = create_box_mask((20, 20, 20), (12, 12, 12), (16, 16, 16))
+        rule = self._make_rule("EXPAND_SUBTRACT", "out")
+        ExpandSubtractRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source",
+            subtract="subtract",
+            distance_l_mm=5.0, distance_r_mm=5.0, distance_a_mm=5.0,
+            distance_p_mm=5.0, distance_h_mm=5.0, distance_f_mm=5.0,
+        )
+        out = self._engine({"source": source, "subtract": subtract})._evaluate_expand_subtract_rule(rule)
+        self.assertGreater(self._vox(out), self._vox(source))
+
+    # ---- Crop to Boundary -------------------------------------------------
+    def test_crop_to_boundary_is_intersection(self):
+        from ..models import CropRuleConfig, CropBoundary
+
+        source = create_box_mask((20, 20, 20), (0, 0, 0), (10, 10, 10))
+        boundary = create_box_mask((20, 20, 20), (5, 5, 5), (15, 15, 15))
+        rule = self._make_rule("CROP", "out")
+        crop = CropRuleConfig.objects.create(pipeline_rule=rule, source="source")
+        CropBoundary.objects.create(crop_rule=crop, boundary_roi="boundary", order=1)
+        out = self._engine({"source": source, "boundary": boundary})._evaluate_crop_rule(rule)
+        self.assertTrue(
+            np.array_equal(self._arr(out), self._arr(sitk.And(source, boundary)))
+        )
+        # Guard against the NOR symptom: out must be a subset of BOTH inputs.
+        self.assertLessEqual(self._vox(out), self._vox(source))
+        self.assertLessEqual(self._vox(out), self._vox(boundary))
+
+    # ---- Ring / Shell -----------------------------------------------------
+    def test_ring_legacy_uniform_is_shell(self):
+        from ..models import RingRuleConfig
+
+        source = create_box_mask((20, 20, 20), (6, 6, 6), (10, 10, 10))
+        rule = self._make_rule("RING", "out")
+        RingRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source",
+            thickness_mm=2.0, kernel_type="ball",
+        )
+        out = self._engine({"source": source})._evaluate_ring_rule(rule)
+        self.assertGreater(self._vox(out), 0)
+        self.assertEqual(int(np.count_nonzero(self._arr(out) & self._arr(source))), 0)
+
+    def test_ring_six_directional_is_shell(self):
+        from ..models import RingRuleConfig
+
+        source = create_box_mask((20, 20, 20), (6, 6, 6), (10, 10, 10))
+        rule = self._make_rule("RING", "out")
+        RingRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source",
+            thickness_l_mm=2.0, thickness_r_mm=2.0, thickness_a_mm=2.0,
+            thickness_p_mm=2.0, thickness_h_mm=2.0, thickness_f_mm=2.0,
+        )
+        out = self._engine({"source": source})._evaluate_ring_rule(rule)
+        self.assertGreater(self._vox(out), 0)
+        self.assertEqual(int(np.count_nonzero(self._arr(out) & self._arr(source))), 0)
+
+    # ---- Failure-mode guards (turn silent no-ops into clear errors) --------
+    def test_expand_subtract_zero_distance_raises(self):
+        from ..models import ExpandSubtractRuleConfig
+
+        source = create_box_mask((20, 20, 20), (4, 4, 4), (8, 8, 8))
+        subtract = create_box_mask((20, 20, 20), (12, 12, 12), (16, 16, 16))
+        rule = self._make_rule("EXPAND_SUBTRACT", "out")
+        ExpandSubtractRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source",
+            subtract="subtract",  # no distance set at all -> zero
+        )
+        with self.assertRaises(RuleEvaluationError):
+            self._engine({"source": source, "subtract": subtract})._evaluate_expand_subtract_rule(rule)
+
+    def test_ring_zero_thickness_raises(self):
+        from ..models import RingRuleConfig
+
+        source = create_box_mask((20, 20, 20), (6, 6, 6), (10, 10, 10))
+        rule = self._make_rule("RING", "out")
+        RingRuleConfig.objects.create(
+            pipeline_rule=rule, variant="UNIFORM", source="source"
+        )
+        with self.assertRaises(RuleEvaluationError):
+            self._engine({"source": source})._evaluate_ring_rule(rule)
+
+    def test_crop_empty_boundary_raises(self):
+        from ..models import CropRuleConfig, CropBoundary
+
+        source = create_box_mask((20, 20, 20), (0, 0, 0), (10, 10, 10))
+        empty = sitk.GetImageFromArray(np.zeros((20, 20, 20), dtype=np.uint8))
+        empty.SetSpacing((1.0, 1.0, 1.0))
+        rule = self._make_rule("CROP", "out")
+        crop = CropRuleConfig.objects.create(pipeline_rule=rule, source="source")
+        CropBoundary.objects.create(crop_rule=crop, boundary_roi="boundary", order=1)
+        with self.assertRaises(RuleEvaluationError):
+            self._engine({"source": source, "boundary": empty})._evaluate_crop_rule(rule)
