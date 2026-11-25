@@ -1,8 +1,18 @@
 """
 Pipeline executor for generating ROI structures in production.
 
-This module executes roi_generation_logic pipelines during RT Struct processing,
+This module executed roi_generation_logic pipelines during RT Struct processing,
 applying operations to existing structures and generating new contours.
+
+.. deprecated::
+    Superseded by the rule-based segmentation engine. ``task2`` now generates
+    additional structures by synthesizing each ``roi_generation_logic`` chain
+    into RBS rules and running them via
+    :class:`rule_based_segmentation.utils.inline_runner.InlineSegmentationRunner`
+    (see :mod:`rule_based_segmentation.utils.legacy_synthesis`). The execution
+    entry points below raise :class:`NotImplementedError` with a deprecation
+    warning. The low-level :func:`execute_operation` dispatcher in
+    ``structure_generation`` is still shared and fully supported.
 """
 
 import logging
@@ -14,6 +24,24 @@ from rt_utils import RTStructBuilder
 from .structure_generation import execute_operation
 
 logger = logging.getLogger(__name__)
+
+
+def _raise_deprecated_executor() -> None:
+    """Warn and raise: the legacy generated-contour executor is replaced by RBS."""
+    import warnings
+
+    warnings.warn(
+        "ProductionPipelineExecutor / execute_additional_structure_pipeline is "
+        "deprecated. Use the rule-based segmentation engine instead "
+        "(rule_based_segmentation.utils.inline_runner.InlineSegmentationRunner and "
+        "rule_based_segmentation.utils.legacy_synthesis.synthesize_rules).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    raise NotImplementedError(
+        "The legacy generated-contour executor has been replaced by the "
+        "rule-based segmentation engine."
+    )
 
 
 class ProductionPipelineExecutor:
@@ -88,6 +116,9 @@ class ProductionPipelineExecutor:
         Returns:
             SimpleITK image result or None if execution failed
         """
+        _raise_deprecated_executor()
+
+        # Unreachable: the legacy executor is deprecated (kept for reference).
         if not pipeline_json or 'operations' not in pipeline_json:
             logger.warning("Invalid pipeline JSON: missing 'operations' key")
             return None
@@ -254,10 +285,4 @@ def execute_additional_structure_pipeline(
     Returns:
         True if successful, False otherwise
     """
-    executor = ProductionPipelineExecutor(rtstruct, ct_image)
-    result = executor.execute_pipeline(pipeline_json)
-    
-    if result is None:
-        return False
-    
-    return executor.add_result_to_rtstruct(structure_name, color)
+    _raise_deprecated_executor()
