@@ -619,7 +619,18 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
                 logger.warning(f"ROI '{additional_struct.roi_label}' already exists - skipping")
                 continue
             
-            if additional_struct.roi_generation_logic:
+            # Phase 4: the FK pipeline is the source of truth when present.
+            #   pipeline with rules  -> generated (run the pipeline)
+            #   pipeline with no rules, or no pipeline + legacy logic -> legacy synthesis
+            #   otherwise            -> empty ROI
+            has_rules = bool(
+                additional_struct.pipeline_id
+                and additional_struct.pipeline.rules.exists()
+            )
+            if has_rules or (
+                not additional_struct.pipeline_id
+                and additional_struct.roi_generation_logic
+            ):
                 structures_with_logic.append(additional_struct)
             else:
                 structures_without_logic.append(additional_struct)
@@ -730,9 +741,21 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
                     for additional_struct in structures_with_logic:
                         roi_label = additional_struct.roi_label
                         try:
-                            rules, _ = synthesize_rules(additional_struct, pipeline=pipeline)
-                            if not rules:
-                                continue
+                            if additional_struct.pipeline_id and additional_struct.pipeline.rules.exists():
+                                # FK pipeline (authored in the RBS builder / migrated from
+                                # legacy logic). Run its rules directly; the final rule is
+                                # already pinned to the binding (name/color/type).
+                                rules = list(
+                                    additional_struct.pipeline.rules.all().order_by("order")
+                                )
+                            else:
+                                # Fallback: legacy roi_generation_logic with no pipeline
+                                # yet (e.g. a pre-migration row).
+                                rules, _ = synthesize_rules(
+                                    additional_struct, pipeline=pipeline
+                                )
+                                if not rules:
+                                    continue
                             summary = runner.run_rules(
                                 rules, skip_existing=set(roi_name_to_number_map)
                             )
