@@ -474,15 +474,85 @@ class SegmentationEngine:
             )
 
         self.available_masks[name] = mask
+        roi_type = rule.output_roi_type or "ORGAN"
+        # When a rule leaves color/type unset, inherit them from its primary
+        # source structure so a derived PTV keeps the PTV's color/type instead
+        # of falling back to the yellow / ORGAN default.
+        if not rule.output_color or not rule.output_roi_type:
+            source_name = self._resolve_source_name(rule)
+            if source_name:
+                src_color, src_type = self._read_roi_color_type(source_name)
+                if not rule.output_color and src_color:
+                    color = src_color
+                if not rule.output_roi_type and src_type:
+                    roi_type = src_type
         add_mask_as_roi(
             self.rtstruct,
             mask,
             name,
             color,
-            roi_type=rule.output_roi_type or "ORGAN",
+            roi_type=roi_type,
             replace_existing=(rule.output_action == "REPLACE_EXISTING"),
         )
         return name
+
+    def _resolve_source_name(self, rule: PipelineRule) -> Optional[str]:
+        """Return the primary input structure name a rule derives from.
+
+        Used to inherit color/type when the rule leaves them unset.
+        """
+        if rule.rule_type == "BOOLEAN":
+            try:
+                root = get_boolean_root(rule)
+                names = collect_boolean_roi_names(root)
+                return sorted(names)[0] if names else None
+            except RuleEvaluationError:
+                return None
+        if rule.rule_type == "INTENSITY":
+            config = getattr(rule, "intensity_config", None)
+            if config:
+                return config.seed_roi or config.boundary_roi
+            return None
+        accessor = {
+            "MARGIN": "margin_config",
+            "CLEANUP": "cleanup_config",
+            "CROP": "crop_config",
+            "RING": "ring_config",
+            "OVERLAP": "overlap_config",
+            "EXPAND_SUBTRACT": "expand_subtract_config",
+            "AVOID_MARGIN": "avoid_margin_config",
+        }.get(rule.rule_type)
+        if accessor:
+            config = getattr(rule, accessor, None)
+            if config:
+                return getattr(config, "source", None)
+        return None
+
+    def _read_roi_color_type(self, name: str) -> Tuple[Optional[List[int]], Optional[str]]:
+        """Read an existing ROI's ROIDisplayColor and RTROIInterpretedType."""
+        ds = self.rtstruct.ds
+        roi_number = None
+        for roi in getattr(ds, "StructureSetROISequence", []) or []:
+            if str(getattr(roi, "ROIName", "")) == name:
+                roi_number = int(getattr(roi, "ROINumber", 0))
+                break
+        if roi_number is None:
+            return None, None
+        color = None
+        for contour in getattr(ds, "ROIContourSequence", []) or []:
+            if int(getattr(contour, "ReferencedROINumber", 0)) == roi_number:
+                dc = getattr(contour, "ROIDisplayColor", None)
+                if dc is not None:
+                    color = [int(c) for c in dc]
+                break
+        roi_type = None
+        for obs in getattr(ds, "RTROIObservationsSequence", []) or []:
+            if int(getattr(obs, "ReferencedROINumber", 0)) == roi_number:
+                t = getattr(obs, "RTROIInterpretedType", None)
+                if t:
+                    roi_type = str(t)
+                break
+        return color, roi_type
 
     def _parse_color(self, color_string: Optional[str]) -> List[int]:
         if not color_string:
