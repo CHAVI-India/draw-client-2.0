@@ -395,7 +395,7 @@ def match_autosegmentation_template(task1_output):
                 
                 # Read DICOM metadata from first instance
                 if not first_instance_path or not os.path.exists(first_instance_path):
-                    logger.error(f"First instance file not found: {mask_sensitive_data(series_info['first_instance_path'], 'file_path')}")
+                    logger.error(f"First instance file not found for series {mask_sensitive_data(series_uid, 'series_uid')}")
                     continue
                 
                 dicom_metadata = read_dicom_metadata(first_instance_path)

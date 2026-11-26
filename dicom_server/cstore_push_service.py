@@ -147,7 +147,7 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
             except Exception:
                 file_result['error'] = 'File transfer failed'
                 results['failed_count'] += 1
-                logger.error(f"Error sending {mask_sensitive_data(file_path, 'file_path')}", exc_info=True)
+                logger.error("Error sending DICOM file in C-STORE push", exc_info=True)
             
             results['details'].append(file_result)
         

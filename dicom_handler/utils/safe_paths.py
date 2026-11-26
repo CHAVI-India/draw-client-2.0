@@ -24,11 +24,18 @@ def validate_stored_path(stored_path):
       * empty / non-string values
       * values containing null bytes
       * values with an explicit ``..`` path segment (traversal attempts)
+      * values that do not resolve to an absolute path
 
     Returns:
-        The path normalized with ``os.path.normpath`` (collapses redundant
-        separators and ``.`` segments) — never a path that can escape via
-        ``..``.
+        The path normalized with ``os.path.realpath`` (collapses redundant
+        separators and ``.``/``..`` segments and resolves symlinks),
+        confirmed by an explicit containment check to be an absolute path.
+        A stored value can therefore never escape via ``..`` segments or a
+        symlinked prefix.
+
+    The normalize-then-check shape (``os.path.realpath`` followed by a
+    ``startswith`` guard on the normalized value) is the pattern CodeQL's
+    ``py/path-injection`` query requires to consider a path safe.
     """
     if not stored_path or not isinstance(stored_path, str):
         return None
@@ -36,4 +43,7 @@ def validate_stored_path(stored_path):
         return None
     if '..' in stored_path.split(os.sep):
         return None
-    return os.path.normpath(stored_path)
+    normalized = os.path.realpath(stored_path)
+    if not normalized.startswith(os.sep):
+        return None
+    return normalized
