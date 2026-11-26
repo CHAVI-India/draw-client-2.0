@@ -338,3 +338,45 @@ schema-drop migrations at the end of A5 remove the field, then drop the table.
   the explicit find/replace + a test that asserts references resolve (Task A5 test (c)).
 - **Editor reuse:** `RuleBasedPipelineBuilder` was just refactored (inline editor,
   delegation) — those fixes already apply here since it's the same shared JS.
+
+---
+
+## 11. Implementation status (A1–A7, 2026-11-26)
+
+All seven tasks implemented, tested, and committed on `rbs-integration`:
+
+| Task | Commit | Note |
+|------|--------|------|
+| A1 data model | `7addac3` | OneToOne `AutosegmentationTemplate.additional_structures_pipeline` (0063) + `EMPTY` choice (RBS 0015). |
+| A2 EMPTY execution | `8f240db` | `SegmentationEngine._empty_mask()`; zero-voxel ROI, no input, no config. |
+| A3 template editor | `b5ce733` | `template_pipeline.py` helper, `template_pipeline_view/save` + URL, `template_pipeline_editor.html`, RBS list hides template pipelines, EMPTY in builder JS. |
+| A4 task2 | `26f4fbc` | task2 runs each matched template's `additional_structures_pipeline` (single-RTStruct, per-pipeline isolation). |
+| A5 consolidation | `0544637` | migration 0064 merges per-row pipelines → one per template (EMPTY rule for no-logic rows; name-collision auto-suffix + reference rewrite). Applied to production: 7 templates, 0 collisions. |
+| A6 drop dependents | `27c1747` | All **live** dependents removed (task2 fallback, RBS preview, XML import, template table/modal, per-row views/util/templates/URLs). |
+| A7 acceptance | (this) | Full suites green; production verified. |
+
+### Decision: the `AdditionalStructures` model + `legacy_synthesis.py` are KEPT (deprecated)
+
+A6 removed every **live** consumer of `AdditionalStructures` (task2, the RBS preview,
+the XML import, the template table + modal, the per-row views/util/URLs/templates). The
+model itself and `legacy_synthesis.py` are **kept, unused** on purpose, because the
+historical migration chain (0061/0062/0064) imports the **live** `AdditionalStructures`
+class at runtime; `DeleteModel`-ing it would break a **fresh-database** `manage.py migrate`
+(from 0001) at migration 0062/0064. This preserves the "portable across other deployed
+systems" guarantee.
+
+**Future cleanup (optional, out of scope for this phase):** guard the 0062/0064 imports
+(`try/except ImportError` → no-op, since a fresh DB has no legacy rows to consolidate),
+add a `0065` migration (`RemoveField(AdditionalStructures.pipeline)` + `DeleteModel`),
+remove `legacy_synthesis.py` + the model, and drop `test_consolidate_migration` /
+`test_migration_pipeline` / `test_legacy_synthesis`. The 7 production `AdditionalStructures`
+rows + their per-row pipelines remain as an inert, unused fallback until then.
+
+### Verification
+- `dicom_handler` full suite: 42 tests OK (3 skipped).
+- `rule_based_segmentation`: all 19 test modules green (views/models/engine/inline-runner/
+  operation-execution/empty-rule/end-to-end(+template)/legacy-synthesis, plus the fast
+  engine/job/task modules). The slow `test_pipeline_e2e_physics` run separately.
+- Production DB: migrations 0063/0064 applied; 7 templates each carry one
+  `is_public=False, is_active=True` pipeline (3 rules: 2 `INTERMEDIATE` + final
+  `CREATE_NEW`), colors/types preserved through the JSON round-trip.
