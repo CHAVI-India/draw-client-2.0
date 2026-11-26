@@ -10,7 +10,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from ..models import PipelineRule, RuleStep, SegmentationJob, SegmentationPipeline
-from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
+from dicom_handler.models import AutosegmentationTemplate
 from .helpers import create_minimal_rtstruct_file, make_in_memory_file
 
 User = get_user_model()
@@ -572,48 +572,41 @@ class TemplatePreviewTests(TestCase):
         self.client.force_login(self.user)
 
     def _template(self):
+        from ..utils.pipeline_persistence import save_pipeline_from_dict
         template = AutosegmentationTemplate.objects.create(template_name="t")
-        AdditionalStructures.objects.create(
-            autosegmentation_template=template,
-            roi_label="PTV_final",
-            rt_roi_interpreted_type="PTV",
-            roi_display_color="255\\0\\0",
-            roi_generation_logic={"operations": [
-                {"type": "margin", "structures": ["CTV"],
-                 "parameters": {"margin_mm": 5.0, "variant": "UNIFORM"}},
-                {"type": "crop_to_boundary", "structures": ["Body"], "parameters": {}},
-            ]},
-        )
-        AdditionalStructures.objects.create(
-            autosegmentation_template=template,
-            roi_label="Spa",
-            rt_roi_interpreted_type="OAR",
-        )
+        pipeline = save_pipeline_from_dict({
+            "name": "t — additional structures",
+            "structures": ["CTV", "Body"],
+            "rules": [
+                {"rule_type": "MARGIN", "name": "__PTV_final_step_0",
+                 "output_action": "INTERMEDIATE",
+                 "config": {"source": "CTV", "margin_l_mm": 5.0}, "tempId": "m1"},
+                {"rule_type": "CROP", "name": "PTV_final", "output_action": "CREATE_NEW",
+                 "output_roi_type": "PTV", "output_color": "255\\0\\0",
+                 "config": {"source": "__PTV_final_step_0", "boundaries": ["Body"]},
+                 "tempId": "c1"},
+                {"rule_type": "EMPTY", "name": "Spa", "output_action": "CREATE_NEW",
+                 "config": {}, "tempId": "e1"},
+            ],
+        }, self.user)
+        template.additional_structures_pipeline = pipeline
+        template.save()
         return template
 
-    def test_preview_lists_synthesized_rules(self):
+    def test_preview_lists_pipeline_rules(self):
         template = self._template()
-        from ..models import SegmentationPipeline
-
-        before = SegmentationPipeline.objects.count()
         resp = self.client.get(
             reverse("rule_based_segmentation:api_template_preview"),
             {"template_id": str(template.pk)},
         )
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        labels = {s["roi_label"] for s in data["structures"]}
-        self.assertEqual(labels, {"PTV_final", "Spa"})
-        ptv = next(s for s in data["structures"] if s["roi_label"] == "PTV_final")
-        self.assertEqual(len(ptv["rules"]), 2)
-        self.assertEqual(ptv["rules"][0]["output_action"], "INTERMEDIATE")
-        self.assertEqual(ptv["rules"][1]["output_action"], "CREATE_NEW")
-        self.assertEqual(ptv["rules"][1]["name"], "PTV_final")
-        # empty structure has no rules
-        spa = next(s for s in data["structures"] if s["roi_label"] == "Spa")
-        self.assertEqual(spa["rules"], [])
-        # the transient preview pipeline is cleaned up
-        self.assertEqual(SegmentationPipeline.objects.count(), before)
+        names = {s["name"] for s in data["structures"]}
+        self.assertEqual(names, {"__PTV_final_step_0", "PTV_final", "Spa"})
+        actions = {s["name"]: s["output_action"] for s in data["structures"]}
+        self.assertEqual(actions["__PTV_final_step_0"], "INTERMEDIATE")
+        self.assertEqual(actions["PTV_final"], "CREATE_NEW")
+        self.assertEqual(actions["Spa"], "CREATE_NEW")
 
     def test_preview_requires_template_id(self):
         resp = self.client.get(reverse("rule_based_segmentation:api_template_preview"))

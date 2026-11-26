@@ -13,7 +13,7 @@ import numpy as np
 import pydicom
 from django.test import TestCase
 
-from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
+from dicom_handler.models import AutosegmentationTemplate
 from dicom_handler.import_services.task2_reidentify_rtstruct import (
     _add_additional_structures_to_rtstruct,
 )
@@ -97,13 +97,8 @@ class Task2PipelineFkTests(TestCase):
 
     def test_fk_pipeline_generates_roi_with_pinned_color_type(self):
         pipeline = self._build_margin_crop_pipeline()
-        AdditionalStructures.objects.create(
-            autosegmentation_template=self.template,
-            roi_label="PTV_final",
-            rt_roi_interpreted_type="PTV",
-            roi_display_color="255\\0\\0",
-            pipeline=pipeline,
-        )
+        self.template.additional_structures_pipeline = pipeline
+        self.template.save()
         self.series.matched_templates.add(self.template)
 
         ds = pydicom.dcmread(self.rtstruct_path, force=True)
@@ -123,11 +118,8 @@ class Task2PipelineFkTests(TestCase):
     def test_produces_exactly_one_rtstruct(self):
         self._build_margin_crop_pipeline()
         pipeline = SegmentationPipeline.objects.filter(name="PTV_final generation").first()
-        AdditionalStructures.objects.create(
-            autosegmentation_template=self.template,
-            roi_label="PTV_final", rt_roi_interpreted_type="PTV",
-            roi_display_color="255\\0\\0", pipeline=pipeline,
-        )
+        self.template.additional_structures_pipeline = pipeline
+        self.template.save()
         self.series.matched_templates.add(self.template)
 
         dcm_before = {f for f in os.listdir(self.series_dir) if f.endswith(".dcm")}
@@ -143,16 +135,19 @@ class Task2PipelineFkTests(TestCase):
         dcm_after = {f for f in os.listdir(self.series_dir) if f.endswith(".dcm")}
         self.assertEqual(dcm_before, dcm_after, "no new RTStruct file in the series dir")
 
-    def test_empty_pipeline_is_an_empty_roi(self):
-        # A pipeline with zero rules => "no step" => plain empty ROI.
+    def test_empty_rule_is_an_empty_roi(self):
+        # An EMPTY rule in the template pipeline => a plain empty ROI.
+        from rule_based_segmentation.models import PipelineRule as _PR
         empty_pipeline = SegmentationPipeline.objects.create(
-            name="empty gen", is_public=False, is_active=False,
+            name="empty gen", is_public=False, is_active=True,
         )
-        AdditionalStructures.objects.create(
-            autosegmentation_template=self.template,
-            roi_label="Spa", rt_roi_interpreted_type="OAR",
-            roi_display_color="0\\255\\0", pipeline=empty_pipeline,
+        _PR.objects.create(
+            pipeline=empty_pipeline, order=1, rule_type="EMPTY",
+            name="Spa", output_action="CREATE_NEW",
+            output_roi_type="OAR", output_color="0\\255\\0",
         )
+        self.template.additional_structures_pipeline = empty_pipeline
+        self.template.save()
         self.series.matched_templates.add(self.template)
 
         ds = pydicom.dcmread(self.rtstruct_path, force=True)

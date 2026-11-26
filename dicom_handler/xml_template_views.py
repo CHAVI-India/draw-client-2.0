@@ -386,7 +386,8 @@ def xml_template_wizard_review(request):
 @permission_required('dicom_handler.add_structureproperties', raise_exception=True)
 def xml_template_wizard_additional(request):
     """
-    Step 4: Select unmapped XML structures to save as AdditionalStructures
+    Step 4: Select unmapped XML structures to save as EMPTY rules in the
+    template's additional-structures pipeline.
     """
     xml_data = request.session.get('xml_template_data')
     mappings = request.session.get('xml_template_mappings', [])
@@ -405,15 +406,17 @@ def xml_template_wizard_additional(request):
         if s['id'] not in mapped_xml_ids:
             # Add truncated name for display
             structure_copy = s.copy()
-            structure_copy['truncated_name'] = _smart_truncate_roi_name(s['name'], 16)
+            structure_copy['truncated_name'] = _smart_truncate_roi_name(s['name'], 54)
             unmapped_structures.append(structure_copy)
     
     if request.method == 'POST':
         selected_structure_ids = request.POST.getlist('selected_structures')
         
-        # Save selected structures as AdditionalStructures
-        from dicom_handler.models import AdditionalStructures
-        
+        # Save selected unmapped structures as EMPTY rules in the template's
+        # additional-structures pipeline.
+        from rule_based_segmentation.models import PipelineRule
+        from dicom_handler.utils.template_pipeline import template_pipeline_for
+
         created_additional_count = 0
         created_properties_count = 0
         updated_properties_count = 0
@@ -464,8 +467,8 @@ def xml_template_wizard_additional(request):
                             errors.append(f'ROI name is required for structure "{xml_struct["name"]}"')
                             continue
                         
-                        if len(custom_roi_name) > 16:
-                            errors.append(f'ROI name "{custom_roi_name}" exceeds 16 characters for structure "{xml_struct["name"]}"')
+                        if len(custom_roi_name) > 54:
+                            errors.append(f'ROI name "{custom_roi_name}" exceeds 54 characters for structure "{xml_struct["name"]}"')
                             continue
                         
                         # Check for duplicates
@@ -480,46 +483,44 @@ def xml_template_wizard_additional(request):
                 
                 # Only proceed if no duplicate truncated names
                 if not errors:
-                    # Now save selected unmapped structures as AdditionalStructures
+                    # Now add selected unmapped structures as EMPTY rules to the
+                    # template's additional-structures pipeline (one pipeline per
+                    # template; unmapped XML structures are empty placeholders).
+                    pipeline = template_pipeline_for(template)
+                    existing_names = set(pipeline.rules.values_list('name', flat=True))
                     for struct_id in selected_structure_ids:
                         xml_struct = next((s for s in unmapped_structures if s['id'] == struct_id), None)
                         if xml_struct:
                             try:
-                                # Get custom ROI name from form
                                 original_name = xml_struct['name']
                                 roi_label = request.POST.get(f'roi_name_{struct_id}', '').strip()
-                                
-                                # Create instance and validate before saving
-                                additional_struct = AdditionalStructures(
-                                    autosegmentation_template=template,
-                                    roi_label=roi_label,
-                                    rt_roi_interpreted_type=xml_struct['rt_roi_interpreted_type'],
-                                    roi_display_color=xml_struct['dicom_color']
+
+                                # Auto-suffix on a name collision in the pipeline.
+                                base = roi_label
+                                final_name = base
+                                i = 1
+                                while final_name in existing_names:
+                                    final_name = f"{base}_{i}"
+                                    i += 1
+                                existing_names.add(final_name)
+
+                                PipelineRule.objects.create(
+                                    pipeline=pipeline,
+                                    order=pipeline.rules.count() + 1,
+                                    rule_type="EMPTY",
+                                    name=final_name,
+                                    output_action="CREATE_NEW",
+                                    output_color=xml_struct['dicom_color'] or "255\\255\\0",
+                                    output_roi_type=xml_struct['rt_roi_interpreted_type'] or "ORGAN",
                                 )
-                                
-                                # This will trigger the clean() method with duplicate checking
-                                additional_struct.full_clean()
-                                additional_struct.save()
                                 created_additional_count += 1
-                                
-                                # Log truncation if it occurred
-                                if len(original_name) > 16:
-                                    logger.info(f'Truncated structure name: "{original_name}" -> "{roi_label}"')
-                                
-                            except ValidationError as ve:
-                                # Collect validation errors
-                                if hasattr(ve, 'message_dict'):
-                                    for field, field_errors in ve.message_dict.items():
-                                        for error in field_errors:
-                                            if len(original_name) > 16:
-                                                errors.append(f'Structure "{original_name}" (truncated to "{roi_label}"): {error}')
-                                            else:
-                                                errors.append(f'Structure "{original_name}": {error}')
-                                else:
-                                    errors.append(f'Structure "{original_name}": {str(ve)}')
+
+                                if final_name != original_name:
+                                    logger.info(f'Renamed unmapped XML structure: "{original_name}" -> "{final_name}"')
+
                             except Exception as e:
-                                errors.append(f'Error saving additional structure "{original_name}": {str(e)}')
-                                logger.error(f'Error saving additional structure "{original_name}": {str(e)}', exc_info=True)
+                                errors.append(f'Error adding additional structure "{original_name}": {str(e)}')
+                                logger.error(f'Error adding additional structure "{original_name}": {str(e)}', exc_info=True)
             
             if errors:
                 for error in errors:

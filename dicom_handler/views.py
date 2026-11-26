@@ -1057,31 +1057,22 @@ def template_detail(request, template_id):
             associated_autosegmentation_template=template
         ).first()
         
-        # Get additional structures for this template
-        from .models import AdditionalStructures
-        additional_structures = AdditionalStructures.objects.filter(
-            autosegmentation_template=template
-        ).order_by('roi_label')
-        
-        # Parse color values for display
-        for struct in additional_structures:
-            if struct.roi_display_color:
-                try:
-                    color_parts = struct.roi_display_color.split('\\')
-                    if len(color_parts) == 3:
-                        struct.color_rgb = f"{color_parts[0]}, {color_parts[1]}, {color_parts[2]}"
-                    else:
-                        struct.color_rgb = None
-                except (AttributeError, ValueError):
-                    struct.color_rgb = None
-            else:
-                struct.color_rgb = None
-        
+        # Get additional structures for this template (Phase 5: the CREATE_NEW
+        # rules of the template's additional-structures pipeline).
+        pipeline = getattr(template, "additional_structures_pipeline", None)
+        additional_rules = []
+        if pipeline is not None:
+            additional_rules = [
+                r for r in pipeline.rules.all().order_by("order")
+                if r.output_action == "CREATE_NEW"
+            ]
+
         return render(request, 'dicom_handler/template_detail.html', {
             'template': template,
             'models': models,
             'related_rulegroup': related_rulegroup,
-            'additional_structures': additional_structures
+            'additional_rules': additional_rules,
+            'has_pipeline': pipeline is not None,
         })
     except AutosegmentationTemplate.DoesNotExist:
         messages.error(request, 'Template not found.')

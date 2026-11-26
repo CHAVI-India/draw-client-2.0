@@ -850,16 +850,13 @@ def _describe_rule_source(rule) -> str:
 
 @login_required
 def api_template_preview(request):
-    """Read-only preview of the RBS rules task2 would synthesize for a template.
+    """Read-only preview of the RBS rules task2 will run for a template.
 
-    GET ?template_id=<uuid>. Synthesizes each AdditionalStructure's
-    roi_generation_logic chain into RBS rules (in a transient, deleted pipeline)
-    and returns them as JSON, so a clinician can see what will be generated
+    GET ?template_id=<uuid>. Returns the template's additional-structures
+    pipeline rules as JSON, so a clinician can see what will be generated
     before importing the series.
     """
-    from uuid import uuid4 as _uuid4
-    from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
-    from .utils.legacy_synthesis import synthesize_rules
+    from dicom_handler.models import AutosegmentationTemplate
 
     template_id = request.GET.get("template_id") or request.POST.get("template_id")
     if not template_id:
@@ -869,37 +866,23 @@ def api_template_preview(request):
     except (AutosegmentationTemplate.DoesNotExist, ValueError):
         return JsonResponse({"error": "template not found"}, status=404)
 
-    pipeline = SegmentationPipeline.objects.create(
-        name=f"preview-{_uuid4().hex[:8]}", is_public=False, is_active=False
-    )
-    try:
-        structures = []
-        extras = AdditionalStructures.objects.filter(
-            autosegmentation_template=template
-        ).order_by("roi_label")
-        for extra in extras:
-            rules, _ = synthesize_rules(extra, pipeline=pipeline)
-            structures.append({
-                "roi_label": extra.roi_label,
-                "rt_roi_interpreted_type": extra.rt_roi_interpreted_type,
-                "roi_display_color": extra.roi_display_color,
-                "rules": [
-                    {
-                        "order": r.order,
-                        "name": r.name,
-                        "rule_type": r.rule_type,
-                        "output_action": r.output_action,
-                        "source": _describe_rule_source(r),
-                    }
-                    for r in rules
-                ],
-            })
-        return JsonResponse({
-            "template_id": str(template.pk),
-            "structures": structures,
-        })
-    finally:
-        pipeline.delete()
+    pipeline = template.additional_structures_pipeline
+    rules = list(pipeline.rules.all().order_by("order")) if pipeline else []
+    structures = [
+        {
+            "name": r.name,
+            "rule_type": r.rule_type,
+            "output_action": r.output_action,
+            "output_roi_type": r.output_roi_type,
+            "output_color": r.output_color,
+            "source": _describe_rule_source(r),
+        }
+        for r in rules
+    ]
+    return JsonResponse({
+        "template_id": str(template.pk),
+        "structures": structures,
+    })
 
 
 # ---------------------------------------------------------------------------
