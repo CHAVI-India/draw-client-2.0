@@ -503,6 +503,8 @@
           const d = this._summarizeDirectionalValues(cfg, "margin");
           return d ? `Avoid ${cfg.avoid} by ${d} from ${cfg.source}` : `No avoidance margin around ${cfg.avoid} from ${cfg.source}`;
         }
+        case "EMPTY":
+          return "Empty ROI";
         default:
           return "";
       }
@@ -546,6 +548,9 @@
           break;
         case "AVOID_MARGIN":
           configHtml = this._renderAvoidMarginEditor(rule.config);
+          break;
+        case "EMPTY":
+          configHtml = `<p class="text-sm text-gray-500">Creates an empty (zero-voxel) ROI. No input structure or parameters are required.</p>`;
           break;
       }
 

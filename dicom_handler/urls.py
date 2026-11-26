@@ -48,7 +48,9 @@ from .pipeline_builder_views import (
     pipeline_builder_new,
     pipeline_builder_edit,
     pipeline_builder_save,
-    get_available_structures_api
+    get_available_structures_api,
+    template_pipeline_view,
+    template_pipeline_save,
 )
 
 app_name = 'dicom_handler'
@@ -156,5 +158,8 @@ urlpatterns = [
     path('pipeline-builder/new/<uuid:template_id>/', pipeline_builder_new, name='pipeline_builder_new'),
     path('pipeline-builder/edit/<uuid:structure_id>/', pipeline_builder_edit, name='pipeline_builder_edit'),
     path('pipeline-builder/save/', pipeline_builder_save, name='pipeline_builder_save'),
+    # Template pipeline editor (Phase 5, A3): one pipeline per template.
+    path('template-pipeline/<uuid:template_id>/', template_pipeline_view, name='template_pipeline_view'),
+    path('template-pipeline/<uuid:template_id>/save/', template_pipeline_save, name='template_pipeline_save'),
     path('api/available-structures/<uuid:template_id>/', get_available_structures_api, name='get_available_structures_api'),
 ]

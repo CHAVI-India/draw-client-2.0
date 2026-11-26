@@ -62,7 +62,7 @@ def pipeline_list(request):
     user = request.user
     pipelines = SegmentationPipeline.objects.filter(
         models.Q(created_by=user) | models.Q(is_public=True)
-    ).order_by("-created_at")
+    ).filter(additional_structures_template__isnull=True).order_by("-created_at")
     return render(request, "rule_based_segmentation/pipeline_list.html", {"pipelines": pipelines})
 
 
@@ -257,7 +257,7 @@ def job_list(request):
 
     pipelines = SegmentationPipeline.objects.filter(
         models.Q(created_by=request.user) | models.Q(is_public=True)
-    ).order_by("name")
+    ).filter(additional_structures_template__isnull=True).order_by("name")
 
     return render(
         request,

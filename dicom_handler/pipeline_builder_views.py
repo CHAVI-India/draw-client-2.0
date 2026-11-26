@@ -26,8 +26,13 @@ from .models import (
 from rule_based_segmentation.models import PipelineRule, SegmentationPipeline
 from rule_based_segmentation.utils.pipeline_persistence import (
     pipeline_data_from_pipeline,
+    save_pipeline_from_dict,
 )
 from .utils.additional_structure_pipeline import save_pipeline_for_structure
+from .utils.template_pipeline import (
+    template_pipeline_for,
+    template_pipeline_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -288,3 +293,91 @@ def _get_available_structures(template):
     structures.sort(key=lambda x: x['label'])
 
     return structures
+
+
+# ---------------------------------------------------------------------------
+# Template pipeline editor (Phase 5, A3)
+#
+# A template's additional structures live in ONE SegmentationPipeline
+# (template.additional_structures_pipeline). This editor authors that pipeline
+# via the shared rule_based_pipeline_builder.js, seeded from the template's
+# autosegmented ROIs. The old per-row views above remain until A6 removes the
+# AdditionalStructures model and its UI.
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
+def template_pipeline_view(request, template_id):
+    """Editor page for the template's additional-structures pipeline."""
+    template = get_object_or_404(AutosegmentationTemplate, id=template_id)
+    pipeline = template.additional_structures_pipeline
+
+    context = {
+        'template': template,
+        'available_structures': json.dumps(_get_available_structures(template)),
+        'rule_type_choices': PipelineRule.RULE_TYPE_CHOICES,
+        'roi_type_choices': PipelineRule.ROI_TYPE_CHOICES,
+        'js_cache_bust': _builder_js_cache_bust(),
+        'pipeline_data': (
+            pipeline_data_from_pipeline(pipeline) if pipeline
+            else {"rules": [], "structures": []}
+        ),
+        'pipeline_name': template_pipeline_name(template),
+    }
+
+    return render(request, 'dicom_handler/template_pipeline_editor.html', context)
+
+
+@login_required
+@permission_required('dicom_handler.change_autosegmentationtemplate', raise_exception=True)
+@require_http_methods(["POST"])
+def template_pipeline_save(request, template_id):
+    """Save the template's additional-structures pipeline from the builder.
+
+    The builder posts ``pipeline_data`` (RBS rule JSON). The pipeline is saved
+    through the canonical ``save_pipeline_from_dict`` (which deletes stale rules
+    and re-creates them), forced to the fixed convention name / private /
+    active, and linked to the template via the OneToOne field.
+    """
+    template = get_object_or_404(AutosegmentationTemplate, id=template_id)
+
+    raw = request.POST.get('pipeline_data')
+    if not raw:
+        data = {"rules": [], "structures": []}
+    else:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            messages.error(request, 'Invalid pipeline data. Please try again.')
+            return _redirect_to_referer(request)
+
+    # Enforce the fixed convention (ignore any name the builder posted).
+    data['name'] = template_pipeline_name(template)
+    data['is_public'] = False
+
+    try:
+        existing = template.additional_structures_pipeline
+        with transaction.atomic():
+            pipeline = save_pipeline_from_dict(data, request.user, pipeline=existing)
+            pipeline.is_public = False
+            pipeline.is_active = True
+            pipeline.save(update_fields=['is_public', 'is_active'])
+            template.additional_structures_pipeline = pipeline
+            template.save(update_fields=['additional_structures_pipeline'])
+
+        messages.success(request, 'Additional-structures pipeline saved.')
+        logger.info(
+            f"Saved additional-structures pipeline for template "
+            f"{template.template_name}: {pipeline.id}"
+        )
+        return redirect('dicom_handler:template_detail', template_id=template.id)
+
+    except (ValidationError, ValueError) as e:
+        messages.error(request, f'Validation error: {e}')
+        logger.error(f'Validation error in template_pipeline_save: {e}')
+        return _redirect_to_referer(request)
+    except Exception as e:
+        messages.error(request, f'Error saving pipeline: {str(e)}')
+        logger.error(f'Error in template_pipeline_save: {str(e)}', exc_info=True)
+        return _redirect_to_referer(request)
