@@ -177,6 +177,8 @@ class SegmentationEngine:
         """Collect all structure names referenced by a rule."""
         names: Set[str] = set()
 
+        if rule.rule_type == "EMPTY":
+            return names
         if rule.rule_type == "BOOLEAN":
             try:
                 root = get_boolean_root(rule)
@@ -234,6 +236,8 @@ class SegmentationEngine:
         return names
 
     def _evaluate_rule(self, rule: PipelineRule) -> sitk.Image:
+        if rule.rule_type == "EMPTY":
+            return self._empty_mask()
         if rule.rule_type == "BOOLEAN":
             return self._evaluate_boolean_rule(rule)
         if rule.rule_type == "INTENSITY":
@@ -253,6 +257,19 @@ class SegmentationEngine:
         if rule.rule_type == "AVOID_MARGIN":
             return self._evaluate_avoid_margin_rule(rule)
         raise RuleEvaluationError(f"Unknown rule type: {rule.rule_type}")
+
+    def _empty_mask(self) -> sitk.Image:
+        """A zero-voxel mask matching the reference image geometry.
+
+        Used by the EMPTY rule type, which creates an (empty) additional
+        structure that references no input ROI and carries no config.
+        """
+        image = self.image
+        size = image.GetSize()  # (X, Y, Z)
+        arr = np.zeros((size[2], size[1], size[0]), dtype=np.uint8)  # (Z, Y, X)
+        mask = sitk.GetImageFromArray(arr)
+        mask.CopyInformation(image)
+        return mask
 
     def _evaluate_boolean_rule(self, rule: PipelineRule) -> sitk.Image:
         root = get_boolean_root(rule)
