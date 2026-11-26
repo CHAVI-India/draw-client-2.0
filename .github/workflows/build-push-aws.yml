@@ -1,5 +1,10 @@
 name: Build and Push to ECR Public
 
+# Least-privilege GITHUB_TOKEN: the workflow only reads the checkout;
+# AWS credentials come from secrets (see configure-aws-credentials step).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main, develop ]

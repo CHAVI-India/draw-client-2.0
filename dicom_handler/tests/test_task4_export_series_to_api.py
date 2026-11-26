@@ -217,9 +217,6 @@ def create_test_database_records():
         )
     
     print(f"Created test records:")
-    print(f"  - Patient: {patient.patient_id}")
-    print(f"  - Study: {study.study_instance_uid}")
-    print(f"  - Series: {series.series_instance_uid}")
     print(f"  - Export record: {export_record.id}")
     
     return {

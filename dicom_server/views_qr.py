@@ -18,6 +18,7 @@ from .models import (
 )
 from .forms_qr import RemoteDicomNodeForm, DicomQueryForm
 from .query_retrieve_service import get_qr_service_instance
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -494,8 +495,9 @@ def cstore_push_send(request, node_id):
                     if include_images:
                         instances = DICOMInstance.objects.filter(series_instance_uid=series)
                         for instance in instances:
-                            if instance.instance_path and os.path.exists(instance.instance_path):
-                                file_paths.append(instance.instance_path)
+                            safe_path = validate_stored_path(instance.instance_path)
+                            if safe_path and os.path.exists(safe_path):
+                                file_paths.append(safe_path)
                     
                     # Add RT structures if requested
                     if include_rtstruct:

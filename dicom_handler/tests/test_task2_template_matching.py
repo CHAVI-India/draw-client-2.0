@@ -37,6 +37,7 @@ from django.utils import timezone
 from django.test.utils import setup_test_environment, teardown_test_environment
 from django.db import connections
 from django.conf import settings
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 # Global variable to track test database
 _test_db_name = None
@@ -551,11 +552,11 @@ def test_dicom_metadata_reading():
         print("✗ No DICOM instances found for testing")
         return False
     
-    file_path = sample_instance.instance_path
-    print(f"Testing metadata reading from: {file_path[:50]}...")
+    file_path = validate_stored_path(sample_instance.instance_path)
+    print(f"Testing metadata reading from instance {sample_instance.id}...")
     
-    if not os.path.exists(file_path):
-        print(f"⚠️  File not found (using mock data): {file_path}")
+    if not file_path or not os.path.exists(file_path):
+        print(f"⚠️  File not found (using mock data)")
         print("✓ Skipping file reading test - using mock data")
         return True  # Return True to continue with other tests
     

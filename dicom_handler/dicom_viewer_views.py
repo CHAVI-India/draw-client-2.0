@@ -724,10 +724,10 @@ def load_dicom_data(request):
         })
 
     except Exception as e:
-        logger.error(f"Error loading DICOM data: {e}")
+        logger.error("Error loading DICOM data", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to load DICOM data'
         }, status=500)
 
 
@@ -773,10 +773,10 @@ def start_dicom_load(request):
             'error': 'Series or RT Structure not found'
         }, status=404)
     except Exception as e:
-        logger.error(f"Error starting DICOM load task: {e}")
+        logger.error("Error starting DICOM load task", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to start DICOM load'
         }, status=500)
 
 
@@ -945,10 +945,10 @@ def get_dicom_slice(request):
         })
         
     except Exception as e:
-        logger.error(f"Error getting DICOM slice: {e}")
+        logger.error("Error getting DICOM slice", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to get DICOM slice'
         }, status=500)
 @login_required
 @require_http_methods(["POST"])
@@ -1038,10 +1038,10 @@ def get_structure_geometry(request):
         })
         
     except Exception as e:
-        logger.error(f"Error getting structure geometry: {e}")
+        logger.error("Error getting structure geometry", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to get structure geometry'
         }, status=500)
 
 
@@ -1195,10 +1195,10 @@ def render_all_slices(request):
         })
         
     except Exception as e:
-        logger.error(f"Error rendering all slices: {e}")
+        logger.error("Error rendering all slices", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to render slices'
         }, status=500)
 
 
@@ -1222,10 +1222,10 @@ def cleanup_temp_files(request):
         })
         
     except Exception as e:
-        logger.error(f"Error cleaning up temp files: {e}")
+        logger.error("Error cleaning up temp files", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to clean up temporary files'
         }, status=500)
 
 
@@ -1390,10 +1390,10 @@ def save_contour_ratings(request):
             'error': 'Invalid JSON data'
         }, status=400)
     except Exception as e:
-        logger.error(f"Error saving ratings: {e}", exc_info=True)
+        logger.error("Error saving ratings", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to save ratings'
         }, status=500)
 
 
@@ -1419,8 +1419,8 @@ def get_modification_types(request):
             'modification_types': types_list
         })
     except Exception as e:
-        logger.error(f"Error fetching modification types: {e}", exc_info=True)
+        logger.error("Error fetching modification types", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to fetch modification types'
         }, status=500)

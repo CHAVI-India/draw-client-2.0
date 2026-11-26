@@ -32,6 +32,22 @@ from .utils.additional_structure_pipeline import save_pipeline_for_structure
 logger = logging.getLogger(__name__)
 
 
+def _redirect_to_referer(request):
+    """Redirect to the request's Referer, but only for same-site relative URLs.
+
+    ``HTTP_REFERER`` is attacker-controlled; only accept a relative path that
+    is not protocol-relative ('//host') and contains no backslash, otherwise
+    fall back to '/' (prevents open redirect). The location is rebuilt with a
+    constant '/' prefix so the redirect target is provably same-site relative
+    (also satisfies CodeQL's py/url-redirection, which does not treat the
+    startswith checks above as a sanitizer).
+    """
+    referer = request.META.get('HTTP_REFERER', '/')
+    if referer.startswith('/') and not referer.startswith('//') and '\\' not in referer:
+        return redirect("/" + referer[1:])
+    return redirect('/')
+
+
 def _builder_js_cache_bust() -> str:
     """Short content hash of the RBS builder JS, appended to the <script> URL so
     any change to the builder JS busts the browser cache automatically.
@@ -145,7 +161,7 @@ def pipeline_builder_save(request):
 
         if not roi_label:
             messages.error(request, 'ROI Label is required')
-            return redirect(request.META.get('HTTP_REFERER', '/'))
+            return _redirect_to_referer(request)
 
         with transaction.atomic():
             if mode == 'new':
@@ -203,12 +219,12 @@ def pipeline_builder_save(request):
         for error_msg in error_messages:
             messages.error(request, error_msg)
         logger.error(f'Validation error in pipeline_builder_save: {e}')
-        return redirect(request.META.get('HTTP_REFERER', '/'))
+        return _redirect_to_referer(request)
 
     except Exception as e:
         messages.error(request, f'Error saving structure: {str(e)}')
         logger.error(f'Error in pipeline_builder_save: {str(e)}', exc_info=True)
-        return redirect(request.META.get('HTTP_REFERER', '/'))
+        return _redirect_to_referer(request)
 
 
 @login_required
@@ -226,11 +242,11 @@ def get_available_structures_api(request, template_id):
             'success': True,
             'structures': structures
         })
-    except Exception as e:
-        logger.error(f'Error in get_available_structures_api: {str(e)}')
+    except Exception:
+        logger.error("Error in get_available_structures_api", exc_info=True)
         return JsonResponse({
             'success': False,
-            'error': str(e)
+            'error': 'Failed to load available structures'
         }, status=500)
 
 

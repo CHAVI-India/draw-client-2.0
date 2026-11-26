@@ -67,12 +67,29 @@ def _list_log_files():
 
 
 def _resolve_log(name):
-    """Resolve a requested log file name to a safe path inside LOGS_DIR."""
+    """Resolve a requested log file name to a safe path inside LOGS_DIR.
+
+    The returned path is constructed from a verified directory entry (the
+    requested name is only used as a lookup key), so a user-supplied value
+    cannot influence the resolved path beyond selecting an existing entry.
+    """
+    directory = _logs_dir().resolve()
     name = os.path.basename(name or '')
     if not name or name.startswith('.') or not name.endswith('.log'):
         raise Http404('Log file not found')
-    path = (_logs_dir() / name).resolve()
-    if path.parent != _logs_dir().resolve() or not path.is_file():
+    path = None
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        raise Http404('Log file not found')
+    for entry in entries:
+        if entry != name:
+            continue
+        candidate = (directory / entry).resolve()
+        if candidate.parent == directory and candidate.is_file():
+            path = candidate
+        break
+    if path is None:
         raise Http404('Log file not found')
     return path
 

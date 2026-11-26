@@ -64,6 +64,6 @@ def register_rtstruct_file(file_path: str, ds: Optional[pydicom.Dataset] = None)
         working_directory=None,
     )
     logger.info(
-        f"Registered RTStruct {mask_sensitive_data(file_path, 'file_path')} as RTStructureSetFile {record.id}"
+        f"Registered RTStruct as RTStructureSetFile {record.id}"
     )
     return record

@@ -15,6 +15,7 @@ from rt_utils import RTStructBuilder
 from dicom_handler.models import DICOMInstance, DICOMSeries
 from dicom_handler.utils.structure_generation import load_ct_series_as_sitk_image
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,9 @@ def copy_instances_to_directory(
 ) -> None:
     """Copy DICOM instance files into a single directory for rt-utils."""
     for idx, instance in enumerate(instances):
-        source_path = instance.instance_path
+        source_path = validate_stored_path(instance.instance_path)
         if not source_path or not os.path.exists(source_path):
-            raise ValueError(f"Instance file missing: {source_path}")
+            raise ValueError("Instance file missing")
 
         ext = os.path.splitext(source_path)[1] or ".dcm"
         target_path = os.path.join(target_directory, f"image_{idx:04d}{ext}")
