@@ -2,7 +2,7 @@
 
 This exercises the *real* application code paths, not synthetic stand-ins:
 
-* Pipeline construction goes through ``views._create_or_update_pipeline`` —
+* Pipeline construction goes through ``save_pipeline_from_dict`` —
   the exact builder the web UI calls, including ``_validate_pipeline_rules``
   (output-name uniqueness + forward/self reference ordering checks).
 * The CT series is imported through the real importer
@@ -43,6 +43,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from rule_based_segmentation import views
+from rule_based_segmentation.utils.pipeline_persistence import save_pipeline_from_dict
 from rule_based_segmentation.models import PipelineRule, SegmentationJob
 from rule_based_segmentation.utils import job_service
 from rule_based_segmentation.utils import rtstruct_registry
@@ -376,7 +377,7 @@ class PhysicsMegaPipelineTests(TestCase):
         cls.series = series
 
         # Build the pipeline with the app's real builder (validates + saves).
-        cls.pipeline = views._create_or_update_pipeline(
+        cls.pipeline = save_pipeline_from_dict(
             build_pipeline_spec(), cls.user
         )
 
@@ -638,7 +639,7 @@ class PipelineBuilderValidationTests(TestCase):
             ],
         }
         with self.assertRaises(ValueError):
-            views._create_or_update_pipeline(data, self._user())
+            save_pipeline_from_dict(data, self._user())
 
     def test_forward_reference_rejected(self):
         # Rule 1 references "LATER", produced by rule 2 -> ordering error.
@@ -652,7 +653,7 @@ class PipelineBuilderValidationTests(TestCase):
             ],
         }
         with self.assertRaises(ValueError):
-            views._create_or_update_pipeline(data, self._user())
+            save_pipeline_from_dict(data, self._user())
 
     def test_overlong_output_name_rejected(self):
         """Names past the model's bounded column are rejected cleanly."""
@@ -666,7 +667,7 @@ class PipelineBuilderValidationTests(TestCase):
             ],
         }
         with self.assertRaisesRegex(ValueError, "too long"):
-            views._create_or_update_pipeline(data, self._user())
+            save_pipeline_from_dict(data, self._user())
 
     def test_max_length_output_name_accepted(self):
         """A name exactly at the limit is accepted."""
@@ -679,7 +680,7 @@ class PipelineBuilderValidationTests(TestCase):
                  "config": {"variant": "UNIFORM", "source": "BODY", "margin_mm": 1.0}},
             ],
         }
-        pipeline = views._create_or_update_pipeline(data, self._user())
+        pipeline = save_pipeline_from_dict(data, self._user())
         self.assertEqual(pipeline.rules.get().name, name)
 
     def test_output_name_whitespace_is_stripped(self):
@@ -691,7 +692,7 @@ class PipelineBuilderValidationTests(TestCase):
                  "config": {"variant": "UNIFORM", "source": "BODY", "margin_mm": 1.0}},
             ],
         }
-        pipeline = views._create_or_update_pipeline(data, self._user())
+        pipeline = save_pipeline_from_dict(data, self._user())
         self.assertEqual(pipeline.rules.get().name, "PADDED")
 
 
