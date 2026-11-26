@@ -46,6 +46,11 @@ from .utils.dicom_image_importer import (
 )
 from .utils.job_service import MissingImageSeriesError, create_segmentation_job
 from .utils.rtstruct_io import _backup_rtstruct
+from .utils.pipeline_persistence import (
+    parse_pipeline_data,
+    pipeline_data_from_pipeline,
+    save_pipeline_from_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +69,10 @@ def pipeline_list(request):
 def pipeline_create(request):
     """Create a new segmentation pipeline."""
     if request.method == "POST":
-        data = _parse_pipeline_data(request.POST)
+        data = parse_pipeline_data(request.POST)
         if data:
             try:
-                pipeline = _create_or_update_pipeline(data, request.user)
+                pipeline = save_pipeline_from_dict(data, request.user)
                 return redirect("rule_based_segmentation:pipeline_detail", pipeline_id=pipeline.id)
             except ValueError as e:
                 return _render_pipeline_form(request, error=str(e))
@@ -79,10 +84,10 @@ def pipeline_edit(request, pipeline_id):
     """Edit an existing pipeline."""
     pipeline = get_object_or_404(SegmentationPipeline, id=pipeline_id)
     if request.method == "POST":
-        data = _parse_pipeline_data(request.POST)
+        data = parse_pipeline_data(request.POST)
         if data:
             try:
-                pipeline = _create_or_update_pipeline(data, request.user, pipeline=pipeline)
+                pipeline = save_pipeline_from_dict(data, request.user, pipeline=pipeline)
                 return redirect("rule_based_segmentation:pipeline_detail", pipeline_id=pipeline.id)
             except ValueError as e:
                 return _render_pipeline_form(request, pipeline, error=str(e))
@@ -90,16 +95,7 @@ def pipeline_edit(request, pipeline_id):
 
 
 def _render_pipeline_form(request, pipeline=None, error=None):
-    pipeline_data = (
-        {
-            "rules": [_rule_to_json(r) for r in pipeline.rules.all().order_by("order")],
-            # Persisted structure snapshot so the editor's structure inputs can
-            # be re-populated without the original RTStruct.
-            "structures": list(pipeline.structures or []),
-        }
-        if pipeline
-        else {"rules": [], "structures": []}
-    )
+    pipeline_data = pipeline_data_from_pipeline(pipeline)
     return render(
         request,
         "rule_based_segmentation/pipeline_form.html",
@@ -168,153 +164,6 @@ def _import_rtstruct_choice_label(rt_import):
     if rt_import.created_at:
         parts.append(rt_import.created_at.strftime("%Y-%m-%d"))
     return " - ".join(parts)
-
-
-def _rule_to_json(rule):
-    """Convert a saved PipelineRule to the frontend rule format."""
-    data = {
-        "rule_type": rule.rule_type,
-        "name": rule.name,
-        "output_action": rule.output_action,
-        "output_color": _rgb_dicom_to_hex(rule.output_color),
-        "output_roi_type": rule.output_roi_type,
-        "config": {},
-    }
-
-    if rule.rule_type == "BOOLEAN":
-        root = rule.boolean_nodes.filter(parent=None).first()
-        data["config"] = _boolean_node_to_json(root) if root else {}
-    elif rule.rule_type == "INTENSITY":
-        cfg = rule.intensity_config
-        data["config"] = {
-            "seed_type": cfg.seed_type,
-            "seed_roi": cfg.seed_roi or "",
-            "boundary_roi": cfg.boundary_roi or "",
-            "modality_hint": cfg.modality_hint or "",
-            "ranges": [
-                {"min": r.min_value, "max": r.max_value} for r in cfg.ranges.all()
-            ],
-        }
-    elif rule.rule_type == "MARGIN":
-        cfg = rule.margin_config
-        data["config"] = {
-            "variant": cfg.variant,
-            "source": cfg.source,
-            "margin_mm": cfg.margin_mm,
-            "margin_x_mm": cfg.margin_x_mm,
-            "margin_y_mm": cfg.margin_y_mm,
-            "margin_z_mm": cfg.margin_z_mm,
-            "kernel_type": cfg.kernel_type,
-            "margin_l_mm": cfg.margin_l_mm,
-            "margin_r_mm": cfg.margin_r_mm,
-            "margin_a_mm": cfg.margin_a_mm,
-            "margin_p_mm": cfg.margin_p_mm,
-            "margin_h_mm": cfg.margin_h_mm,
-            "margin_f_mm": cfg.margin_f_mm,
-        }
-    elif rule.rule_type == "CROP":
-        cfg = rule.crop_config
-        data["config"] = {
-            "source": cfg.source,
-            "boundaries": [b.boundary_roi for b in cfg.boundaries.all()],
-        }
-    elif rule.rule_type == "CLEANUP":
-        cfg = rule.cleanup_config
-        data["config"] = {
-            "operation": cfg.operation,
-            "source": cfg.source,
-            "smoothing_mm": cfg.smoothing_mm,
-            "iterations": cfg.iterations,
-            "min_size_mm3": cfg.min_size_mm3,
-            "fully_connected": cfg.fully_connected,
-            "sigma_mm": cfg.sigma_mm,
-            "threshold": cfg.threshold,
-        }
-    elif rule.rule_type == "RING":
-        cfg = rule.ring_config
-        data["config"] = {
-            "variant": cfg.variant,
-            "source": cfg.source,
-            "thickness_mm": cfg.thickness_mm,
-            "thickness_x_mm": cfg.thickness_x_mm,
-            "thickness_y_mm": cfg.thickness_y_mm,
-            "thickness_z_mm": cfg.thickness_z_mm,
-            "kernel_type": cfg.kernel_type,
-            "thickness_l_mm": cfg.thickness_l_mm,
-            "thickness_r_mm": cfg.thickness_r_mm,
-            "thickness_a_mm": cfg.thickness_a_mm,
-            "thickness_p_mm": cfg.thickness_p_mm,
-            "thickness_h_mm": cfg.thickness_h_mm,
-            "thickness_f_mm": cfg.thickness_f_mm,
-        }
-    elif rule.rule_type == "OVERLAP":
-        cfg = rule.overlap_config
-        data["config"] = {
-            "source": cfg.source,
-            "others": [o.other_roi for o in cfg.others.all().order_by("order")],
-        }
-    elif rule.rule_type == "EXPAND_SUBTRACT":
-        cfg = rule.expand_subtract_config
-        data["config"] = {
-            "variant": cfg.variant,
-            "source": cfg.source,
-            "subtract": cfg.subtract,
-            "distance_mm": cfg.distance_mm,
-            "distance_x_mm": cfg.distance_x_mm,
-            "distance_y_mm": cfg.distance_y_mm,
-            "distance_z_mm": cfg.distance_z_mm,
-            "kernel_type": cfg.kernel_type,
-            "distance_l_mm": cfg.distance_l_mm,
-            "distance_r_mm": cfg.distance_r_mm,
-            "distance_a_mm": cfg.distance_a_mm,
-            "distance_p_mm": cfg.distance_p_mm,
-            "distance_h_mm": cfg.distance_h_mm,
-            "distance_f_mm": cfg.distance_f_mm,
-        }
-    elif rule.rule_type == "AVOID_MARGIN":
-        cfg = rule.avoid_margin_config
-        data["config"] = {
-            "variant": cfg.variant,
-            "source": cfg.source,
-            "avoid": cfg.avoid,
-            "margin_mm": cfg.margin_mm,
-            "margin_x_mm": cfg.margin_x_mm,
-            "margin_y_mm": cfg.margin_y_mm,
-            "margin_z_mm": cfg.margin_z_mm,
-            "kernel_type": cfg.kernel_type,
-            "margin_l_mm": cfg.margin_l_mm,
-            "margin_r_mm": cfg.margin_r_mm,
-            "margin_a_mm": cfg.margin_a_mm,
-            "margin_p_mm": cfg.margin_p_mm,
-            "margin_h_mm": cfg.margin_h_mm,
-            "margin_f_mm": cfg.margin_f_mm,
-        }
-
-    return data
-
-
-def _boolean_node_to_json(node):
-    if node.node_type == "ROI":
-        return {"name": node.roi_name}
-    return {
-        "operation": node.operation_type,
-        "operands": [
-            _boolean_node_to_json(child)
-            for child in node.children.all().order_by("order")
-        ],
-    }
-
-
-def _rgb_dicom_to_hex(color_string):
-    if not color_string:
-        return "#FFFF00"
-    parts = [p.strip() for p in color_string.split("\\")]
-    if len(parts) != 3:
-        return "#FFFF00"
-    try:
-        return "#" + "".join(f"{int(p):02X}" for p in parts)
-    except ValueError:
-        return "#FFFF00"
 
 
 @login_required
@@ -957,12 +806,97 @@ def api_validate_pipeline(request):
         for rule in pipeline.rules.all().order_by("order"):
             required = _collect_rule_structure_names(rule)
             missing.extend(sorted(required - available))
-            if rule.output_action == "CREATE_NEW" or rule.name in available:
-                available.add(rule.name)
+            # Every rule produces a named result that later rules may reference:
+            # CREATE_NEW / REPLACE_EXISTING live in the RTStruct; INTERMEDIATE
+            # lives in memory. Add the name to the running available set either way.
+            available.add(rule.name)
 
         return JsonResponse({"valid": not missing, "missing_structures": missing})
     except Exception as e:
         return JsonResponse({"valid": False, "missing_structures": [], "error": str(e)})
+
+
+def _describe_rule_source(rule) -> str:
+    """Best-effort primary source/operand name for a rule (for preview display)."""
+    rt = rule.rule_type
+    try:
+        if rt == "BOOLEAN":
+            from .utils.expression_evaluator import collect_boolean_roi_names, get_boolean_root
+            root = get_boolean_root(rule)
+            names = sorted(collect_boolean_roi_names(root))
+            return ", ".join(names)
+        if rt == "INTENSITY":
+            cfg = getattr(rule, "intensity_config", None)
+            if cfg:
+                return cfg.seed_roi or cfg.boundary_roi or "(image)"
+            return "(image)"
+        accessor = {
+            "MARGIN": "margin_config", "CLEANUP": "cleanup_config",
+            "CROP": "crop_config", "RING": "ring_config", "OVERLAP": "overlap_config",
+            "EXPAND_SUBTRACT": "expand_subtract_config",
+            "AVOID_MARGIN": "avoid_margin_config",
+        }.get(rt)
+        if accessor:
+            cfg = getattr(rule, accessor, None)
+            if cfg:
+                return getattr(cfg, "source", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+@login_required
+def api_template_preview(request):
+    """Read-only preview of the RBS rules task2 would synthesize for a template.
+
+    GET ?template_id=<uuid>. Synthesizes each AdditionalStructure's
+    roi_generation_logic chain into RBS rules (in a transient, deleted pipeline)
+    and returns them as JSON, so a clinician can see what will be generated
+    before importing the series.
+    """
+    from uuid import uuid4 as _uuid4
+    from dicom_handler.models import AdditionalStructures, AutosegmentationTemplate
+    from .utils.legacy_synthesis import synthesize_rules
+
+    template_id = request.GET.get("template_id") or request.POST.get("template_id")
+    if not template_id:
+        return JsonResponse({"error": "template_id is required"}, status=400)
+    try:
+        template = AutosegmentationTemplate.objects.get(pk=template_id)
+    except (AutosegmentationTemplate.DoesNotExist, ValueError):
+        return JsonResponse({"error": "template not found"}, status=404)
+
+    pipeline = SegmentationPipeline.objects.create(
+        name=f"preview-{_uuid4().hex[:8]}", is_public=False, is_active=False
+    )
+    try:
+        structures = []
+        extras = AdditionalStructures.objects.filter(
+            autosegmentation_template=template
+        ).order_by("roi_label")
+        for extra in extras:
+            rules, _ = synthesize_rules(extra, pipeline=pipeline)
+            structures.append({
+                "roi_label": extra.roi_label,
+                "rt_roi_interpreted_type": extra.rt_roi_interpreted_type,
+                "roi_display_color": extra.roi_display_color,
+                "rules": [
+                    {
+                        "order": r.order,
+                        "name": r.name,
+                        "rule_type": r.rule_type,
+                        "output_action": r.output_action,
+                        "source": _describe_rule_source(r),
+                    }
+                    for r in rules
+                ],
+            })
+        return JsonResponse({
+            "template_id": str(template.pk),
+            "structures": structures,
+        })
+    finally:
+        pipeline.delete()
 
 
 # ---------------------------------------------------------------------------
@@ -1007,338 +941,6 @@ def _render_job_create(request, pipeline, error=None):
             context["selected_rtstruct"] = {"value": selected, "label": label}
 
     return render(request, "rule_based_segmentation/job_create.html", context)
-
-
-def _parse_pipeline_data(post_data):
-    """Parse pipeline JSON from form data."""
-    json_data = post_data.get("pipeline_data")
-    if not json_data:
-        return None
-    try:
-        return json.loads(json_data)
-    except json.JSONDecodeError:
-        return None
-
-
-def _create_or_update_pipeline(data, user, pipeline=None):
-    """Create or update a pipeline and all its rules from parsed JSON."""
-    from django.db import transaction
-
-    rules = data.get("rules", [])
-    _validate_pipeline_rules(rules)
-
-    with transaction.atomic():
-        structures = data.get("structures", [])
-        if pipeline is None:
-            pipeline = SegmentationPipeline.objects.create(
-                name=data.get("name", "Unnamed Pipeline"),
-                description=data.get("description", ""),
-                is_public=data.get("is_public", False),
-                created_by=user,
-                structures=structures,
-            )
-        else:
-            pipeline.name = data.get("name", pipeline.name)
-            pipeline.description = data.get("description", pipeline.description)
-            pipeline.is_public = data.get("is_public", pipeline.is_public)
-            pipeline.structures = structures
-            pipeline.save()
-            pipeline.rules.all().delete()
-
-        for idx, rule_data in enumerate(rules, start=1):
-            _save_rule(pipeline, idx, rule_data)
-
-    return pipeline
-
-
-def _validate_pipeline_rules(rules):
-    """Validate pipeline rule ordering and output name uniqueness."""
-    # ROI output names are persisted in a bounded column; reject an over-long
-    # name here with a clear message instead of letting the save fail deep in
-    # the database with a raw truncation error.
-    name_max_len = PipelineRule._meta.get_field("name").max_length
-
-    output_names = set()
-    for idx, rule in enumerate(rules, start=1):
-        name = rule.get("name", "").strip()
-        if not name:
-            raise ValueError(f"Rule {idx} has no output ROI name.")
-        if len(name) > name_max_len:
-            raise ValueError(
-                f"Rule {idx} output ROI name '{name}' is too long "
-                f"({len(name)} characters); the maximum is {name_max_len} characters."
-            )
-        if name in output_names:
-            raise ValueError(
-                f"Rule '{name}' is used more than once. Output ROI names must be unique."
-            )
-        output_names.add(name)
-
-    # Ensure no rule references a structure that is produced by the same or a later rule.
-    produced_by_index = {}
-    for idx, rule in enumerate(rules, start=1):
-        produced_by_index[rule.get("name", "").strip()] = idx
-
-    for idx, rule in enumerate(rules, start=1):
-        for required in _collect_required_structure_names(rule):
-            required_source = produced_by_index.get(required)
-            if required_source is not None and required_source >= idx:
-                raise ValueError(
-                    f"Rule '{rule.get('name')}' references '{required}', which is produced by "
-                    f"rule {required_source}. Move the source rule before this rule."
-                )
-
-
-def _collect_required_structure_names(rule):
-    """Collect structure names referenced by a rule from frontend JSON."""
-    names = set()
-    rule_type = rule.get("rule_type")
-    config = rule.get("config", {})
-
-    if rule_type == "BOOLEAN":
-        _collect_boolean_operand_names(config, names)
-    elif rule_type == "INTENSITY":
-        if config.get("seed_type") == "STRUCTURE" and config.get("seed_roi"):
-            names.add(config["seed_roi"])
-        if config.get("boundary_roi"):
-            names.add(config["boundary_roi"])
-    elif rule_type in ("MARGIN", "CLEANUP"):
-        if config.get("source"):
-            names.add(config["source"])
-    elif rule_type == "CROP":
-        if config.get("source"):
-            names.add(config["source"])
-        for boundary in config.get("boundaries", []):
-            if boundary:
-                names.add(boundary)
-    elif rule_type == "RING":
-        if config.get("source"):
-            names.add(config["source"])
-    elif rule_type == "OVERLAP":
-        if config.get("source"):
-            names.add(config["source"])
-        for other in config.get("others", []):
-            if other:
-                names.add(other)
-    elif rule_type == "EXPAND_SUBTRACT":
-        if config.get("source"):
-            names.add(config["source"])
-        if config.get("subtract"):
-            names.add(config["subtract"])
-    elif rule_type == "AVOID_MARGIN":
-        if config.get("source"):
-            names.add(config["source"])
-        if config.get("avoid"):
-            names.add(config["avoid"])
-
-    return names
-
-
-def _collect_boolean_operand_names(config, names):
-    """Recursively collect ROI names from a boolean expression config."""
-    if config.get("operation"):
-        for operand in config.get("operands", []):
-            _collect_boolean_operand_names(operand, names)
-    elif config.get("name"):
-        names.add(config["name"])
-
-
-def _save_rule(pipeline, order, rule_data):
-    """Create a PipelineRule and its related configuration."""
-    rule = PipelineRule.objects.create(
-        pipeline=pipeline,
-        order=order,
-        rule_type=rule_data.get("rule_type"),
-        name=(rule_data.get("name") or "").strip(),
-        output_action=rule_data.get("output_action", "CREATE_NEW"),
-        output_color=rule_data.get("output_color") or "255\\255\\0",
-        output_roi_type=rule_data.get("output_roi_type", "ORGAN"),
-    )
-
-    config = rule_data.get("config", {})
-    if rule.rule_type == "BOOLEAN":
-        _save_boolean_tree(rule, config)
-    elif rule.rule_type == "INTENSITY":
-        _save_intensity_config(rule, config)
-    elif rule.rule_type == "MARGIN":
-        _save_margin_config(rule, config)
-    elif rule.rule_type == "CROP":
-        _save_crop_config(rule, config)
-    elif rule.rule_type == "CLEANUP":
-        _save_cleanup_config(rule, config)
-    elif rule.rule_type == "RING":
-        _save_ring_config(rule, config)
-    elif rule.rule_type == "OVERLAP":
-        _save_overlap_config(rule, config)
-    elif rule.rule_type == "EXPAND_SUBTRACT":
-        _save_expand_subtract_config(rule, config)
-    elif rule.rule_type == "AVOID_MARGIN":
-        _save_avoid_margin_config(rule, config)
-
-    return rule
-
-
-def _save_boolean_tree(rule, config, parent=None):
-    """Recursively save a boolean expression tree."""
-    node_type = "OPERATION" if config.get("operation") else "ROI"
-    node = BooleanExpressionNode.objects.create(
-        pipeline_rule=rule,
-        parent=parent,
-        node_type=node_type,
-        operation_type=config.get("operation") if node_type == "OPERATION" else None,
-        roi_name=config.get("name") if node_type == "ROI" else None,
-        order=parent.children.count() + 1 if parent else 1,
-    )
-
-    if node_type == "OPERATION":
-        for child_data in config.get("operands", []):
-            _save_boolean_tree(rule, child_data, parent=node)
-
-    return node
-
-
-def _save_intensity_config(rule, config):
-    """Save intensity-range rule configuration."""
-    intensity_config = IntensityRuleConfig.objects.create(
-        pipeline_rule=rule,
-        seed_type=config.get("seed_type", "IMAGE"),
-        seed_roi=config.get("seed_roi", ""),
-        boundary_roi=config.get("boundary_roi", ""),
-        modality_hint=config.get("modality_hint", ""),
-    )
-    for idx, r in enumerate(config.get("ranges", []), start=1):
-        IntensityRange.objects.create(
-            intensity_rule=intensity_config,
-            min_value=r.get("min"),
-            max_value=r.get("max"),
-            order=idx,
-        )
-
-
-def _save_margin_config(rule, config):
-    """Save margin rule configuration (six-directional, with legacy fallback)."""
-    MarginRuleConfig.objects.create(
-        pipeline_rule=rule,
-        variant=config.get("variant", "UNIFORM"),
-        source=config.get("source", ""),
-        margin_mm=config.get("margin_mm"),
-        margin_x_mm=config.get("margin_x_mm"),
-        margin_y_mm=config.get("margin_y_mm"),
-        margin_z_mm=config.get("margin_z_mm"),
-        kernel_type=config.get("kernel_type", "ball"),
-        margin_l_mm=config.get("margin_l_mm"),
-        margin_r_mm=config.get("margin_r_mm"),
-        margin_a_mm=config.get("margin_a_mm"),
-        margin_p_mm=config.get("margin_p_mm"),
-        margin_h_mm=config.get("margin_h_mm"),
-        margin_f_mm=config.get("margin_f_mm"),
-    )
-
-
-def _save_crop_config(rule, config):
-    """Save crop-to-boundary rule configuration."""
-    crop_config = CropRuleConfig.objects.create(
-        pipeline_rule=rule,
-        source=config.get("source", ""),
-    )
-    for idx, boundary in enumerate(config.get("boundaries", []), start=1):
-        CropBoundary.objects.create(
-            crop_rule=crop_config,
-            boundary_roi=boundary,
-            order=idx,
-        )
-
-
-def _save_cleanup_config(rule, config):
-    """Save cleanup rule configuration."""
-    CleanupRuleConfig.objects.create(
-        pipeline_rule=rule,
-        operation=config.get("operation", ""),
-        source=config.get("source", ""),
-        smoothing_mm=config.get("smoothing_mm"),
-        iterations=config.get("iterations"),
-        min_size_mm3=config.get("min_size_mm3"),
-        fully_connected=config.get("fully_connected"),
-        sigma_mm=config.get("sigma_mm"),
-        threshold=config.get("threshold"),
-    )
-
-
-def _save_ring_config(rule, config):
-    """Save RING (ring/shell) rule configuration (six-directional, with legacy fallback)."""
-    RingRuleConfig.objects.create(
-        pipeline_rule=rule,
-        variant=config.get("variant", "UNIFORM"),
-        source=config.get("source", ""),
-        thickness_mm=config.get("thickness_mm"),
-        thickness_x_mm=config.get("thickness_x_mm"),
-        thickness_y_mm=config.get("thickness_y_mm"),
-        thickness_z_mm=config.get("thickness_z_mm"),
-        kernel_type=config.get("kernel_type", "ball"),
-        thickness_l_mm=config.get("thickness_l_mm"),
-        thickness_r_mm=config.get("thickness_r_mm"),
-        thickness_a_mm=config.get("thickness_a_mm"),
-        thickness_p_mm=config.get("thickness_p_mm"),
-        thickness_h_mm=config.get("thickness_h_mm"),
-        thickness_f_mm=config.get("thickness_f_mm"),
-    )
-
-
-def _save_overlap_config(rule, config):
-    """Save OVERLAP rule configuration (source + ordered list of others)."""
-    overlap_config = OverlapRuleConfig.objects.create(
-        pipeline_rule=rule,
-        source=config.get("source", ""),
-    )
-    for idx, other in enumerate(config.get("others", []), start=1):
-        if other:
-            OverlapOther.objects.create(
-                overlap_rule=overlap_config,
-                other_roi=other,
-                order=idx,
-            )
-
-
-def _save_expand_subtract_config(rule, config):
-    """Save EXPAND_SUBTRACT rule configuration (six-directional, with legacy fallback)."""
-    ExpandSubtractRuleConfig.objects.create(
-        pipeline_rule=rule,
-        variant=config.get("variant", "UNIFORM"),
-        source=config.get("source", ""),
-        subtract=config.get("subtract", ""),
-        distance_mm=config.get("distance_mm"),
-        distance_x_mm=config.get("distance_x_mm"),
-        distance_y_mm=config.get("distance_y_mm"),
-        distance_z_mm=config.get("distance_z_mm"),
-        kernel_type=config.get("kernel_type", "ball"),
-        distance_l_mm=config.get("distance_l_mm"),
-        distance_r_mm=config.get("distance_r_mm"),
-        distance_a_mm=config.get("distance_a_mm"),
-        distance_p_mm=config.get("distance_p_mm"),
-        distance_h_mm=config.get("distance_h_mm"),
-        distance_f_mm=config.get("distance_f_mm"),
-    )
-
-
-def _save_avoid_margin_config(rule, config):
-    """Save AVOID_MARGIN rule configuration (six-directional, with legacy fallback)."""
-    AvoidMarginRuleConfig.objects.create(
-        pipeline_rule=rule,
-        variant=config.get("variant", "UNIFORM"),
-        source=config.get("source", ""),
-        avoid=config.get("avoid", ""),
-        margin_mm=config.get("margin_mm"),
-        margin_x_mm=config.get("margin_x_mm"),
-        margin_y_mm=config.get("margin_y_mm"),
-        margin_z_mm=config.get("margin_z_mm"),
-        kernel_type=config.get("kernel_type", "ball"),
-        margin_l_mm=config.get("margin_l_mm"),
-        margin_r_mm=config.get("margin_r_mm"),
-        margin_a_mm=config.get("margin_a_mm"),
-        margin_p_mm=config.get("margin_p_mm"),
-        margin_h_mm=config.get("margin_h_mm"),
-        margin_f_mm=config.get("margin_f_mm"),
-    )
 
 
 def _duplicate_rule(pipeline, rule):

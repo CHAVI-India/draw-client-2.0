@@ -44,6 +44,9 @@
     FILL_HOLES: { label: "Fill Holes", params: ["fully_connected"] },
     REMOVE_SMALL_COMPONENTS: { label: "Remove Small Components", params: ["min_size_mm3"] },
     KEEP_LARGEST_COMPONENT: { label: "Keep Largest Component", params: [] },
+    KEEP_N_LARGEST_COMPONENT: { label: "Keep N Largest Components", params: ["n"] },
+    CLOSE_GAPS: { label: "Close Gaps", params: ["gap_size_mm"] },
+    REMOVE_PROTRUSIONS: { label: "Remove Protrusions", params: ["protrusion_size_mm"] },
   };
 
   function uuidv4() {
@@ -555,6 +558,7 @@
               <select id="rbs-rule-output-action" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
                 <option value="CREATE_NEW" ${rule.output_action === "CREATE_NEW" ? "selected" : ""}>Create new ROI</option>
                 <option value="REPLACE_EXISTING" ${rule.output_action === "REPLACE_EXISTING" ? "selected" : ""}>Replace existing ROI</option>
+                <option value="INTERMEDIATE" ${rule.output_action === "INTERMEDIATE" ? "selected" : ""}>Intermediate (not exported)</option>
               </select>
             </div>
             <div>
@@ -976,6 +980,24 @@
           </label>
         `;
       }
+      if (params.includes("n")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Keep (N)</label>
+          <input type="number" step="1" id="rbs-cleanup-n" value="${config.n || 1}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
+      if (params.includes("gap_size_mm")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Gap Size (mm)</label>
+          <input type="number" step="any" id="rbs-cleanup-gap-size-mm" value="${config.gap_size_mm || 2.0}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
+      if (params.includes("protrusion_size_mm")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Protrusion Size (mm)</label>
+          <input type="number" step="any" id="rbs-cleanup-protrusion-size-mm" value="${config.protrusion_size_mm || 2.0}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
       return html;
     }
 
@@ -1115,6 +1137,9 @@
           cfg.threshold = parseFloat(this._getValue("#rbs-cleanup-threshold")) || null;
           const fullyConnected = this.container.querySelector("#rbs-cleanup-fully-connected");
           cfg.fully_connected = fullyConnected ? fullyConnected.checked : null;
+          cfg.n = parseInt(this._getValue("#rbs-cleanup-n")) || null;
+          cfg.gap_size_mm = parseFloat(this._getValue("#rbs-cleanup-gap-size-mm")) || null;
+          cfg.protrusion_size_mm = parseFloat(this._getValue("#rbs-cleanup-protrusion-size-mm")) || null;
           break;
       }
     }
@@ -1300,7 +1325,7 @@
     _roiNameMaxLength() {
       const raw = this.container.getAttribute("data-roi-name-max-length");
       const n = parseInt(raw, 10);
-      return Number.isFinite(n) && n > 0 ? n : 16;
+      return Number.isFinite(n) && n > 0 ? n : 54;
     }
 
     validate() {

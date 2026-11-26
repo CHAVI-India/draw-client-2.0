@@ -39,7 +39,6 @@ from ..models import (
 )
 from dicom_server.models import RemoteDicomNode
 from dicom_server.cstore_push_service import send_dicom_files_to_node
-from ..utils.pipeline_executor import ProductionPipelineExecutor
 from ..utils.structure_generation import load_ct_series_as_sitk_image
 from ..utils.log_masking import mask_sensitive_data
 
@@ -533,7 +532,7 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         except Exception as e:
             logger.error(f"Error updating ROI properties: {str(e)}", exc_info=True)
         
-        # Add AdditionalStructures as empty ROIs
+        # Add AdditionalStructures to the structure set
         try:
             _add_additional_structures_to_rtstruct(ds, series_data, roi_name_to_number_map)
         except Exception as e:
@@ -620,7 +619,18 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
                 logger.warning(f"ROI '{additional_struct.roi_label}' already exists - skipping")
                 continue
             
-            if additional_struct.roi_generation_logic:
+            # Phase 4: the FK pipeline is the source of truth when present.
+            #   pipeline with rules  -> generated (run the pipeline)
+            #   pipeline with no rules, or no pipeline + legacy logic -> legacy synthesis
+            #   otherwise            -> empty ROI
+            has_rules = bool(
+                additional_struct.pipeline_id
+                and additional_struct.pipeline.rules.exists()
+            )
+            if has_rules or (
+                not additional_struct.pipeline_id
+                and additional_struct.roi_generation_logic
+            ):
                 structures_with_logic.append(additional_struct)
             else:
                 structures_without_logic.append(additional_struct)
@@ -671,14 +681,21 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
             empty_count += 1
             logger.info(f"Added empty ROI #{roi_number}: '{roi_label}'")
         
-        # Now process structures with generation logic
+        # Now process structures with generation logic via Rule-Based Segmentation
         if not structures_with_logic:
             logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: 0")
             return
         
-        # Load CT series and create RTStructBuilder for pipeline execution
+        # Generate derived structures using the Rule-Based Segmentation engine.
+        # Each structure's roi_generation_logic chain is synthesized into RBS
+        # rules: every step except the last is INTERMEDIATE (held in memory,
+        # never exported); the last is CREATE_NEW named after roi_label with the
+        # structure's own color / interpreted type.
         try:
-            # Get CT instances
+            from rule_based_segmentation.models import SegmentationPipeline
+            from rule_based_segmentation.utils.inline_runner import InlineSegmentationRunner
+            from rule_based_segmentation.utils.legacy_synthesis import synthesize_rules
+
             instances = series_data.get('instances', [])
             if not instances:
                 logger.warning("No CT instances found - cannot execute pipelines")
@@ -689,79 +706,93 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
             ct_image = load_ct_series_as_sitk_image(series_data)
             logger.info(f"Loaded CT image: {ct_image.GetSize()}")
             
-            # Get series root path for RTStructBuilder
             series_root_path = series.series_root_path
             if not series_root_path or not os.path.exists(series_root_path):
                 logger.warning(f"Series root path not found: {mask_sensitive_data(series_root_path, 'file_path')}")
                 logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: 0")
                 return
             
-            # Save current RT Struct temporarily for RTStructBuilder
+            # The RBS engine reads existing ROI masks from a file-backed
+            # RTStructBuilder, so save the (reidentified + empty-ROI) structure
+            # set to a temp file and build the builder against the real series.
             temp_rtstruct_path = os.path.join(os.path.dirname(series_root_path), 'temp_rtstruct.dcm')
             ds.save_as(temp_rtstruct_path, write_like_original=False)
             
-            # Create RTStructBuilder
-            rtstruct = RTStructBuilder.create_from(
-                dicom_series_path=series_root_path,
-                rt_struct_path=temp_rtstruct_path
-            )
-            
-            # Create pipeline executor
-            executor = ProductionPipelineExecutor(rtstruct, ct_image)
-            
-            generated_count = 0
-            failed_count = 0
-            
-            # Process each structure with generation logic
-            for additional_struct in structures_with_logic:
-                roi_label = additional_struct.roi_label
+            try:
+                rtstruct = RTStructBuilder.create_from(
+                    dicom_series_path=series_root_path,
+                    rt_struct_path=temp_rtstruct_path,
+                )
+                runner = InlineSegmentationRunner(rtstruct, ct_image, series=series)
                 
-                # Parse color
-                color = [255, 255, 0]  # Default yellow
-                if additional_struct.roi_display_color:
-                    try:
-                        color_parts = additional_struct.roi_display_color.split('\\')
-                        if len(color_parts) == 3:
-                            color = [int(part.strip()) for part in color_parts]
-                    except (ValueError, AttributeError):
-                        logger.warning(f"Invalid color format for '{roi_label}'")
+                # One temporary pipeline holds all synthesized rules for this run.
+                pipeline = SegmentationPipeline.objects.create(
+                    name=f"task2-inline-{series.id}",
+                    is_public=False,
+                    is_active=False,
+                )
+                generated_count = 0
+                failed_count = 0
+                intermediate_count = 0
+                skipped_count = 0
+                try:
+                    # Each structure's chain runs independently so one failure
+                    # does not abort the rest (matching the legacy behavior).
+                    for additional_struct in structures_with_logic:
+                        roi_label = additional_struct.roi_label
+                        try:
+                            if additional_struct.pipeline_id and additional_struct.pipeline.rules.exists():
+                                # FK pipeline (authored in the RBS builder / migrated from
+                                # legacy logic). Run its rules directly; the final rule is
+                                # already pinned to the binding (name/color/type).
+                                rules = list(
+                                    additional_struct.pipeline.rules.all().order_by("order")
+                                )
+                            else:
+                                # Fallback: legacy roi_generation_logic with no pipeline
+                                # yet (e.g. a pre-migration row).
+                                rules, _ = synthesize_rules(
+                                    additional_struct, pipeline=pipeline
+                                )
+                                if not rules:
+                                    continue
+                            summary = runner.run_rules(
+                                rules, skip_existing=set(roi_name_to_number_map)
+                            )
+                            for name in summary["created"]:
+                                roi_name_to_number_map[name] = len(roi_name_to_number_map) + 1
+                            generated_count += len(summary["created"])
+                            failed_count += len(summary["failed"])
+                            intermediate_count += len(summary["intermediate"])
+                            skipped_count += len(summary["skipped"])
+                        except Exception as struct_err:
+                            failed_count += 1
+                            logger.error(
+                                f"RBS generation failed for '{roi_label}': {struct_err}",
+                                exc_info=True,
+                            )
+                finally:
+                    pipeline.delete()
                 
-                # Execute pipeline
-                logger.info(f"Executing pipeline for '{roi_label}'...")
-                result = executor.execute_pipeline(additional_struct.roi_generation_logic)
+                # Write the updated RT Struct back and copy sequences to ds.
+                rtstruct.save(temp_rtstruct_path)
+                updated_ds = pydicom.dcmread(temp_rtstruct_path)
+                ds.StructureSetROISequence = updated_ds.StructureSetROISequence
+                ds.ROIContourSequence = updated_ds.ROIContourSequence
+                ds.RTROIObservationsSequence = updated_ds.RTROIObservationsSequence
                 
-                if result is None:
-                    logger.error(f"Pipeline execution failed for '{roi_label}'")
-                    failed_count += 1
-                    continue
-                
-                # Add result to RT Struct
-                if executor.add_result_to_rtstruct(roi_label, color):
-                    generated_count += 1
-                    roi_name_to_number_map[roi_label] = len(roi_name_to_number_map) + 1
-                else:
-                    logger.error(f"Failed to add '{roi_label}' to RT Struct")
-                    failed_count += 1
-            
-            # Save the updated RT Struct back to the dataset
-            rtstruct.save(temp_rtstruct_path)
-            updated_ds = pydicom.dcmread(temp_rtstruct_path)
-            
-            # Copy the updated sequences back to original dataset
-            ds.StructureSetROISequence = updated_ds.StructureSetROISequence
-            ds.ROIContourSequence = updated_ds.ROIContourSequence
-            ds.RTROIObservationsSequence = updated_ds.RTROIObservationsSequence
-            
-            # Clean up temp file
-            if os.path.exists(temp_rtstruct_path):
-                os.remove(temp_rtstruct_path)
-            
-            logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: {generated_count}, Failed: {failed_count}")
-            
+                logger.info(
+                    f"Additional structures summary - Empty ROIs: {empty_count}, "
+                    f"Generated: {generated_count}, Intermediate (not exported): "
+                    f"{intermediate_count}, Skipped: {skipped_count}, Failed: {failed_count}"
+                )
+            finally:
+                if os.path.exists(temp_rtstruct_path):
+                    os.remove(temp_rtstruct_path)
+        
         except Exception as e:
-            logger.error(f"Error executing pipelines: {e}", exc_info=True)
-            # Continue without failing the entire process
-            logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: 0 (pipeline execution failed)")
+            logger.error(f"Error executing RBS pipelines: {e}", exc_info=True)
+            logger.info(f"Additional structures summary - Empty ROIs: {empty_count}, Generated: 0 (RBS execution failed)")
         
     except Exception as e:
         logger.error(f"Error adding additional structures to RT Structure Set: {str(e)}", exc_info=True)

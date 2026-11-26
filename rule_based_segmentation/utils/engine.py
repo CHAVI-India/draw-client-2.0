@@ -30,6 +30,16 @@ from .rtstruct_io import (
 
 logger = logging.getLogger(__name__)
 
+# Eclipse Clinical-Goal naming allows up to 54 characters. This is the cap
+# applied when a dedup suffix would otherwise push a renamed ROI over the limit.
+RULE_NAME_LIMIT = 54
+
+
+def _trim_to_limit(base: str, suffix: int, limit: int) -> str:
+    """Build '<base>_<suffix>' truncated so the total length is <= limit."""
+    tail = f"_{suffix}"
+    return f"{base[: limit - len(tail)]}{tail}"
+
 
 class SegmentationEngine:
     """Execute a SegmentationPipeline on an RTStruct."""
@@ -45,6 +55,7 @@ class SegmentationEngine:
         self.summary: Dict[str, Any] = {
             "created_rois": [],
             "replaced_rois": [],
+            "intermediate_rois": [],
             "failed_rules": [],
         }
 
@@ -74,6 +85,29 @@ class SegmentationEngine:
         engine.summary = {
             "created_rois": [],
             "replaced_rois": [],
+            "intermediate_rois": [],
+            "failed_rules": [],
+        }
+        return engine
+
+    @classmethod
+    def from_rtstruct(cls, rtstruct, image, series=None) -> "SegmentationEngine":
+        """Build an engine around in-memory objects (no file, no work dir).
+
+        Used by :class:`inline_runner.InlineSegmentationRunner` to evaluate a
+        list of rules against an already-loaded RTStruct + reference image, so
+        generated ROIs can be folded into an existing structure set in place.
+        """
+        engine = cls.__new__(cls)
+        engine.rtstruct_path = None
+        engine.rtstruct = rtstruct
+        engine.image = image
+        engine.series = series
+        engine.available_masks = load_roi_masks(rtstruct, image)
+        engine.summary = {
+            "created_rois": [],
+            "replaced_rois": [],
+            "intermediate_rois": [],
             "failed_rules": [],
         }
         return engine
@@ -106,7 +140,10 @@ class SegmentationEngine:
 
             try:
                 output_name = self.run_rule(rule)
-                if rule.output_action == "REPLACE_EXISTING":
+                if rule.output_action == "INTERMEDIATE":
+                    # already recorded in intermediate_rois by _add_rule_output_to_rtstruct
+                    pass
+                elif rule.output_action == "REPLACE_EXISTING":
                     self.summary["replaced_rois"].append(output_name)
                 else:
                     self.summary["created_rois"].append(output_name)
@@ -279,6 +316,12 @@ class SegmentationEngine:
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
         params = self._directional_margin_params(config, "thickness")
+        if self._params_all_zero(params, "thickness"):
+            raise RuleEvaluationError(
+                f"Ring/Shell rule '{rule.name}' has zero thickness (all direction "
+                "thicknesses are 0); the shell would be empty. Set a per-direction "
+                "thickness."
+            )
         return execute_operation("ring", {"source": source_mask}, params)
 
     def _evaluate_overlap_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -291,13 +334,45 @@ class SegmentationEngine:
         roles = {"source": source_mask, "others": [self.available_masks[n] for n in others]}
         return execute_operation("overlap", roles, {})
 
+    def _params_all_zero(self, params: Dict[str, Any], prefix: str) -> bool:
+        """True if a margin-like rule's distances/margins are all unset/zero.
+
+        Used to catch the silent no-op trap: an expand/ring/avoid with no
+        distance set produces an identical (or empty) result that looks like
+        the input structure rather than a derived one. ``params`` is the dict
+        returned by :meth:`_directional_margin_params` (six-directional or the
+        legacy uniform/anisotropic fallback).
+        """
+        keys = ("l", "r", "a", "p", "h", "f")
+        if any(f"{prefix}_{k}_mm" in params for k in keys):
+            return not any(params.get(f"{prefix}_{k}_mm") for k in keys)
+        if params.get("variant") == "ANISOTROPIC":
+            return not (
+                params.get(f"{prefix}_x_mm")
+                or params.get(f"{prefix}_y_mm")
+                or params.get(f"{prefix}_z_mm")
+            )
+        return not params.get(f"{prefix}_mm")
+
     def _evaluate_expand_subtract_rule(self, rule: PipelineRule) -> sitk.Image:
         """Expand & Subtract: expand(source, distance) - subtract."""
         config = rule.expand_subtract_config
         source_mask = self.available_masks[config.source]
         self._ensure_mask_not_empty(source_mask, config.source)
         params = self._directional_margin_params(config, "distance")
-        roles = {"source": source_mask, "subtract": self.available_masks[config.subtract]}
+        if self._params_all_zero(params, "distance"):
+            raise RuleEvaluationError(
+                f"Expand & Subtract rule '{rule.name}' has no expansion distance "
+                "set (all direction distances are 0); the result would equal the "
+                "source structure. Set a per-direction distance."
+            )
+        subtract_mask = self.available_masks[config.subtract]
+        if not np.any(sitk.GetArrayFromImage(subtract_mask)):
+            logger.warning(
+                f"Expand & Subtract rule '{rule.name}': subtract structure "
+                f"'{config.subtract}' is empty; nothing will be subtracted."
+            )
+        roles = {"source": source_mask, "subtract": subtract_mask}
         return execute_operation("expand_subtract", roles, params)
 
     def _evaluate_avoid_margin_rule(self, rule: PipelineRule) -> sitk.Image:
@@ -308,13 +383,22 @@ class SegmentationEngine:
         avoid_mask = self.available_masks[config.avoid]
         self._ensure_mask_not_empty(avoid_mask, config.avoid)
         params = self._directional_margin_params(config, "margin")
+        if self._params_all_zero(params, "margin"):
+            raise RuleEvaluationError(
+                f"Avoid with Margin rule '{rule.name}' has a zero margin (all "
+                "direction margins are 0); nothing would be avoided. Set a "
+                "per-direction margin."
+            )
         roles = {"source": source_mask, "avoid": avoid_mask}
         return execute_operation("avoid_margin", roles, params)
 
     def _evaluate_crop_rule(self, rule: PipelineRule) -> sitk.Image:
         config = rule.crop_config
         source_mask = self.available_masks[config.source]
+        self._ensure_mask_not_empty(source_mask, config.source)
         boundaries = [self.available_masks[b.boundary_roi] for b in config.boundaries.all()]
+        for b in boundaries:
+            self._ensure_mask_not_empty(b, "(crop boundary)")
         roles = {"source": source_mask, "boundaries": boundaries}
         return execute_operation("crop_to_boundary", roles, {})
 
@@ -328,13 +412,15 @@ class SegmentationEngine:
             return execute_operation(
                 "smooth",
                 {"source": source_mask},
-                {"smoothing_mm": config.smoothing_mm, "iterations": config.iterations},
+                {"smoothing_mm": config.smoothing_mm or 2.0,
+                 "iterations": config.iterations or 1},
             )
         if operation == "GAUSSIAN_SMOOTH":
             return execute_operation(
                 "gaussian_smooth",
                 {"source": source_mask},
-                {"sigma_mm": config.sigma_mm, "threshold": config.threshold},
+                {"sigma_mm": config.sigma_mm or 1.0,
+                 "threshold": config.threshold if config.threshold is not None else 0.5},
             )
         if operation == "FILL_HOLES":
             return execute_operation(
@@ -346,10 +432,24 @@ class SegmentationEngine:
             return execute_operation(
                 "remove_small_components",
                 {"source": source_mask},
-                {"min_size_mm3": config.min_size_mm3},
+                {"min_size_mm3": config.min_size_mm3 or 100.0},
             )
         if operation == "KEEP_LARGEST_COMPONENT":
             return execute_operation("keep_largest", {"source": source_mask}, {})
+        if operation == "KEEP_N_LARGEST_COMPONENT":
+            return execute_operation(
+                "keep_n_largest", {"source": source_mask}, {"n": config.n or 1}
+            )
+        if operation == "CLOSE_GAPS":
+            return execute_operation(
+                "close_gaps", {"source": source_mask},
+                {"gap_size_mm": config.gap_size_mm or 2.0},
+            )
+        if operation == "REMOVE_PROTRUSIONS":
+            return execute_operation(
+                "remove_protrusions", {"source": source_mask},
+                {"protrusion_size_mm": config.protrusion_size_mm or 2.0},
+            )
 
         raise RuleEvaluationError(f"Unknown cleanup operation: {operation}")
 
@@ -378,26 +478,105 @@ class SegmentationEngine:
         color = self._parse_color(rule.output_color)
         name = rule.name
 
+        if rule.output_action == "INTERMEDIATE":
+            # Hold in memory for later rules; do NOT write to the RTStruct.
+            self.available_masks[name] = mask
+            if name not in self.summary["intermediate_rois"]:
+                self.summary["intermediate_rois"].append(name)
+            return name
+
         # CREATE_NEW outputs must be unique in the RTStruct. If the name
         # already exists, append a numeric suffix to avoid duplicates.
         if rule.output_action == "CREATE_NEW" and name in self.rtstruct.get_roi_names():
             suffix = 1
-            while f"{name}_{suffix}" in self.rtstruct.get_roi_names():
+            base = name
+            while f"{base}_{suffix}" in self.rtstruct.get_roi_names():
                 suffix += 1
-            name = f"{name}_{suffix}"
+            name = _trim_to_limit(base, suffix, RULE_NAME_LIMIT)
             logger.warning(
                 f"ROI name '{rule.name}' already exists; renamed output to '{name}'"
             )
 
+        self.available_masks[name] = mask
+        roi_type = rule.output_roi_type or "ORGAN"
+        # When a rule leaves color/type unset, inherit them from its primary
+        # source structure so a derived PTV keeps the PTV's color/type instead
+        # of falling back to the yellow / ORGAN default.
+        if not rule.output_color or not rule.output_roi_type:
+            source_name = self._resolve_source_name(rule)
+            if source_name:
+                src_color, src_type = self._read_roi_color_type(source_name)
+                if not rule.output_color and src_color:
+                    color = src_color
+                if not rule.output_roi_type and src_type:
+                    roi_type = src_type
         add_mask_as_roi(
             self.rtstruct,
             mask,
             name,
             color,
-            roi_type=rule.output_roi_type or "ORGAN",
+            roi_type=roi_type,
             replace_existing=(rule.output_action == "REPLACE_EXISTING"),
         )
         return name
+
+    def _resolve_source_name(self, rule: PipelineRule) -> Optional[str]:
+        """Return the primary input structure name a rule derives from.
+
+        Used to inherit color/type when the rule leaves them unset.
+        """
+        if rule.rule_type == "BOOLEAN":
+            try:
+                root = get_boolean_root(rule)
+                names = collect_boolean_roi_names(root)
+                return sorted(names)[0] if names else None
+            except RuleEvaluationError:
+                return None
+        if rule.rule_type == "INTENSITY":
+            config = getattr(rule, "intensity_config", None)
+            if config:
+                return config.seed_roi or config.boundary_roi
+            return None
+        accessor = {
+            "MARGIN": "margin_config",
+            "CLEANUP": "cleanup_config",
+            "CROP": "crop_config",
+            "RING": "ring_config",
+            "OVERLAP": "overlap_config",
+            "EXPAND_SUBTRACT": "expand_subtract_config",
+            "AVOID_MARGIN": "avoid_margin_config",
+        }.get(rule.rule_type)
+        if accessor:
+            config = getattr(rule, accessor, None)
+            if config:
+                return getattr(config, "source", None)
+        return None
+
+    def _read_roi_color_type(self, name: str) -> Tuple[Optional[List[int]], Optional[str]]:
+        """Read an existing ROI's ROIDisplayColor and RTROIInterpretedType."""
+        ds = self.rtstruct.ds
+        roi_number = None
+        for roi in getattr(ds, "StructureSetROISequence", []) or []:
+            if str(getattr(roi, "ROIName", "")) == name:
+                roi_number = int(getattr(roi, "ROINumber", 0))
+                break
+        if roi_number is None:
+            return None, None
+        color = None
+        for contour in getattr(ds, "ROIContourSequence", []) or []:
+            if int(getattr(contour, "ReferencedROINumber", 0)) == roi_number:
+                dc = getattr(contour, "ROIDisplayColor", None)
+                if dc is not None:
+                    color = [int(c) for c in dc]
+                break
+        roi_type = None
+        for obs in getattr(ds, "RTROIObservationsSequence", []) or []:
+            if int(getattr(obs, "ReferencedROINumber", 0)) == roi_number:
+                t = getattr(obs, "RTROIInterpretedType", None)
+                if t:
+                    roi_type = str(t)
+                break
+        return color, roi_type
 
     def _parse_color(self, color_string: Optional[str]) -> List[int]:
         if not color_string:

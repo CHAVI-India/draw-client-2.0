@@ -318,7 +318,10 @@ def add_mask_as_roi(
         color=color,
         description=f"Generated structure: {name}",
         use_pin_hole=False,
+        roi_interpreted_type=roi_type,
     )
+    # Safety net: ensure the interpretation type is set even if the library
+    # path above did not write it (e.g. older rt_utils without the param).
     _add_roi_display_type(rtstruct, name, roi_type)
     logger.info(f"Added ROI '{name}' to RTStruct (replace_existing={replace_existing})")
     return rtstruct

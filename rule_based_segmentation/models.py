@@ -71,6 +71,7 @@ class PipelineRule(models.Model):
     OUTPUT_ACTION_CHOICES = [
         ("CREATE_NEW", "Create new ROI"),
         ("REPLACE_EXISTING", "Replace existing ROI"),
+        ("INTERMEDIATE", "Intermediate (in-memory only, not exported)"),
     ]
 
     ROI_TYPE_CHOICES = [
@@ -109,8 +110,10 @@ class PipelineRule(models.Model):
     order = models.PositiveIntegerField()
     rule_type = models.CharField(max_length=20, choices=RULE_TYPE_CHOICES)
     name = models.CharField(
-        max_length=16,
-        help_text="Output ROI name. Must be unique within the RTStruct or will be replaced/renamed.",
+        max_length=54,
+        help_text="Output ROI name (up to 54 chars for Eclipse Clinical-Goal "
+                  "naming). Must be unique within the RTStruct or will be "
+                  "replaced/renamed.",
     )
     output_action = models.CharField(
         max_length=20,
@@ -163,6 +166,10 @@ class PipelineRule(models.Model):
 
     def __str__(self):
         return f"{self.order}. {self.name} ({self.rule_type})"
+
+    def is_intermediate(self) -> bool:
+        """True if this rule's output is held in memory and not exported."""
+        return self.output_action == "INTERMEDIATE"
 
 
 class BooleanExpressionNode(models.Model):
@@ -365,6 +372,9 @@ class CleanupRuleConfig(models.Model):
         ("FILL_HOLES", "Fill Holes"),
         ("REMOVE_SMALL_COMPONENTS", "Remove Small Components"),
         ("KEEP_LARGEST_COMPONENT", "Keep Largest Component"),
+        ("KEEP_N_LARGEST_COMPONENT", "Keep N Largest Components"),
+        ("CLOSE_GAPS", "Close Gaps"),
+        ("REMOVE_PROTRUSIONS", "Remove Protrusions"),
     ]
 
     pipeline_rule = models.OneToOneField(
@@ -381,6 +391,9 @@ class CleanupRuleConfig(models.Model):
     fully_connected = models.BooleanField(null=True, blank=True)
     sigma_mm = models.FloatField(null=True, blank=True)
     threshold = models.FloatField(null=True, blank=True)
+    n = models.PositiveIntegerField(null=True, blank=True)
+    gap_size_mm = models.FloatField(null=True, blank=True)
+    protrusion_size_mm = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

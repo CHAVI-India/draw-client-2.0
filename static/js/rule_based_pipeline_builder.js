@@ -44,6 +44,9 @@
     FILL_HOLES: { label: "Fill Holes", params: ["fully_connected"] },
     REMOVE_SMALL_COMPONENTS: { label: "Remove Small Components", params: ["min_size_mm3"] },
     KEEP_LARGEST_COMPONENT: { label: "Keep Largest Component", params: [] },
+    KEEP_N_LARGEST_COMPONENT: { label: "Keep N Largest Components", params: ["n"] },
+    CLOSE_GAPS: { label: "Close Gaps", params: ["gap_size_mm"] },
+    REMOVE_PROTRUSIONS: { label: "Remove Protrusions", params: ["protrusion_size_mm"] },
   };
 
   function uuidv4() {
@@ -105,7 +108,6 @@
             </div>
           </div>
           <div id="rbs-rules-list" class="space-y-3"></div>
-          <div id="rbs-rule-editor" class="hidden border rounded-md p-4 bg-gray-50"></div>
         </div>
       `;
 
@@ -244,8 +246,7 @@
     addRule(ruleType) {
       const rule = this._normalizeRule({ rule_type: ruleType });
       this.state.rules.push(rule);
-      this._renderRulesList();
-      this.editRule(rule.tempId);
+      this._setEditing(rule.tempId);
     }
 
     deleteRule(tempId) {
@@ -368,8 +369,12 @@
     editRule(tempId) {
       const rule = this.state.rules.find((r) => r.tempId === tempId);
       if (!rule) return;
+      this._setEditing(tempId);
+    }
+
+    _setEditing(tempId) {
       this.editingRuleId = tempId;
-      this._renderRuleEditor(rule);
+      this._renderRulesList();
     }
 
     _renderRulesList() {
@@ -386,8 +391,13 @@
       list.innerHTML = this.state.rules
         .map((rule, index) => {
           const summary = this._summarizeRule(rule);
+          const isEditing = rule.tempId === this.editingRuleId;
+          const inlineEditor = isEditing
+            ? `\n              <div class="mt-3 border-t border-gray-200 pt-3">${this._renderRuleEditorContent(rule)}</div>`
+            : "";
           return `
-            <div class="bg-white border rounded-md p-3 shadow-sm flex items-start justify-between" data-temp-id="${rule.tempId}">
+            <div class="bg-white border rounded-md p-3 shadow-sm ${isEditing ? "ring-2 ring-primary-500" : ""}" data-temp-id="${rule.tempId}">
+              <div class="flex items-start justify-between">
               <div class="flex items-start space-x-3">
                 <div class="cursor-move text-gray-400 hover:text-gray-600" title="Drag to reorder">
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg>
@@ -403,10 +413,10 @@
                 </div>
               </div>
               <div class="flex items-center space-x-1">
-                <button type="button" class="rbs-move-up p-1 text-gray-500 hover:text-gray-700" title="Move up" ${index === 0 ? "disabled" : ""}>
+                <button type="button" class="rbs-move-up p-1 text-gray-500 hover:text-gray-700 disabled:opacity-40" title="Move up" ${isEditing || index === 0 ? "disabled" : ""}>
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>
                 </button>
-                <button type="button" class="rbs-move-down p-1 text-gray-500 hover:text-gray-700" title="Move down" ${index === this.state.rules.length - 1 ? "disabled" : ""}>
+                <button type="button" class="rbs-move-down p-1 text-gray-500 hover:text-gray-700 disabled:opacity-40" title="Move down" ${isEditing || index === this.state.rules.length - 1 ? "disabled" : ""}>
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                 </button>
                 <button type="button" class="rbs-edit-rule p-1 text-blue-600 hover:text-blue-800" title="Edit">
@@ -416,12 +426,17 @@
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                 </button>
               </div>
+              </div>${inlineEditor}
             </div>
           `;
         })
         .join("");
 
       this._attachRuleListEvents();
+      if (this.editingRuleId) {
+        const editing = this.state.rules.find((r) => r.tempId === this.editingRuleId);
+        if (editing) this._attachRuleEditorEvents(editing);
+      }
     }
 
     _attachRuleListEvents() {
@@ -502,10 +517,7 @@
       return operandSummaries;
     }
 
-    _renderRuleEditor(rule) {
-      const editor = this.container.querySelector("#rbs-rule-editor");
-      editor.classList.remove("hidden");
-
+    _renderRuleEditorContent(rule) {
       let configHtml = "";
       switch (rule.rule_type) {
         case "BOOLEAN":
@@ -537,10 +549,10 @@
           break;
       }
 
-      editor.innerHTML = `
+      return `
         <div class="space-y-4">
           <div class="flex justify-between items-center">
-            <h4 class="font-semibold">Edit Rule</h4>
+            <h4 class="font-semibold">Edit Rule: ${this._escapeHtml(rule.name || "Unnamed")}</h4>
             <button type="button" id="rbs-close-editor" class="text-gray-500 hover:text-gray-700">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -555,6 +567,7 @@
               <select id="rbs-rule-output-action" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
                 <option value="CREATE_NEW" ${rule.output_action === "CREATE_NEW" ? "selected" : ""}>Create new ROI</option>
                 <option value="REPLACE_EXISTING" ${rule.output_action === "REPLACE_EXISTING" ? "selected" : ""}>Replace existing ROI</option>
+                <option value="INTERMEDIATE" ${rule.output_action === "INTERMEDIATE" ? "selected" : ""}>Intermediate (not exported)</option>
               </select>
             </div>
             <div>
@@ -576,17 +589,17 @@
         </div>
       `;
 
-      editor.querySelector("#rbs-close-editor").addEventListener("click", () => this._hideEditor());
-      editor.querySelector("#rbs-cancel-edit").addEventListener("click", () => this._hideEditor());
-      editor.querySelector("#rbs-save-rule").addEventListener("click", () => this._saveCurrentRule());
+    }
 
+    _attachRuleEditorEvents(rule) {
+      this.container.querySelector("#rbs-close-editor").addEventListener("click", () => this._hideEditor());
+      this.container.querySelector("#rbs-cancel-edit").addEventListener("click", () => this._hideEditor());
+      this.container.querySelector("#rbs-save-rule").addEventListener("click", () => this._saveCurrentRule());
       this._attachConfigEventListeners(rule.rule_type);
     }
 
     _hideEditor() {
-      this.editingRuleId = null;
-      const editor = this.container.querySelector("#rbs-rule-editor");
-      if (editor) editor.classList.add("hidden");
+      this._setEditing(null);
     }
 
     _saveCurrentRule() {
@@ -620,7 +633,6 @@
       this._collectConfigFromEditor(rule);
 
       this._hideEditor();
-      this._renderRulesList();
     }
 
     _renderBooleanEditor(config) {
@@ -976,6 +988,24 @@
           </label>
         `;
       }
+      if (params.includes("n")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Keep (N)</label>
+          <input type="number" step="1" id="rbs-cleanup-n" value="${config.n || 1}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
+      if (params.includes("gap_size_mm")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Gap Size (mm)</label>
+          <input type="number" step="any" id="rbs-cleanup-gap-size-mm" value="${config.gap_size_mm || 2.0}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
+      if (params.includes("protrusion_size_mm")) {
+        html += `
+          <label class="block text-sm font-medium text-gray-700">Protrusion Size (mm)</label>
+          <input type="number" step="any" id="rbs-cleanup-protrusion-size-mm" value="${config.protrusion_size_mm || 2.0}" class="mt-1 block w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm px-3 py-2">
+        `;
+      }
       return html;
     }
 
@@ -1115,6 +1145,9 @@
           cfg.threshold = parseFloat(this._getValue("#rbs-cleanup-threshold")) || null;
           const fullyConnected = this.container.querySelector("#rbs-cleanup-fully-connected");
           cfg.fully_connected = fullyConnected ? fullyConnected.checked : null;
+          cfg.n = parseInt(this._getValue("#rbs-cleanup-n")) || null;
+          cfg.gap_size_mm = parseFloat(this._getValue("#rbs-cleanup-gap-size-mm")) || null;
+          cfg.protrusion_size_mm = parseFloat(this._getValue("#rbs-cleanup-protrusion-size-mm")) || null;
           break;
       }
     }
@@ -1200,60 +1233,69 @@
 
     _attachBooleanEditorListeners(rootElement) {
       if (!rootElement) return;
+      // Event delegation: the root element is (re)created every time the editor
+      // re-renders, so we attach ONE delegated listener here and never re-attach
+      // when operands are added/removed/converted. The previous implementation
+      // re-attached click handlers to buttons that were already listening after
+      // every add/convert, so the number of handlers (and therefore the number
+      // of rows appended per click) multiplied on each click.
+      if (rootElement.dataset.rbsDelegated === "true") return;
+      rootElement.dataset.rbsDelegated = "true";
 
-      rootElement.querySelectorAll(".rbs-boolean-op").forEach((select) => {
-        select.addEventListener("change", (e) => {
+      rootElement.addEventListener("click", (e) => {
+        if (e.target.closest(".rbs-add-operand")) {
+          this._addBooleanOperand(e, false);
+        } else if (e.target.closest(".rbs-add-group")) {
+          this._addBooleanOperand(e, true);
+        } else if (e.target.closest(".rbs-remove-operand")) {
+          this._removeBooleanOperand(e);
+        } else if (e.target.closest(".rbs-convert-to-group")) {
+          this._convertToGroup(e);
+        }
+      });
+
+      // "change" events bubble, so delegate the operation-select change too.
+      rootElement.addEventListener("change", (e) => {
+        if (e.target.classList && e.target.classList.contains("rbs-boolean-op")) {
           const node = e.target.closest(".rbs-boolean-node, .rbs-boolean-operand");
           if (node) node.dataset.operation = e.target.value;
-        });
+        }
       });
+    }
 
-      const addOperand = (e, isGroup) => {
-        const container = e.target.closest(".rbs-boolean-node, .rbs-boolean-operand");
-        const children = container.querySelector(":scope > .rbs-boolean-children");
-        if (!children) return;
-        const emptyMsg = children.querySelector(".rbs-boolean-empty-msg");
-        if (emptyMsg) emptyMsg.remove();
-        const index = children.children.length;
-        const operandHtml = isGroup
-          ? this._renderBooleanOperand({ operation: "UNION", operands: [] }, index)
-          : this._renderBooleanOperand({ name: "" }, index);
-        const wrapper = document.createElement("div");
-        wrapper.innerHTML = operandHtml;
-        children.appendChild(wrapper.firstElementChild);
-        this._attachBooleanEditorListeners(container);
-      };
+    _addBooleanOperand(e, isGroup) {
+      const container = e.target.closest(".rbs-boolean-node, .rbs-boolean-operand");
+      const children = container && container.querySelector(":scope > .rbs-boolean-children");
+      if (!children) return;
+      const emptyMsg = children.querySelector(".rbs-boolean-empty-msg");
+      if (emptyMsg) emptyMsg.remove();
+      const index = children.children.length;
+      const operand = isGroup ? { operation: "UNION", operands: [] } : { name: "" };
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = this._renderBooleanOperand(operand, index);
+      children.appendChild(wrapper.firstElementChild);
+      // No re-attach: the delegated listeners on the root already cover the new
+      // operand's buttons, including a group's nested add/remove controls.
+    }
 
-      rootElement.querySelectorAll(".rbs-add-operand").forEach((btn) => {
-        btn.addEventListener("click", (e) => addOperand(e, false));
-      });
+    _removeBooleanOperand(e) {
+      const operand = e.target.closest(".rbs-boolean-operand");
+      if (!operand) return;
+      const children = operand.parentElement;
+      operand.remove();
+      if (children && children.children.length === 0) {
+        children.innerHTML = `<div class="text-sm text-gray-500 italic p-2 rbs-boolean-empty-msg">No operands. Add structures or groups below.</div>`;
+      }
+    }
 
-      rootElement.querySelectorAll(".rbs-add-group").forEach((btn) => {
-        btn.addEventListener("click", (e) => addOperand(e, true));
-      });
-
-      rootElement.querySelectorAll(".rbs-remove-operand").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const operand = e.target.closest(".rbs-boolean-operand");
-          const children = operand.parentElement;
-          operand.remove();
-          if (children && children.children.length === 0) {
-            children.innerHTML = `<div class="text-sm text-gray-500 italic p-2 rbs-boolean-empty-msg">No operands. Add structures or groups below.</div>`;
-          }
-        });
-      });
-
-      rootElement.querySelectorAll(".rbs-convert-to-group").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const operand = e.target.closest(".rbs-boolean-operand");
-          const groupConfig = { operation: "UNION", operands: [{ name: "" }] };
-          const newHtml = this._renderBooleanOperand(groupConfig, parseInt(operand.dataset.index));
-          const wrapper = document.createElement("div");
-          wrapper.innerHTML = newHtml;
-          operand.replaceWith(wrapper.firstElementChild);
-          this._attachBooleanEditorListeners(rootElement);
-        });
-      });
+    _convertToGroup(e) {
+      const operand = e.target.closest(".rbs-boolean-operand");
+      if (!operand) return;
+      const groupConfig = { operation: "UNION", operands: [{ name: "" }] };
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = this._renderBooleanOperand(groupConfig, parseInt(operand.dataset.index));
+      operand.replaceWith(wrapper.firstElementChild);
+      // No re-attach: delegation covers the new group's controls.
     }
 
     _serializeBooleanNode(element) {
@@ -1287,10 +1329,6 @@
     setAvailableStructures(structures) {
       this.availableStructures = structures || [];
       this._renderRulesList();
-      if (this.editingRuleId) {
-        const rule = this.state.rules.find((r) => r.tempId === this.editingRuleId);
-        if (rule) this._renderRuleEditor(rule);
-      }
     }
 
     getRules() {
@@ -1300,7 +1338,7 @@
     _roiNameMaxLength() {
       const raw = this.container.getAttribute("data-roi-name-max-length");
       const n = parseInt(raw, 10);
-      return Number.isFinite(n) && n > 0 ? n : 16;
+      return Number.isFinite(n) && n > 0 ? n : 54;
     }
 
     validate() {

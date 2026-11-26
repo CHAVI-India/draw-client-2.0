@@ -2,14 +2,15 @@
 Views for managing AdditionalStructures
 """
 
-import json
 import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from .models import AdditionalStructures, AutosegmentationTemplate
+from .utils.additional_structure_pipeline import save_pipeline_for_structure
 
 logger = logging.getLogger(__name__)
 
@@ -22,36 +23,28 @@ def add_additional_structure(request):
     """
     if request.method != 'POST':
         return redirect('dicom_handler:template_list')
-    
+
     template_id = request.POST.get('template_id')
     template = get_object_or_404(AutosegmentationTemplate, id=template_id)
-    
+
     try:
-        # Parse JSON for roi_generation_logic
-        roi_generation_logic_str = request.POST.get('roi_generation_logic', '').strip()
-        roi_generation_logic = None
-        if roi_generation_logic_str:
-            try:
-                roi_generation_logic = json.loads(roi_generation_logic_str)
-            except json.JSONDecodeError as e:
-                messages.error(request, f'Invalid JSON in generation logic: {str(e)}')
-                return redirect('dicom_handler:template_detail', template_id=template.id)
-        
-        # Create new structure
-        structure = AdditionalStructures(
-            autosegmentation_template=template,
-            roi_label=request.POST.get('roi_label', '').strip(),
-            rt_roi_interpreted_type=request.POST.get('rt_roi_interpreted_type', '').strip() or None,
-            roi_display_color=request.POST.get('roi_display_color', '').strip() or None,
-            roi_generation_logic=roi_generation_logic
-        )
-        
-        # Validate
-        structure.full_clean()
-        structure.save()
-        
+        with transaction.atomic():
+            structure = AdditionalStructures(
+                autosegmentation_template=template,
+                roi_label=request.POST.get('roi_label', '').strip(),
+                rt_roi_interpreted_type=request.POST.get('rt_roi_interpreted_type', '').strip() or None,
+                roi_display_color=request.POST.get('roi_display_color', '').strip() or None,
+            )
+            # Validate label/color/uniqueness
+            structure.full_clean()
+
+            # Persist the RBS pipeline (empty payload -> empty ROI "no step").
+            pipeline = save_pipeline_for_structure(request, template, structure)
+            structure.pipeline = pipeline
+            structure.save()
+
         messages.success(request, f'Successfully added additional structure: {structure.roi_label}')
-        
+
     except ValidationError as e:
         error_messages = []
         if hasattr(e, 'message_dict'):
@@ -60,15 +53,15 @@ def add_additional_structure(request):
                     error_messages.append(f'{field}: {error}')
         else:
             error_messages.append(str(e))
-        
+
         for error_msg in error_messages:
             messages.error(request, error_msg)
         logger.error(f'Validation error adding additional structure: {e}')
-        
+
     except Exception as e:
         messages.error(request, f'Error adding structure: {str(e)}')
-        logger.error(f'Error adding additional structure: {str(e)}', exc_info=True)
-    
+        logger.error(f'Error adding structure: {str(e)}', exc_info=True)
+
     return redirect('dicom_handler:template_detail', template_id=template.id)
 
 
@@ -80,36 +73,29 @@ def edit_additional_structure(request):
     """
     if request.method != 'POST':
         return redirect('dicom_handler:template_list')
-    
+
     structure_id = request.POST.get('structure_id')
-    template_id = request.POST.get('template_id')
-    
+
     structure = get_object_or_404(AdditionalStructures, id=structure_id)
     template = structure.autosegmentation_template
-    
+
     try:
-        # Parse JSON for roi_generation_logic
-        roi_generation_logic_str = request.POST.get('roi_generation_logic', '').strip()
-        roi_generation_logic = None
-        if roi_generation_logic_str:
-            try:
-                roi_generation_logic = json.loads(roi_generation_logic_str)
-            except json.JSONDecodeError as e:
-                messages.error(request, f'Invalid JSON in generation logic: {str(e)}')
-                return redirect('dicom_handler:template_detail', template_id=template.id)
-        
-        # Update fields
-        structure.roi_label = request.POST.get('roi_label', '').strip()
-        structure.rt_roi_interpreted_type = request.POST.get('rt_roi_interpreted_type', '').strip() or None
-        structure.roi_display_color = request.POST.get('roi_display_color', '').strip() or None
-        structure.roi_generation_logic = roi_generation_logic
-        
-        # Validate
-        structure.full_clean()
-        structure.save()
-        
+        with transaction.atomic():
+            structure.roi_label = request.POST.get('roi_label', '').strip()
+            structure.rt_roi_interpreted_type = request.POST.get('rt_roi_interpreted_type', '').strip() or None
+            structure.roi_display_color = request.POST.get('roi_display_color', '').strip() or None
+            # roi_generation_logic is intentionally no longer written (frozen legacy
+            # fallback); the RBS pipeline is the source of truth.
+            structure.full_clean()
+
+            pipeline = save_pipeline_for_structure(
+                request, template, structure, existing_pipeline=structure.pipeline
+            )
+            structure.pipeline = pipeline
+            structure.save()
+
         messages.success(request, f'Successfully updated additional structure: {structure.roi_label}')
-        
+
     except ValidationError as e:
         error_messages = []
         if hasattr(e, 'message_dict'):
@@ -118,15 +104,15 @@ def edit_additional_structure(request):
                     error_messages.append(f'{field}: {error}')
         else:
             error_messages.append(str(e))
-        
+
         for error_msg in error_messages:
             messages.error(request, error_msg)
         logger.error(f'Validation error editing additional structure: {e}')
-        
+
     except Exception as e:
         messages.error(request, f'Error updating structure: {str(e)}')
-        logger.error(f'Error editing additional structure: {str(e)}', exc_info=True)
-    
+        logger.error(f'Error updating structure: {str(e)}', exc_info=True)
+
     return redirect('dicom_handler:template_detail', template_id=template.id)
 
 
@@ -138,19 +124,19 @@ def delete_additional_structure(request):
     """
     if request.method != 'POST':
         return redirect('dicom_handler:template_list')
-    
+
     structure_id = request.POST.get('structure_id')
     template_id = request.POST.get('template_id')
-    
+
     structure = get_object_or_404(AdditionalStructures, id=structure_id)
     template = structure.autosegmentation_template
     roi_label = structure.roi_label
-    
+
     try:
         structure.delete()
         messages.success(request, f'Successfully deleted additional structure: {roi_label}')
     except Exception as e:
         messages.error(request, f'Error deleting structure: {str(e)}')
         logger.error(f'Error deleting additional structure: {str(e)}', exc_info=True)
-    
+
     return redirect('dicom_handler:template_detail', template_id=template.id)
