@@ -253,7 +253,21 @@ class StructureProperties(models.Model):
     
 class AdditionalStructures(models.Model):
     '''
-    This is a model to store additional structures that are not part of the autosegmentation template but will be added to the structureset before it is saved.
+    DEPRECATED (Phase 5) - do not use for new code.
+
+    Historically the per-row store of a template's additional structures (an
+    ROI that is not part of the autosegmentation template but is added to the
+    structure set before it is saved).
+
+    As of Phase 5 the source of truth is the template's additional-structures
+    pipeline (``AutosegmentationTemplate.additional_structures_pipeline``):
+    every ``output_action=CREATE_NEW`` rule is one additional structure, and
+    task2 runs that pipeline directly. No live code reads or writes this model
+    anymore. It is retained *only* so the historical migration chain
+    (0061/0062/0064) keeps importing the live class and a fresh-database
+    ``manage.py migrate`` stays portable - see
+    ``docs/superpowers/plans/2026-11-26-template-pipeline-redesign.md``
+    ("Future cleanup") for the steps to delete it.
     '''
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     autosegmentation_template = models.ForeignKey(AutosegmentationTemplate, on_delete=models.CASCADE)
@@ -261,8 +275,9 @@ class AdditionalStructures(models.Model):
     rt_roi_interpreted_type = models.CharField(max_length=256, null=True, blank=True, verbose_name = "Type of the Structure (ROI)", choices=RTROIInterpretedTypeChoices.choices)
     roi_display_color = models.CharField(max_length=256, null=True, blank = True)
     roi_generation_logic = models.JSONField(null=True, blank=True, help_text = "This field will define the logic that will be used for generate the ROI.")
-    # RBS pipeline that generates this ROI (Phase 4). A pipeline with zero
-    # rules (or None) means "create the ROI empty, no derivation".
+    # RBS pipeline that generates this ROI (Phase 4, now superseded by the
+    # template pipeline). A pipeline with zero rules (or None) means "create
+    # the ROI empty, no derivation". Retained for migration-history portability.
     pipeline = models.ForeignKey(
         "rule_based_segmentation.SegmentationPipeline",
         null=True, blank=True,

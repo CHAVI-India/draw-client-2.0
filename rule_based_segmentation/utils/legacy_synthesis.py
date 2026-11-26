@@ -1,5 +1,13 @@
 """Synthesize legacy ``roi_generation_logic`` chains into RBS rules.
 
+DEPRECATED (Phase 5) - not used by any live code path. The template's
+additional structures are now authored directly as an RBS
+``SegmentationPipeline`` (``template.additional_structures_pipeline``) and
+executed by task2; this module is retained only because the historical
+migration 0062 imports it at runtime, so a fresh-database ``manage.py migrate``
+stays portable. See ``docs/superpowers/plans/2026-11-26-template-pipeline-redesign.md``
+("Future cleanup") for the steps to remove it.
+
 The legacy generated-contour system stored, per ``AdditionalStructures`` row, a
 JSON chain::
 
