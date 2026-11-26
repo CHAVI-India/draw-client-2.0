@@ -658,7 +658,8 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
                 except Exception as p_err:
                     failed_count += 1
                     logger.error(
-                        f"Additional-structures pipeline '{pipeline.name}' failed: {p_err}",
+                        "Additional-structures pipeline '%s' failed [%s]: %s",
+                        pipeline.name, type(p_err).__name__, p_err,
                         exc_info=True,
                     )
 

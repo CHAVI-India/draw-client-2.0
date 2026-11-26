@@ -86,7 +86,8 @@ def save_pipeline_from_dict(data, user, pipeline=None):
 
 
 def _validate_pipeline_rules(rules):
-    """Validate pipeline rule ordering and output-name uniqueness."""
+    """Validate pipeline rule ordering, output-name uniqueness, and that each
+    source-based rule has the input structure(s) it needs."""
     name_max_len = PipelineRule._meta.get_field("name").max_length
 
     output_names = set()
@@ -105,6 +106,13 @@ def _validate_pipeline_rules(rules):
             )
         output_names.add(name)
 
+    for idx, rule in enumerate(rules, start=1):
+        missing = _required_input_error(rule)
+        if missing:
+            raise ValueError(
+                f"Rule {idx} ('{rule.get('name', '').strip()}') {missing}."
+            )
+
     produced_by_index = {}
     for idx, rule in enumerate(rules, start=1):
         produced_by_index[rule.get("name", "").strip()] = idx
@@ -117,6 +125,48 @@ def _validate_pipeline_rules(rules):
                     f"Rule '{rule.get('name')}' references '{required}', which is produced by "
                     f"rule {required_source}. Move the source rule before this rule."
                 )
+
+
+def _required_input_error(rule_data):
+    """Return a human-readable error if a source-based rule is missing a required
+    input structure, else ``None``. Catches bad rules at authoring time (the
+    builder may leave a source field empty) so they never reach the engine.
+    """
+    rt = rule_data.get("rule_type")
+    cfg = rule_data.get("config") or {}
+
+    def _has(value):
+        return bool((value or "").strip())
+
+    if rt in ("MARGIN", "CLEANUP", "RING"):
+        if not _has(cfg.get("source")):
+            return f"needs a source structure ({rt})"
+    elif rt == "CROP":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Crop)"
+        if not any(_has(b) for b in (cfg.get("boundaries") or [])):
+            return "needs at least one boundary structure (Crop)"
+    elif rt == "OVERLAP":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Overlap)"
+        if not any(_has(o) for o in (cfg.get("others") or [])):
+            return "needs at least one other structure (Overlap)"
+    elif rt == "EXPAND_SUBTRACT":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Expand & Subtract)"
+        if not _has(cfg.get("subtract")):
+            return "needs a subtract structure (Expand & Subtract)"
+    elif rt == "AVOID_MARGIN":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Avoid-with-Margin)"
+        if not _has(cfg.get("avoid")):
+            return "needs an avoid structure (Avoid-with-Margin)"
+    elif rt == "INTENSITY":
+        if cfg.get("seed_type") == "STRUCTURE" and not _has(cfg.get("seed_roi")):
+            return "needs a seed structure (Intensity)"
+        if cfg.get("seed_type") == "BOUNDARY" and not _has(cfg.get("boundary_roi")):
+            return "needs a boundary structure (Intensity)"
+    return None
 
 
 def _collect_required_structure_names(rule):

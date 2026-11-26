@@ -9,6 +9,7 @@ import SimpleITK as sitk
 
 from dicom_handler.models import DICOMSeries
 from dicom_handler.utils.structure_generation import (
+    OperationExecutionError,
     execute_operation,
 )
 
@@ -174,64 +175,118 @@ class SegmentationEngine:
             produced.add(rule.name)
 
     def _collect_required_structures(self, rule: PipelineRule) -> Set[str]:
-        """Collect all structure names referenced by a rule."""
-        names: Set[str] = set()
+        """Collect all structure names referenced by a rule.
 
-        if rule.rule_type == "EMPTY":
+        Raises a descriptive ``RuleEvaluationError`` when a source-based rule is
+        missing the input it needs (an empty/absent ``source`` or a required
+        secondary structure), so a bad rule fails here with a clear message
+        instead of a cryptic ``KeyError`` deep inside the evaluator.
+        """
+        names: Set[str] = set()
+        rt = rule.rule_type
+
+        if rt == "EMPTY":
             return names
-        if rule.rule_type == "BOOLEAN":
+
+        if rt == "BOOLEAN":
             try:
                 root = get_boolean_root(rule)
                 names.update(collect_boolean_roi_names(root))
             except RuleEvaluationError:
                 pass
-        elif rule.rule_type == "INTENSITY":
+            return names
+
+        if rt == "INTENSITY":
             config = getattr(rule, "intensity_config", None)
-            if config:
-                if config.seed_type == "STRUCTURE" and config.seed_roi:
-                    names.add(config.seed_roi)
-                if config.boundary_roi:
-                    names.add(config.boundary_roi)
-        elif rule.rule_type == "MARGIN":
-            config = getattr(rule, "margin_config", None)
-            if config and config.source:
-                names.add(config.source)
-        elif rule.rule_type == "CROP":
+            if config is None:
+                return names
+            if config.seed_type == "STRUCTURE" and not config.seed_roi:
+                raise RuleEvaluationError(
+                    f"Intensity rule '{rule.name}' is seeded from a structure "
+                    "but no seed ROI is selected."
+                )
+            if config.seed_type == "BOUNDARY" and not config.boundary_roi:
+                raise RuleEvaluationError(
+                    f"Intensity rule '{rule.name}' is seeded from a boundary "
+                    "structure but no boundary ROI is selected."
+                )
+            if config.seed_type == "STRUCTURE" and config.seed_roi:
+                names.add(config.seed_roi)
+            if config.boundary_roi:
+                names.add(config.boundary_roi)
+            return names
+
+        if rt in ("MARGIN", "CLEANUP", "RING"):
+            config = getattr(rule, f"{rt.lower()}_config", None)
+            if config is None or not config.source:
+                raise RuleEvaluationError(
+                    f"{rt} rule '{rule.name}' needs a source structure "
+                    "(the source field is empty)."
+                )
+            names.add(config.source)
+            return names
+
+        if rt == "CROP":
             config = getattr(rule, "crop_config", None)
-            if config:
-                if config.source:
-                    names.add(config.source)
-                for boundary in config.boundaries.all():
-                    names.add(boundary.boundary_roi)
-        elif rule.rule_type == "CLEANUP":
-            config = getattr(rule, "cleanup_config", None)
-            if config and config.source:
-                names.add(config.source)
-        elif rule.rule_type == "RING":
-            config = getattr(rule, "ring_config", None)
-            if config and config.source:
-                names.add(config.source)
-        elif rule.rule_type == "OVERLAP":
+            if config is None or not config.source:
+                raise RuleEvaluationError(
+                    f"Crop rule '{rule.name}' needs a source structure "
+                    "(the source field is empty)."
+                )
+            names.add(config.source)
+            boundaries = list(config.boundaries.all())
+            if not boundaries:
+                raise RuleEvaluationError(
+                    f"Crop rule '{rule.name}' needs at least one boundary structure."
+                )
+            names.update(b.boundary_roi for b in boundaries)
+            return names
+
+        if rt == "OVERLAP":
             config = getattr(rule, "overlap_config", None)
-            if config:
-                if config.source:
-                    names.add(config.source)
-                for other in config.others.all():
-                    names.add(other.other_roi)
-        elif rule.rule_type == "EXPAND_SUBTRACT":
+            if config is None or not config.source:
+                raise RuleEvaluationError(
+                    f"Overlap rule '{rule.name}' needs a source structure "
+                    "(the source field is empty)."
+                )
+            names.add(config.source)
+            others = list(config.others.all())
+            if not others:
+                raise RuleEvaluationError(
+                    f"Overlap rule '{rule.name}' needs at least one other structure."
+                )
+            names.update(o.other_roi for o in others)
+            return names
+
+        if rt == "EXPAND_SUBTRACT":
             config = getattr(rule, "expand_subtract_config", None)
-            if config:
-                if config.source:
-                    names.add(config.source)
-                if config.subtract:
-                    names.add(config.subtract)
-        elif rule.rule_type == "AVOID_MARGIN":
+            if config is None or not config.source:
+                raise RuleEvaluationError(
+                    "Expand & Subtract rule "
+                    f"'{rule.name}' needs a source structure (the source field is empty)."
+                )
+            names.add(config.source)
+            if not config.subtract:
+                raise RuleEvaluationError(
+                    f"Expand & Subtract rule '{rule.name}' needs a subtract structure."
+                )
+            names.add(config.subtract)
+            return names
+
+        if rt == "AVOID_MARGIN":
             config = getattr(rule, "avoid_margin_config", None)
-            if config:
-                if config.source:
-                    names.add(config.source)
-                if config.avoid:
-                    names.add(config.avoid)
+            if config is None or not config.source:
+                raise RuleEvaluationError(
+                    f"Avoid-with-Margin rule '{rule.name}' needs a source structure "
+                    "(the source field is empty)."
+                )
+            names.add(config.source)
+            if not config.avoid:
+                raise RuleEvaluationError(
+                    f"Avoid-with-Margin rule '{rule.name}' needs an avoid structure."
+                )
+            names.add(config.avoid)
+            return names
 
         return names
 
@@ -478,7 +533,12 @@ class SegmentationEngine:
         the RTStruct — persistence is the caller's job (see JobWorkdir).
         """
         self._validate_rule_inputs([rule])
-        mask = self._evaluate_rule(rule)
+        try:
+            mask = self._evaluate_rule(rule)
+        except OperationExecutionError as e:
+            raise RuleEvaluationError(
+                f"Rule '{rule.name}' ({rule.rule_type}) failed: {e}"
+            ) from e
         self.available_masks[rule.name] = mask
         return self._add_rule_output_to_rtstruct(rule, mask)
 
