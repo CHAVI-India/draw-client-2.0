@@ -23,6 +23,7 @@ from .metrics import (
 )
 
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +151,10 @@ def prepare_dicom_series_for_rtutils(series_instance_uid):
         # Read DICOM metadata to get proper ordering
         instance_metadata = []
         for instance in instances:
-            if instance.instance_path and os.path.exists(instance.instance_path):
+            safe_path = validate_stored_path(instance.instance_path)
+            if safe_path and os.path.exists(safe_path):
                 try:
-                    ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True, force=True)
+                    ds = pydicom.dcmread(safe_path, stop_before_pixels=True, force=True)
                     instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
                     slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
                     image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
@@ -466,22 +468,22 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
         rtstruct_file_1 = voi1.rtstructure_set_file.rtstructure_file_path
         rtstruct_file_2 = voi2.rtstructure_set_file.rtstructure_file_path
         
-        logger.info(f"RT Structure file 1: {mask_sensitive_data(rtstruct_file_1, 'file_path')}")
-        logger.info(f"RT Structure file 2: {mask_sensitive_data(rtstruct_file_2, 'file_path')}")
+        logger.info(f"RT Structure file 1 (RTStructureSetFile {voi1.rtstructure_set_file.id})")
+        logger.info(f"RT Structure file 2 (RTStructureSetFile {voi2.rtstructure_set_file.id})")
         
         # Use working directory which contains DICOM images and RT Structure files
-        working_dir_1 = voi1.rtstructure_set_file.working_directory
-        working_dir_2 = voi2.rtstructure_set_file.working_directory
+        working_dir_1 = validate_stored_path(voi1.rtstructure_set_file.working_directory)
+        working_dir_2 = validate_stored_path(voi2.rtstructure_set_file.working_directory)
         
         # Both RT Structures should share the same working directory
         if working_dir_1 != working_dir_2:
-            logger.warning(f"RT Structures have different working directories: {mask_sensitive_data(working_dir_1, 'file_path')} vs {mask_sensitive_data(working_dir_2, 'file_path')}")
+            logger.warning(f"RT Structures {voi1.rtstructure_set_file.id} and {voi2.rtstructure_set_file.id} have different working directories")
         
         if not working_dir_1 or not os.path.exists(working_dir_1):
-            logger.error(f"Working directory not found: {mask_sensitive_data(working_dir_1, 'file_path')}")
+            logger.error(f"Working directory not found for RTStructureSetFile {voi1.rtstructure_set_file.id}")
             return None
         
-        logger.info(f"Using working directory: {mask_sensitive_data(working_dir_1, 'file_path')}")
+        logger.info(f"Using working directory of RTStructureSetFile {voi1.rtstructure_set_file.id}")
         
         # Extract masks using rt-utils with DICOM images from working directory
         logger.info("Using rt-utils for mask extraction with DICOM images from working directory")
@@ -492,7 +494,7 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
             from rt_utils import RTStructBuilder
             
             # Load RT Structure 1 with DICOM images from working directory
-            logger.info(f"Loading RT Structure 1 from: {mask_sensitive_data(rtstruct_file_1, 'file_path')}")
+            logger.info(f"Loading RT Structure 1 (RTStructureSetFile {voi1.rtstructure_set_file.id})")
             rtstruct1 = RTStructBuilder.create_from(
                 dicom_series_path=working_dir_1,
                 rt_struct_path=rtstruct_file_1
@@ -501,7 +503,7 @@ def compute_comparison_metrics(comparison_obj, dicom_series_path_1=None, dicom_s
             logger.info(f"Extracted mask 1 with shape: {mask1.shape}")
             
             # Load RT Structure 2 with DICOM images from working directory
-            logger.info(f"Loading RT Structure 2 from: {mask_sensitive_data(rtstruct_file_2, 'file_path')}")
+            logger.info(f"Loading RT Structure 2 (RTStructureSetFile {voi2.rtstructure_set_file.id})")
             rtstruct2 = RTStructBuilder.create_from(
                 dicom_series_path=working_dir_2 if working_dir_2 != working_dir_1 else working_dir_1,
                 rt_struct_path=rtstruct_file_2

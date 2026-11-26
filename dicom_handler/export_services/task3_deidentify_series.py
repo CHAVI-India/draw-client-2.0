@@ -67,6 +67,7 @@ from ..models import (
     DICOMSeries, DICOMInstance, DICOMStudy, Patient, ProcessingStatus,
     DICOMFileExport, DICOMFileTransferStatus, AutosegmentationTemplate
 )
+from ..utils.safe_paths import validate_stored_path
 from django.utils import timezone
 from django.db.models import Count
 
@@ -728,12 +729,15 @@ def deidentify_series(task2_output):
                 
                 for instance in instances:
                     # Validate instance path before checking existence
-                    is_valid, error_msg = validate_path_within_allowed_dir(instance.instance_path, allow_base_dir='/')
+                    safe_instance_path = validate_stored_path(instance.instance_path)
+                    is_valid, error_msg = validate_path_within_allowed_dir(
+                        safe_instance_path or '', allow_base_dir='/'
+                    )
                     if not is_valid:
                         logger.warning(f"Invalid instance path detected: {error_msg}")
                         continue
 
-                    if not os.path.exists(instance.instance_path):
+                    if not os.path.exists(safe_instance_path):
                         logger.warning(f"Instance file not found: {mask_sensitive_data(instance.instance_path, 'file_path')}")
                         continue
                     

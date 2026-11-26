@@ -456,7 +456,7 @@ Output:
     }
     
     print("Generated deidentified UIDs:")
-    print(f"  Patient ID: {patient_id}")
+    print(f"  Patient ID: (generated, redacted)")
     print(f"  Study UID: {series_uids['study_instance_uid']}")
     print(f"  Series UID: {series_uids['series_instance_uid']}")
     print(f"  Random Date: {random_date.strftime('%Y-%m-%d')}")

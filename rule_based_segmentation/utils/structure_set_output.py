@@ -21,6 +21,8 @@ from typing import Dict, List
 
 from spatial_overlap.models import RTStructureSetFile, RTStructureSetVOI
 
+from dicom_handler.utils.safe_paths import validate_stored_path
+
 from .rtstruct_io import read_approval_info
 
 logger = logging.getLogger(__name__)
@@ -109,7 +111,9 @@ def build_output_structure_set(
     # The new file as a whole is UNAPPROVED (it contains new/reviewed content).
     _set_file_approval_unapproved(ds)
 
-    new_path = _new_output_path(input_path, job.id)
+    new_path = validate_stored_path(_new_output_path(input_path, job.id))
+    if not new_path:
+        raise ValueError("Unsafe output path derived from input RTStruct")
     os.makedirs(os.path.dirname(new_path) or ".", exist_ok=True)
     rtstruct_builder.save(new_path)
 
@@ -175,7 +179,7 @@ def build_output_structure_set(
 
     logger.info(
         f"Output structure set {record.id}: {len(new_rois)} new, "
-        f"{len(preserved_rois)} preserved -> {new_path}"
+        f"{len(preserved_rois)} preserved"
     )
     return {
         "new_path": new_path,

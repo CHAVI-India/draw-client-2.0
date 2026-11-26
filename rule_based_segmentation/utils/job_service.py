@@ -19,6 +19,7 @@ from .engine import SegmentationEngine
 from .job_workdir import JobWorkdir, get_job_workdir_base
 from .rtstruct_io import load_rtstruct_and_image, regenerate_instance_uids
 from .structure_set_output import _new_output_path, build_output_structure_set
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,8 @@ def get_rtstruct_path_and_series_uid(
         )
         series_uid = _get_referenced_series_uid_from_rtstruct(rtstruct_path)
 
-    if not rtstruct_path or not os.path.exists(rtstruct_path):
-        raise ValueError(f"RTStruct file not found: {rtstruct_path}")
+    if not rtstruct_path or not os.path.exists(validate_stored_path(rtstruct_path) or ''):
+        raise ValueError("RTStruct file not found")
 
     if not series_uid:
         raise ValueError("Could not determine referenced series UID from RTStruct")
@@ -295,8 +296,8 @@ def finalize_job(job: SegmentationJob) -> dict:
 
     try:
         engine = SegmentationEngine.from_workdir(wd.root)
-        output_path = _new_output_path(rtstruct_path, job.id)
-        if os.path.exists(output_path):
+        output_path = validate_stored_path(_new_output_path(rtstruct_path, job.id))
+        if output_path and os.path.exists(output_path):
             # A prior (crashed) finalize already wrote the output file. Reload it
             # so redelivery reuses the same stable UIDs / record instead of
             # creating a duplicate structure set (build_output_structure_set

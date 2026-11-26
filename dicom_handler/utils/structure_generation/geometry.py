@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Tuple
 import numpy as np
 
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,9 @@ def load_ct_series_as_sitk_image(series_data: Dict[str, Any]) -> sitk.Image:
     # Collect valid file paths
     dicom_files = []
     for instance in instances:
-        if instance.instance_path and os.path.exists(instance.instance_path):
-            dicom_files.append(instance.instance_path)
+        safe_path = validate_stored_path(instance.instance_path)
+        if safe_path and os.path.exists(safe_path):
+            dicom_files.append(safe_path)
         else:
             logger.warning(f"Instance path not found or invalid: {mask_sensitive_data(instance.instance_path, 'file_path')}")
     

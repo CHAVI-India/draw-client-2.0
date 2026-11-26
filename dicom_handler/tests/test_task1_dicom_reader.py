@@ -75,7 +75,7 @@ def print_database_summary():
     
     print(f"Patients created: {patients.count()}")
     for patient in patients:
-        print(f"  - Patient ID: {patient.patient_id[:10]}... Name: {str(patient.patient_name)[:20]}...")
+        print(f"  - Patient record id {patient.id} created")
     
     print(f"Studies created: {studies.count()}")
     for study in studies:
@@ -157,8 +157,7 @@ def test_json_serialization(result):
     try:
         json_str = json.dumps(result, indent=2)
         print("✓ Result is JSON serializable")
-        print("Sample serialized data:")
-        print(json_str[:500] + "..." if len(json_str) > 500 else json_str)
+        print(f"Serialized {len(json_str)} characters of data (content omitted to avoid logging PHI)")
         return True
     except Exception as e:
         print(f"✗ JSON serialization failed: {e}")

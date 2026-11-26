@@ -136,7 +136,7 @@ class DicomQueryRetrieveService:
             calling_ae = event.assoc.requestor.ae_title
             result = _process_cstore_file_to_database(file_path, ds, ae_title=calling_ae)
             logger.info(
-                f"[C-GET] Stored sub-operation result to {file_path} "
+                f"[C-GET] Stored sub-operation result "
                 f"(registration: {result.get('status', 'unknown')})"
             )
             return 0x0000
@@ -188,9 +188,9 @@ class DicomQueryRetrieveService:
                 logger.error(f"Failed to establish association with {remote_node.name}")
                 return False, "Failed to establish association"
                 
-        except Exception as e:
-            logger.error(f"Connection test failed for {remote_node.name}: {str(e)}")
-            return False, f"Connection error: {str(e)}"
+        except Exception:
+            logger.error(f"Connection test failed for {remote_node.name}", exc_info=True)
+            return False, "Connection test failed"
     
     def query(self, remote_node, query_level, query_params, user=None):
         """

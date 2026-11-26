@@ -44,6 +44,7 @@ from .utils.dicom_image_importer import (
     import_uploaded_image_series,
     sanitize_filename_component,
 )
+from dicom_handler.utils.safe_paths import validate_stored_path
 from .utils.job_service import MissingImageSeriesError, create_segmentation_job
 from .utils.rtstruct_io import _backup_rtstruct
 from .utils.pipeline_persistence import (
@@ -739,10 +740,11 @@ def api_upload_sample_rtstruct(request):
         rtstruct = get_object_or_404(RTStructureSetFile, id=input_id)
         structures = _read_structures_from_rtstruct(rtstruct.rtstructure_file_path)
     except ValueError as e:
-        return JsonResponse({"error": str(e)}, status=400)
-    except Exception as e:
-        logger.error(f"Failed to upload sample RTStruct: {e}", exc_info=True)
-        return JsonResponse({"error": str(e)}, status=400)
+        logger.warning(f"Invalid uploaded RTStruct: {e}")
+        return JsonResponse({"error": "Uploaded file is not a valid RT Structure Set."}, status=400)
+    except Exception:
+        logger.error("Failed to upload sample RTStruct", exc_info=True)
+        return JsonResponse({"error": "Failed to upload the RT Structure file."}, status=400)
 
     return JsonResponse({
         "input_type": input_type,
@@ -812,8 +814,9 @@ def api_validate_pipeline(request):
             available.add(rule.name)
 
         return JsonResponse({"valid": not missing, "missing_structures": missing})
-    except Exception as e:
-        return JsonResponse({"valid": False, "missing_structures": [], "error": str(e)})
+    except Exception:
+        logger.error("Failed to validate pipeline structures", exc_info=True)
+        return JsonResponse({"valid": False, "missing_structures": [], "error": "Validation failed"})
 
 
 def _describe_rule_source(rule) -> str:
@@ -1117,7 +1120,9 @@ def _save_uploaded_rtstruct(uploaded_file: UploadedFile, user):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = sanitize_filename_component(uploaded_file.name) or "rtstruct.dcm"
     filename = f"{timestamp}_{safe_name}"
-    target_path = os.path.join(target_dir, filename)
+    target_path = validate_stored_path(os.path.join(target_dir, filename))
+    if not target_path or os.path.basename(target_path) != filename:
+        raise ValueError("Unsafe RTStruct upload target path")
 
     with open(target_path, "wb+") as dest:
         for chunk in uploaded_file.chunks():

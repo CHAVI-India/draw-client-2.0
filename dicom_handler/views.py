@@ -1528,10 +1528,11 @@ def validate_vr_value(request):
                 'vr_code': dicom_tag.value_representation
             })
             
-        except Exception as e:
+        except Exception:
+            logger.error("Error in validate_vr_value", exc_info=True)
             return JsonResponse({
                 'success': False,
-                'message': str(e)
+                'message': 'An internal server error occurred'
             })
     
     return JsonResponse({

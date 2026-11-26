@@ -12,6 +12,7 @@ from pynetdicom import AE, StoragePresentationContexts
 from django.utils import timezone
 
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,18 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
         logger.info(f"Association established with {remote_node.name}")
         
         # Send each file
-        for file_path in file_paths:
+        for raw_file_path in file_paths:
+            file_path = validate_stored_path(raw_file_path)
             file_result = {
                 'file_path': file_path,
                 'success': False,
                 'error': None
             }
+            if not file_path:
+                file_result['error'] = "Invalid file path"
+                results['failed_count'] += 1
+                results['details'].append(file_result)
+                continue
             
             try:
                 if not os.path.exists(file_path):
@@ -137,10 +144,10 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
                         error_message=file_result['error']
                     )
                     
-            except Exception as e:
-                file_result['error'] = str(e)
+            except Exception:
+                file_result['error'] = 'File transfer failed'
                 results['failed_count'] += 1
-                logger.error(f"Error sending {mask_sensitive_data(file_path, 'file_path')}: {str(e)}")
+                logger.error(f"Error sending {mask_sensitive_data(file_path, 'file_path')}", exc_info=True)
             
             results['details'].append(file_result)
         
@@ -157,9 +164,9 @@ def send_dicom_files_to_node(remote_node, file_paths, calling_ae_title=None):
             remote_node.last_successful_connection = timezone.now()
             remote_node.save(update_fields=['last_successful_connection'])
         
-    except Exception as e:
-        results['error_message'] = str(e)
-        logger.error(f"C-STORE push failed: {str(e)}")
+    except Exception:
+        results['error_message'] = 'C-STORE push failed'
+        logger.error("C-STORE push failed", exc_info=True)
     
     return results
 
@@ -202,8 +209,9 @@ def send_series_to_node(remote_node, series_instance_uids, calling_ae_title=None
         )
         
         for instance in instances:
-            if instance.instance_path and os.path.exists(instance.instance_path):
-                file_paths.append(instance.instance_path)
+            safe_path = validate_stored_path(instance.instance_path)
+            if safe_path and os.path.exists(safe_path):
+                file_paths.append(safe_path)
         
         # Also include RT Structure files if they exist
         rt_structs = RTStructureFileImport.objects.filter(
@@ -212,8 +220,9 @@ def send_series_to_node(remote_node, series_instance_uids, calling_ae_title=None
         )
         
         for rt_struct in rt_structs:
-            if rt_struct.reidentified_rt_structure_file_path and os.path.exists(rt_struct.reidentified_rt_structure_file_path):
-                file_paths.append(rt_struct.reidentified_rt_structure_file_path)
+            safe_path = validate_stored_path(rt_struct.reidentified_rt_structure_file_path)
+            if safe_path and os.path.exists(safe_path):
+                file_paths.append(safe_path)
     
     if not file_paths:
         return {
@@ -236,7 +245,10 @@ def _log_cstore_transaction(calling_ae, remote_node, dataset, file_path, status,
     import socket
     
     try:
-        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+        file_size = None
+        safe_path = validate_stored_path(file_path)
+        if safe_path and os.path.exists(safe_path):
+            file_size = os.path.getsize(safe_path)
         
         # Convert hostname to IP address if needed
         remote_ip = remote_node.host
@@ -340,8 +352,8 @@ def test_cstore_connection(remote_node, calling_ae_title=None):
         else:
             result['message'] = f"Failed to establish association with {remote_node.name}"
             
-    except Exception as e:
-        result['message'] = f"Connection test failed: {str(e)}"
-        logger.error(f"C-STORE connection test error: {str(e)}")
+    except Exception:
+        result['message'] = 'Connection test failed'
+        logger.error("C-STORE connection test error", exc_info=True)
     
     return result

@@ -26,6 +26,7 @@ from ..models import (
     RuleSet, Rule, RuleGroup, DICOMSeries, DICOMInstance, ProcessingStatus,
     OperatorType, RuleCombinationType, AutosegmentationTemplate, DICOMTagType
 )
+from ..utils.safe_paths import validate_stored_path
 
 # Configure logging with masking for sensitive information
 logger = logging.getLogger(__name__)
@@ -387,14 +388,14 @@ def match_autosegmentation_template(task1_output):
         for series_info in series_data:
             try:
                 series_uid = series_info['series_instance_uid']
-                first_instance_path = series_info['first_instance_path']
+                first_instance_path = validate_stored_path(series_info['first_instance_path'])
                 series_root_path = series_info['series_root_path']
                 
                 logger.info(f"Processing series: {mask_sensitive_data(series_uid, 'series_uid')}")
                 
                 # Read DICOM metadata from first instance
-                if not os.path.exists(first_instance_path):
-                    logger.error(f"First instance file not found: {mask_sensitive_data(first_instance_path, 'file_path')}")
+                if not first_instance_path or not os.path.exists(first_instance_path):
+                    logger.error(f"First instance file not found: {mask_sensitive_data(series_info['first_instance_path'], 'file_path')}")
                     continue
                 
                 dicom_metadata = read_dicom_metadata(first_instance_path)

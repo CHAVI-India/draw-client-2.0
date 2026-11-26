@@ -18,6 +18,7 @@ from .models import (
 )
 from .utils.compute_metrics import compute_comparison_metrics
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,10 @@ def prepare_working_directory_for_comparison(series, rt_structure_file_path, upl
         # Read instance metadata for proper ordering
         instance_metadata = []
         for instance in instances:
-            if instance.instance_path and os.path.exists(instance.instance_path):
+            safe_path = validate_stored_path(instance.instance_path)
+            if safe_path and os.path.exists(safe_path):
                 try:
-                    ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True, force=True)
+                    ds = pydicom.dcmread(safe_path, stop_before_pixels=True, force=True)
                     instance_number = int(ds.InstanceNumber) if hasattr(ds, 'InstanceNumber') else 0
                     slice_location = float(ds.SliceLocation) if hasattr(ds, 'SliceLocation') else 0.0
                     image_position = ds.ImagePositionPatient[2] if hasattr(ds, 'ImagePositionPatient') else 0.0
@@ -761,8 +763,8 @@ def list_comparisons(request):
     
     # Check if RT Structure files exist for each comparison
     for comparison in comparisons:
-        first_file = comparison.first_rtstructure.rtstructure_set_file.rtstructure_file_path
-        second_file = comparison.second_rtstructure.rtstructure_set_file.rtstructure_file_path
+        first_file = validate_stored_path(comparison.first_rtstructure.rtstructure_set_file.rtstructure_file_path)
+        second_file = validate_stored_path(comparison.second_rtstructure.rtstructure_set_file.rtstructure_file_path)
         
         # Check if both files exist
         comparison.files_exist = (
@@ -990,8 +992,8 @@ def batch_compute_metrics(request):
         })
         
     except Exception as e:
-        logger.error(f"Error in batch compute: {str(e)}")
-        return JsonResponse({'error': str(e)}, status=500)
+        logger.error("Error in batch compute", exc_info=True)
+        return JsonResponse({'error': 'Batch compute failed'}, status=500)
 
 
 @login_required
@@ -1022,8 +1024,8 @@ def bulk_compute_metrics_async(request):
             })
             
         except Exception as e:
-            logger.error(f"Error starting bulk compute: {str(e)}")
-            return JsonResponse({'error': str(e)}, status=500)
+            logger.error("Error starting bulk compute", exc_info=True)
+            return JsonResponse({'error': 'Failed to start bulk compute'}, status=500)
     
     return JsonResponse({'error': 'Method not allowed'}, status=405)
 

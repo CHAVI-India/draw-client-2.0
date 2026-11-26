@@ -14,6 +14,7 @@ from django.core.files.uploadedfile import UploadedFile
 
 from dicom_handler.models import DICOMInstance, DICOMSeries, DICOMStudy, Patient, SystemConfiguration
 from dicom_handler.utils.log_masking import mask_sensitive_data
+from dicom_handler.utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,9 @@ def _get_series_target_directory(series_uid: str) -> str:
     target_dir = os.path.join(
         base_dir, "rule_based_segmentation", "image_series", safe_series_uid
     )
+    target_dir = validate_stored_path(target_dir)
+    if not target_dir:
+        raise ValueError("Unsafe storage path for image series")
     os.makedirs(target_dir, exist_ok=True)
     return target_dir
 

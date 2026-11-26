@@ -695,5 +695,5 @@ def xml_template_search_structures(request):
     except AutosegmentationTemplate.DoesNotExist:
         return JsonResponse({'error': 'Template not found'}, status=404)
     except Exception as e:
-        logger.error(f'Error searching structures: {str(e)}', exc_info=True)
-        return JsonResponse({'error': str(e)}, status=500)
+        logger.error("Error searching structures", exc_info=True)
+        return JsonResponse({'error': 'Error searching structures'}, status=500)

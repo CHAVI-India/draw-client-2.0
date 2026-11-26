@@ -15,6 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .models import DICOMSeries, DICOMInstance, RTStructureFileImport
 from .utils.log_masking import mask_sensitive_data
+from .utils.safe_paths import validate_stored_path
 
 logger = logging.getLogger(__name__)
 
@@ -189,8 +190,9 @@ def export_dicom_series(request):
                     )
 
                     for instance in instances:
-                        if instance.instance_path and os.path.exists(instance.instance_path):
-                            filename = os.path.basename(instance.instance_path)
+                        safe_path = validate_stored_path(instance.instance_path)
+                        if safe_path and os.path.exists(safe_path):
+                            filename = os.path.basename(safe_path)
                             # Sanitize filename
                             safe_filename = sanitize_filename(filename)
                             dest_path = os.path.join(series_dir, safe_filename)
@@ -199,7 +201,7 @@ def export_dicom_series(request):
                             if not is_valid_dest:
                                 logger.warning(f"Invalid destination path detected for file: {mask_sensitive_data(filename, 'file_path')}")
                                 continue
-                            shutil.copy2(instance.instance_path, validated_dest_path)
+                            shutil.copy2(safe_path, validated_dest_path)
                             total_files += 1
 
                 # Export RT structures if requested
@@ -210,9 +212,9 @@ def export_dicom_series(request):
                     )
 
                     for rt_struct in rt_structs:
-                        if rt_struct.reidentified_rt_structure_file_path and \
-                           os.path.exists(rt_struct.reidentified_rt_structure_file_path):
-                            filename = os.path.basename(rt_struct.reidentified_rt_structure_file_path)
+                        safe_rt_path = validate_stored_path(rt_struct.reidentified_rt_structure_file_path)
+                        if safe_rt_path and os.path.exists(safe_rt_path):
+                            filename = os.path.basename(safe_rt_path)
                             # Sanitize filename
                             safe_filename = sanitize_filename(filename)
                             dest_path = os.path.join(series_dir, safe_filename)
@@ -221,7 +223,7 @@ def export_dicom_series(request):
                             if not is_valid_dest:
                                 logger.warning(f"Invalid destination path detected for RT struct: {mask_sensitive_data(filename, 'file_path')}")
                                 continue
-                            shutil.copy2(rt_struct.reidentified_rt_structure_file_path, validated_dest_path)
+                            shutil.copy2(safe_rt_path, validated_dest_path)
                             total_files += 1
                 
             except DICOMSeries.DoesNotExist:
