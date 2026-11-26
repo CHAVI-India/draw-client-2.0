@@ -48,6 +48,14 @@ def parse_pipeline_data(post_data):
         return None
 
 
+def referenced_structure_names(rules):
+    """Union of all structure names a rule list references (inputs only)."""
+    names = set()
+    for rule in rules:
+        names |= _collect_required_structure_names(rule)
+    return names
+
+
 def save_pipeline_from_dict(data, user, pipeline=None):
     """Create or update a pipeline and all its rules from parsed builder JSON."""
     rules = data.get("rules", [])
