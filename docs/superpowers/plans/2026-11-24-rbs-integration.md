@@ -1247,6 +1247,25 @@ editor that embeds the legacy builder); remove the legacy `pipeline_builder.js` 
 
 ---
 
+## Status — Phase 4 complete (2026-11-26)
+
+All Phase 4 tasks are implemented and committed on the `rbs-integration` branch:
+
+- Task 14 (FK `pipeline` on `AdditionalStructures`, migration 0061) → `8967494`
+- Task 15 (one-off data migration 0062, `roi_generation_logic` → pipeline) → `1d64d79`
+- Task 16 (`pipeline_persistence.py`; views refactored to use it) → `3ad66f8`
+- Task 17 (task2 runs the FK pipeline first; legacy rows fall back to `synthesize_rules`; empty pipeline = empty ROI) → `d073d04`
+- Tasks 18+19 (full-page builder swapped to `RuleBasedPipelineBuilder`; shared `additional_structure_pipeline.py` used by both the inline form and the builder; `pipeline_data` posted; 54-char label) → `c95d945`
+- Task 20 (referenced-structure validation in the shared module) — covered by Task 18+19
+
++ Regression fix: `test_pipeline_e2e_physics.py` still imported the pre-refactor `views._create_or_update_pipeline`; its `setUpClass` `AttributeError` cascaded into "connection already closed" across the whole suite. Re-pointed the 7 call sites at `pipeline_persistence.save_pipeline_from_dict` (same signature) → `cfcfff0`.
+
+**Validation**: full RBS suite (205 tests) green; dicom_handler additional-structure/task2/migration/builder-view suites green (27+ tests). Production DB has 0061+0062 applied and all 7 legacy rows now carry a `pipeline` FK.
+
+**Remaining (Phase 5, deferred until after a stable deploy)**: Task 22 — delete `static/js/pipeline_builder.js`, the now-dead inline modal in `template_detail.html`, `template_detail_pipeline_modal.html`, the `roi_generation_logic` field + the `synthesize_rules` runtime fallback, and update the README.
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
