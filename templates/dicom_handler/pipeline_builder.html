@@ -54,11 +54,11 @@
                                 <input type="text" 
                                        id="roi_label" 
                                        name="roi_label" 
-                                       maxlength="16" 
+                                       maxlength="54" 
                                        required
                                        value="{{ structure.roi_label|default:'' }}"
                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
-                                <p class="mt-1 text-xs text-gray-500">Max 16 characters (TG263 standard)</p>
+                                <p class="mt-1 text-xs text-gray-500">Max 54 characters (Eclipse Clinical Goal)</p>
                             </div>
                             
                             <!-- Structure Type -->
@@ -141,7 +141,7 @@
                         <div id="pipelineBuilder"></div>
                         
                         <!-- Hidden field for form submission -->
-                        <input type="hidden" id="roi_generation_logic" name="roi_generation_logic">
+                        <input type="hidden" id="pipeline_data" name="pipeline_data">
                     </div>
                 </div>
             </div>
@@ -151,7 +151,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/pipeline_builder.js' %}?v={{ js_cache_bust }}"></script>
+<script src="{% static 'js/rule_based_pipeline_builder.js' %}?v={{ js_cache_bust }}"></script>
+{{ pipeline_data|json_script:"pipeline-data" }}
+{{ rule_type_choices|json_script:"rule-types" }}
 <script>
     // Color conversion functions
     function hexToRgb(hex) {
@@ -221,21 +223,26 @@
         {% endif %}
     });
     
-    // Initialize Pipeline Builder
+    // Initialize Pipeline Builder (RBS)
     const availableStructures = {{ available_structures|safe }};
-    const operationCatalog = {{ operation_catalog|safe }};
-    
-    const pipelineBuilder = new PipelineBuilder('pipelineBuilder', {
+    const pipelineData = JSON.parse(document.getElementById("pipeline-data").textContent);
+    const ruleTypes = JSON.parse(document.getElementById("rule-types").textContent);
+
+    const pipelineBuilder = new RuleBasedPipelineBuilder("pipelineBuilder", {
+        existingRules: pipelineData.rules || [],
         availableStructures: availableStructures,
-        catalog: operationCatalog,
-        onPipelineChange: (pipeline) => {
-            document.getElementById('roi_generation_logic').value = JSON.stringify(pipeline, null, 2);
-        }
+        ruleTypes: ruleTypes,
     });
-    
-    // Load existing pipeline if editing
-    {% if initial_pipeline %}
-        pipelineBuilder.loadFromJson('{{ initial_pipeline|escapejs }}');
-    {% endif %}
+
+    document.getElementById("pipelineForm").addEventListener("submit", function (e) {
+        const errors = pipelineBuilder.validate();
+        if (errors.length) {
+            e.preventDefault();
+            pipelineBuilder.showValidationErrors(errors);
+            return;
+        }
+        pipelineBuilder.clearValidationErrors();
+        document.getElementById("pipeline_data").value = JSON.stringify(pipelineBuilder.serialize());
+    });
 </script>
 {% endblock %}

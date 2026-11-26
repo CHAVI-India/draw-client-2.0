@@ -575,9 +575,8 @@
     
     // Event delegation for edit and delete buttons
     document.addEventListener('DOMContentLoaded', function() {
-        // Load the operation catalog up front so the pipeline builder is
-        // fully functional the first time a modal opens.
-        loadOperationCatalog();
+        // The pipeline builder now lives on the dedicated full-page builder,
+        // which loads its own JS; no operation-catalog fetch is needed here.
 
         // Handle edit button clicks
         document.addEventListener('click', function(e) {
