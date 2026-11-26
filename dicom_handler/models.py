@@ -99,6 +99,17 @@ class AutosegmentationTemplate(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     template_name = models.CharField(max_length=256)
     template_description = models.CharField(max_length=256)
+    # One-to-one link to the template's additional-structures pipeline: the single
+    # SegmentationPipeline that defines ALL of this template's additional ROIs
+    # (every output_action=CREATE_NEW rule is one additional structure). Hidden
+    # from the general RBS pipelines list via the reverse accessor below.
+    additional_structures_pipeline = models.OneToOneField(
+        "rule_based_segmentation.SegmentationPipeline",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="additional_structures_template",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
