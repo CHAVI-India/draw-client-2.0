@@ -139,3 +139,38 @@ class Task2RbsGenerationTests(TestCase):
 
         # the temporary synthesized pipeline is cleaned up
         self.assertEqual(SegmentationPipeline.objects.count(), before)
+
+    def test_template_pipeline_is_used(self):
+        """A4: task2 runs the template's additional-structures pipeline."""
+        from django.contrib.auth import get_user_model
+        from rule_based_segmentation.utils.pipeline_persistence import (
+            save_pipeline_from_dict,
+        )
+
+        template = AutosegmentationTemplate.objects.create(template_name="t")
+        user = get_user_model().objects.create(username="u_task2")
+        pipeline = save_pipeline_from_dict({
+            "name": "tpl — additional structures",
+            "structures": ["CTV"],
+            "rules": [
+                {"rule_type": "MARGIN", "name": "PTV", "output_action": "CREATE_NEW",
+                 "config": {"source": "CTV", "margin_l_mm": 5.0}, "tempId": "p1"},
+            ],
+        }, user)
+        template.additional_structures_pipeline = pipeline
+        template.save()
+        self.series.matched_templates.add(template)
+
+        ds = pydicom.dcmread(self.rtstruct_path, force=True)
+        series_data = {
+            "series": self.series,
+            "study": self.series.study,
+            "patient": self.series.study.patient,
+            "instances": list(self.series.dicominstance_set.all()),
+        }
+        name_map = {"CTV": 1, "Body": 2}
+        _add_additional_structures_to_rtstruct(ds, series_data, name_map)
+
+        names = self._roi_names(ds)
+        self.assertIn("PTV", names)  # created via the template pipeline
+        self.assertIn("PTV", name_map)
