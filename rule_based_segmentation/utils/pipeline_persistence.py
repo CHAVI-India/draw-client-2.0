@@ -231,7 +231,7 @@ def _save_rule(pipeline, order, rule_data):
         rule_type=rule_data.get("rule_type"),
         name=(rule_data.get("name") or "").strip(),
         output_action=rule_data.get("output_action", "CREATE_NEW"),
-        output_color=rule_data.get("output_color") or "255\\255\\0",
+        output_color=_hex_to_rgb_dicom(rule_data.get("output_color") or "255\\255\\0"),
         output_roi_type=rule_data.get("output_roi_type", "ORGAN"),
     )
 
@@ -419,7 +419,26 @@ def _save_avoid_margin_config(rule, config):
 # ---------------------------------------------------------------------------
 
 def _rgb_dicom_to_hex(color_string):
+    """Convert a stored ROI color to a UI hex string (#RRGGBB).
+
+    Tolerates both the canonical DICOM R\\G\\B form and a hex value (a row that
+    predates the R\\G\\B normalization). A hex input is normalized to 6-digit
+    uppercase hex rather than being lost to the yellow default (this is what
+    previously caused colors to turn yellow when a UI-built pipeline was
+    re-opened).
+    """
     if not color_string:
+        return "#FFFF00"
+    s = color_string.strip()
+    if s.startswith("#"):
+        try:
+            hv = s[1:]
+            if len(hv) == 3:
+                hv = "".join(c * 2 for c in hv)
+            if len(hv) == 6:
+                return "#" + hv.upper()
+        except (ValueError, IndexError):
+            pass
         return "#FFFF00"
     parts = [p.strip() for p in color_string.split("\\")]
     if len(parts) != 3:
@@ -428,6 +447,28 @@ def _rgb_dicom_to_hex(color_string):
         return "#" + "".join(f"{int(p):02X}" for p in parts)
     except ValueError:
         return "#FFFF00"
+
+
+def _hex_to_rgb_dicom(color_string):
+    """Normalize a color to the canonical DICOM R\\G\\B string (the inverse of
+    :func:`_rgb_dicom_to_hex`).
+
+    Accepts a hex value (#RGB / #RRGGBB) and converts it to R\\G\\B; a value that
+    is already R\\G\\B (or blank) is returned as-is. Used so the DB column is
+    always stored in the DICOM-native format.
+    """
+    if not color_string:
+        return color_string
+    s = color_string.strip()
+    if s.startswith("#"):
+        hv = s[1:]
+        try:
+            if len(hv) == 3:
+                hv = "".join(c * 2 for c in hv)
+            return f"{int(hv[0:2], 16)}\\{int(hv[2:4], 16)}\\{int(hv[4:6], 16)}"
+        except (ValueError, IndexError):
+            return s
+    return s
 
 
 def _boolean_node_to_json(node):

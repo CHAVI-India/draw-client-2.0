@@ -85,6 +85,25 @@ class RoiColorTypeFidelityTests(TestCase):
                if int(o.ReferencedROINumber) == num][0]
         self.assertEqual(obs.RTROIInterpretedType, "OAR")
 
+    def test_explicit_color_writes_standard_dicom_value_on_disk(self):
+        """A generated ROI's color must serialize to the standard R\\G\\B string on
+        disk (not a Python-list repr). rt_utils stores ROIDisplayColor as a
+        [R, G, B] list; pydicom must round-trip it to the backslash-joined DICOM
+        value so a TPS like Eclipse reads the correct color."""
+        import pydicom
+
+        engine = SegmentationEngine(self.rtstruct_path, self.series_uid)
+        rule = self._new_rule("0\\0\\255", "OAR")  # blue
+        engine.run_rule(rule)
+        buf = engine.rtstruct.save_to_memory()
+        buf.seek(0)
+        ds = pydicom.dcmread(buf, force=True)
+        num = _roi_by_number(ds, 2).ROINumber
+        contour = [c for c in ds.ROIContourSequence
+                   if int(c.ReferencedROINumber) == num][0]
+        on_disk = "\\".join(str(int(x)) for x in contour.ROIDisplayColor)
+        self.assertEqual(on_disk, "0\\0\\255")
+
     def test_unset_color_inherits_from_source(self):
         engine = SegmentationEngine(self.rtstruct_path, self.series_uid)
         rule = self._new_rule(None, None)  # no color, no type -> inherit from CTV
