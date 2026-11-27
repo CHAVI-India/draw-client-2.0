@@ -27,6 +27,7 @@ from .rtstruct_io import (
     load_rtstruct_and_image,
     regenerate_instance_uids,
     save_rtstruct,
+    _rtutils_to_sitk_array,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,67 @@ def _trim_to_limit(base: str, suffix: int, limit: int) -> str:
     return f"{base[: limit - len(tail)]}{tail}"
 
 
+_MISSING = object()  # sentinel: not present in the mask cache
+
+
+class LazyMaskCache:
+    """Dict-like mask store that decodes ROI contours **lazily**.
+
+    ``load_roi_masks`` eagerly decodes *every* ROI contour into a mask. For a
+    RTStruct with 50+ ROIs that dominates a pipeline step (roughly 1.2s per
+    ROI × 52 ≈ 64s), even though a single rule only touches the few structures
+    it references. This cache decodes a contour on first access and reuses it
+    afterwards.
+
+    * ``keys()`` / ``__contains__`` list the known structure names without
+      decoding any mask (cheap).
+    * ``__getitem__(name)`` decodes the named ROI on demand and caches it.
+    * ``__setitem__(name, mask)`` stores rule-produced masks (already SimpleITK
+      images, no decode needed).
+
+    The object supports the subset of the dict API the engine actually uses
+    (``keys``, ``__contains__``, ``__getitem__``, ``__setitem__``, ``get``).
+    """
+
+    def __init__(self, rtstruct: RTStructBuilder, ct_image: sitk.Image):
+        self._rtstruct = rtstruct
+        self._ct_image = ct_image
+        self._cache: Dict[str, sitk.Image] = {}
+        self._roi_names = frozenset(rtstruct.get_roi_names())
+
+    def keys(self):
+        return set(self._roi_names) | set(self._cache)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._cache or name in self._roi_names
+
+    def __getitem__(self, name: str) -> sitk.Image:
+        cached = self._cache.get(name, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        if name in self._roi_names:
+            mask_array = self._rtstruct.get_roi_mask_by_name(name)  # (Y, X, Z)
+            mask = _rtutils_to_sitk_array(mask_array, self._ct_image)
+            self._cache[name] = mask
+            return mask
+        raise KeyError(name)
+
+    def __setitem__(self, name: str, mask: sitk.Image) -> None:
+        self._cache[name] = mask
+
+    def get(self, name: str, default=None):
+        try:
+            return self[name]
+        except KeyError:
+            return default
+
+    def __len__(self) -> int:
+        return len(self.keys())
+
+    def __iter__(self):
+        return iter(self.keys())
+
+
 class SegmentationEngine:
     """Execute a SegmentationPipeline on an RTStruct."""
 
@@ -50,9 +112,7 @@ class SegmentationEngine:
         self.rtstruct, self.image, self.series = load_rtstruct_and_image(
             rtstruct_path, series_instance_uid
         )
-        self.available_masks: Dict[str, sitk.Image] = load_roi_masks(
-            self.rtstruct, self.image
-        )
+        self.available_masks = LazyMaskCache(self.rtstruct, self.image)
         self.summary: Dict[str, Any] = {
             "created_rois": [],
             "replaced_rois": [],
@@ -82,7 +142,7 @@ class SegmentationEngine:
         engine.rtstruct = rtstruct
         engine.image = image
         engine.series = None
-        engine.available_masks = load_roi_masks(rtstruct, image)
+        engine.available_masks = LazyMaskCache(rtstruct, image)
         engine.summary = {
             "created_rois": [],
             "replaced_rois": [],
@@ -104,7 +164,7 @@ class SegmentationEngine:
         engine.rtstruct = rtstruct
         engine.image = image
         engine.series = series
-        engine.available_masks = load_roi_masks(rtstruct, image)
+        engine.available_masks = LazyMaskCache(rtstruct, image)
         engine.summary = {
             "created_rois": [],
             "replaced_rois": [],

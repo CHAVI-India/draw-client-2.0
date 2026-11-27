@@ -361,6 +361,7 @@ def finalize_job(job: SegmentationJob) -> dict:
     # Post-processing. The input record is NOT re-pointed to new UIDs (the input
     # file is unchanged); we only flag the import (if any) and push the NEW file.
     _mark_rtstruct_as_rule_based(job)
+    _register_output_import(job, output)
     _push_output_to_destination(job, output["new_path"])
     wd.cleanup()
 
@@ -385,6 +386,72 @@ def _mark_rtstruct_as_rule_based(job: SegmentationJob) -> None:
                 "server_segmentation_updated_datetime",
             ]
         )
+
+
+def _register_output_import(job: SegmentationJob, output: dict) -> None:
+    """Record the RBS-generated structure set as a ``RTStructureFileImport``.
+
+    The RT-structure listing page (``view_rt_structure_list``) and the DICOM
+    viewer (``dicom_viewer``) are built around ``RTStructureFileImport``
+    records — the viewer resolves the overlay file via
+    ``reidentified_rt_structure_file_path``. An RBS pipeline output only creates
+    a ``RTStructureSetFile`` (in ``spatial_overlap``), so without a matching
+    import record the generated structure set is invisible on the RT-structure
+    page even though it exists on disk and in the DB.
+
+    This registers the output (flagged RULE_BASED_COMPLETED) so it is listed and
+    viewable. Idempotent under redelivery: the output SOP is stable (finalize
+    reloads the existing file), so the (reidentified SOP, CT series) lookup
+    reuses the record instead of duplicating it.
+
+    A failure here is a UI-convenience problem, not a pipeline failure — the
+    output file and structure set are already written — so it is logged, not
+    raised.
+    """
+    try:
+        from dicom_handler.models import RTStructureFileImport
+
+        sop = output.get("sop_instance_uid")
+        series_uid = output.get("series_instance_uid")
+        path = output.get("new_path")
+        if not (sop and job.dicom_series and path):
+            return
+        input_rssf = job.input_upload
+        existing = RTStructureFileImport.objects.filter(
+            reidentified_rt_structure_file_sop_instance_uid=sop,
+            deidentified_series_instance_uid=job.dicom_series,
+        ).first()
+        if existing is not None:
+            if existing.reidentified_rt_structure_file_path != path:
+                existing.reidentified_rt_structure_file_path = path
+                existing.save(update_fields=["reidentified_rt_structure_file_path"])
+            logger.info(
+                f"Job {job.id}: output structure set already registered as "
+                f"RTStructureFileImport {existing.id}"
+            )
+            return
+        RTStructureFileImport.objects.create(
+            deidentified_series_instance_uid=job.dicom_series,
+            deidentified_sop_instance_uid=(
+                input_rssf.sop_instance_uid if input_rssf else None
+            ),
+            deidentified_rt_structure_file_path=(
+                input_rssf.rtstructure_file_path if input_rssf else None
+            ),
+            reidentified_rt_structure_file_path=path,
+            reidentified_rt_structure_file_sop_instance_uid=sop,
+            reidentified_rt_structure_file_series_instance_uid=series_uid,
+            reidentified_rt_structure_file_export_datetime=timezone.now(),
+            received_rt_structure_file_download_datetime=timezone.now(),
+            server_segmentation_status="RULE_BASED_COMPLETED",
+            server_segmentation_updated_datetime=timezone.now(),
+        )
+        logger.info(
+            f"Job {job.id}: output structure set registered as "
+            f"RTStructureFileImport (sop {sop[:20]}...)"
+        )
+    except Exception as e:
+        logger.error(f"Job {job.id}: failed to register output import: {e}", exc_info=True)
 
 
 def _push_output_to_destination(job: SegmentationJob, rtstruct_path: str) -> None:
