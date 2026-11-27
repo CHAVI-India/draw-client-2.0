@@ -473,7 +473,7 @@
       const cfg = rule.config;
       switch (rule.rule_type) {
         case "BOOLEAN":
-          return this._summarizeBooleanNode(cfg);
+          return this._summarizeBooleanPlain(cfg);
         case "INTENSITY":
           return `Intensity ranges: ${cfg.ranges.map((r) => `${r.min} to ${r.max}`).join(", ")}`;
         case "MARGIN": {
@@ -510,13 +510,45 @@
       }
     }
 
-    _summarizeBooleanNode(node) {
-      if (!node.operation) return this._escapeHtml(node.name || "");
-      const opLabels = { UNION: "∪", INTERSECTION: "∩", SUBTRACT: "−", XOR: "⊕" };
-      const operandSummaries = node.operands
-        .map((op) => (op.operation ? `(${this._summarizeBooleanNode(op)})` : op.name))
-        .join(` ${opLabels[node.operation] || node.operation} `);
-      return operandSummaries;
+    // Plain-language description of a boolean expression, in words (or / and /
+    // minus) with round brackets around nested groups, so any user can read what
+    // the operation will produce. Used by both the live editor preview and the
+    // collapsed rule-card summary.
+    _summarizeBooleanPlain(node) {
+      if (!node) return "(empty)";
+      if (!node.operation) return node.name || "(unselected)";
+      const parts = (node.operands || []).map((op) =>
+        op.operation
+          ? "(" + this._summarizeBooleanPlain(op) + ")"
+          : (op.name || "(unselected)")
+      );
+      if (!parts.length) return "(no structures yet)";
+      switch (node.operation) {
+        case "UNION":
+          return parts.join(" or ");
+        case "INTERSECTION":
+          return parts.join(" and ");
+        case "SUBTRACT":
+          // Left-associative, matching the engine's fold: A minus B minus C.
+          return parts.slice(1).reduce((acc, p) => acc + " minus " + p, parts[0]);
+        case "XOR":
+          return parts.join(" or ") + " (but not both)";
+        default:
+          return parts.join(" ");
+      }
+    }
+
+    _updateBooleanPreview() {
+      const root = this.container.querySelector("#rbs-boolean-root");
+      const box = this.container.querySelector("#rbs-boolean-preview .rbs-boolean-preview-text");
+      if (!root || !box) return;
+      let text;
+      try {
+        text = this._summarizeBooleanPlain(this._serializeBooleanNode(root));
+      } catch (e) {
+        text = "";
+      }
+      box.textContent = text || "(empty expression)";
     }
 
     _renderRuleEditorContent(rule) {
@@ -650,6 +682,10 @@
               ${this._renderOperationSelect(config.operation || "UNION", "rbs-boolean-op")}
             </div>
             ${this._renderBooleanNodeChildren(config, true)}
+          </div>
+          <div id="rbs-boolean-preview" class="rbs-boolean-preview mt-1 rounded-md bg-gray-50 border border-gray-200 px-3 py-2">
+            <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Result</div>
+            <div class="rbs-boolean-preview-text text-sm text-gray-800" role="status" aria-live="polite">(no structures yet)</div>
           </div>
         </div>
       `;
@@ -1266,13 +1302,20 @@
         }
       });
 
-      // "change" events bubble, so delegate the operation-select change too.
+      // "change" events bubble, so delegate the operation-select + structure-select
+      // changes too.
       rootElement.addEventListener("change", (e) => {
         if (e.target.classList && e.target.classList.contains("rbs-boolean-op")) {
           const node = e.target.closest(".rbs-boolean-node, .rbs-boolean-operand");
           if (node) node.dataset.operation = e.target.value;
+          this._updateBooleanPreview();
+        } else if (e.target.classList && e.target.classList.contains("rbs-boolean-roi")) {
+          this._updateBooleanPreview();
         }
       });
+
+      // Show the current expression right after the editor opens.
+      this._updateBooleanPreview();
     }
 
     _addBooleanOperand(e, isGroup) {
@@ -1286,6 +1329,7 @@
       const wrapper = document.createElement("div");
       wrapper.innerHTML = this._renderBooleanOperand(operand, index);
       children.appendChild(wrapper.firstElementChild);
+      this._updateBooleanPreview();
       // No re-attach: the delegated listeners on the root already cover the new
       // operand's buttons, including a group's nested add/remove controls.
     }
@@ -1298,6 +1342,7 @@
       if (children && children.children.length === 0) {
         children.innerHTML = `<div class="text-sm text-gray-500 italic p-2 rbs-boolean-empty-msg">No operands. Add structures or groups below.</div>`;
       }
+      this._updateBooleanPreview();
     }
 
     _convertToGroup(e) {
@@ -1307,6 +1352,7 @@
       const wrapper = document.createElement("div");
       wrapper.innerHTML = this._renderBooleanOperand(groupConfig, parseInt(operand.dataset.index));
       operand.replaceWith(wrapper.firstElementChild);
+      this._updateBooleanPreview();
       // No re-attach: delegation covers the new group's controls.
     }
 
