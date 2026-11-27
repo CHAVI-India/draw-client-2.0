@@ -532,15 +532,21 @@ def _reidentify_dicom_tags(rtstruct_path: str, series_data: Dict[str, Any]) -> p
         except Exception as e:
             logger.error(f"Error updating ROI properties: {str(e)}", exc_info=True)
         
-        # Add the template's additional-structure ROIs to the structure set
+        ds.walk(frame_of_reference_callback)
+        ds.walk(uid_replacement_callback)
+        
+        # Add the template's additional-structure ROIs to the structure set.
+        # This MUST run after the UID re-identification walks above: an
+        # imported RTSTRUCT returned by the segmentation server still carries
+        # de-identified Contour Image Sequence references, and
+        # RTStructBuilder.create_from() rejects an RTStruct that references
+        # images missing from the series. Running the pipelines before the
+        # walks made that validation fail and silently dropped all
+        # additional structures.
         try:
             _add_additional_structures_to_rtstruct(ds, series_data, roi_name_to_number_map)
         except Exception as e:
             logger.error(f"Error adding additional structures: {str(e)}", exc_info=True)
-
-
-        ds.walk(frame_of_reference_callback)
-        ds.walk(uid_replacement_callback)
         
         logger.info(f"Frame of Reference UID replacements: {frame_of_reference_replacement_count}")
         logger.info(f"Total UID replacements (SOP Instance + Series Instance): {uid_replacement_count}")
