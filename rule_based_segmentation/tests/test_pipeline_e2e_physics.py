@@ -621,6 +621,52 @@ class PhysicsMegaPipelineTests(TestCase):
         self.assertTrue(subset("PTV_Largest", "PTV"))
         self.assertGreater(vox("PTV_Largest"), 0)
 
+    def test_boolean_outputs_exact_on_disk(self):
+        """The boolean-derived ROIs must equal an independently-computed voxel
+        set, read back from the **written output DICOM** -- not merely that a ROI
+        was created.
+
+        Exact-voxel counterpart to the structural checks above: for the
+        union/intersection/subtract structures the pipeline writes, the ground
+        truth is computed from the operand masks (read from the same file) with
+        plain numpy and asserted equal voxel-for-voxel.
+        """
+        from rt_utils import RTStructBuilder
+
+        job, _rt_path = self._run_pipeline()
+        out = job.output_file_path
+        rb = RTStructBuilder.create_from(
+            dicom_series_path=self.series_dir, rt_struct_path=out
+        )
+
+        def m(name):
+            return rb.get_roi_mask_by_name(name).transpose(2, 0, 1).astype(bool)
+
+        # Fully independent: operands are imported ROIs only.
+        self.assertTrue(
+            np.array_equal(m("Lung_Total"), m("LUNG_LT") | m("LUNG_RT")),
+            "Lung_Total != LUNG_LT | LUNG_RT (on-disk)",
+        )
+        nodal = m("SPLG1")
+        for node in ("SPLG2", "SPLG3", "SPLG4", "SPLG5", "SPLG6"):
+            nodal = nodal | m(node)
+        self.assertTrue(
+            np.array_equal(m("Nodal_Nodes"), nodal),
+            "Nodal_Nodes != SPLG1 | ... | SPLG6 (on-disk)",
+        )
+
+        # Boolean over a derived operand: verify the op itself, given the operand
+        # as it was actually written.
+        self.assertTrue(
+            np.array_equal(m("PTV_InBody"), m("PTV") & m("BODY")),
+            "PTV_InBody != PTV & BODY (on-disk)",
+        )
+        opt_avoid = m("BODY") & ~(m("PTV") | m("OAR_Cluster"))
+        self.assertTrue(
+            np.array_equal(m("Opt_Avoid"), opt_avoid),
+            "Opt_Avoid != BODY - (PTV | OAR_Cluster) (on-disk)",
+        )
+
 
 class PipelineBuilderValidationTests(TestCase):
     """The real builder must reject malformed pipelines before saving."""
