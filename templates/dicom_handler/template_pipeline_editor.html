@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Additional Structures - {{ template.template_name }}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Additional Structures</h1>
+                    <p class="mt-2 text-sm text-gray-600">
+                        Template: <span class="font-semibold">{{ template.template_name }}</span>
+                        <span class="text-gray-400">·</span>
+                        <span class="font-mono text-xs text-gray-500">{{ pipeline_name }}</span>
+                    </p>
+                    <p class="mt-1 text-xs text-gray-500">
+                        Every “Create new” rule below becomes an additional ROI. Use
+                        “Intermediate” for working ROIs and “Empty” for an empty ROI.
+                    </p>
+                </div>
+                <a href="{% url 'dicom_handler:template_detail' template.id %}"
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                    </svg>
+                    Back to Template
+                </a>
+            </div>
+        </div>
+
+        <form method="post" action="{% url 'dicom_handler:template_pipeline_save' template.id %}" id="pipelineForm">
+            {% csrf_token %}
+            <input type="hidden" name="template_id" value="{{ template.id }}">
+
+            <div class="bg-white shadow rounded-lg p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Structure Generation Rules</h2>
+                <p class="text-sm text-gray-500 mb-4">
+                    Input ROIs are the template's autosegmented structures. Add rules to
+                    derive each additional ROI; the order matters (later rules can use
+                    earlier outputs).
+                </p>
+                <div id="pipelineBuilder"></div>
+                <input type="hidden" id="pipeline_data" name="pipeline_data">
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button type="submit"
+                        class="inline-flex justify-center items-center px-6 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    Save Pipeline
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/rule_based_pipeline_builder.js' %}?v={{ js_cache_bust }}"></script>
+{{ pipeline_data|json_script:"pipeline-data" }}
+{{ rule_type_choices|json_script:"rule-types" }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const availableStructures = {{ available_structures|safe }};
+        const pipelineData = JSON.parse(document.getElementById("pipeline-data").textContent);
+        const ruleTypes = JSON.parse(document.getElementById("rule-types").textContent);
+
+        const pipelineBuilder = new RuleBasedPipelineBuilder("pipelineBuilder", {
+            existingRules: pipelineData.rules || [],
+            availableStructures: availableStructures,
+            ruleTypes: ruleTypes,
+        });
+
+        document.getElementById("pipelineForm").addEventListener("submit", function (e) {
+            const errors = pipelineBuilder.validate();
+            if (errors.length) {
+                e.preventDefault();
+                pipelineBuilder.showValidationErrors(errors);
+                return;
+            }
+            pipelineBuilder.clearValidationErrors();
+            document.getElementById("pipeline_data").value = JSON.stringify(pipelineBuilder.serialize());
+        });
+    });
+</script>
+{% endblock %}

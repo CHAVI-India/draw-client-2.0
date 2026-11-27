@@ -503,6 +503,8 @@
           const d = this._summarizeDirectionalValues(cfg, "margin");
           return d ? `Avoid ${cfg.avoid} by ${d} from ${cfg.source}` : `No avoidance margin around ${cfg.avoid} from ${cfg.source}`;
         }
+        case "EMPTY":
+          return "Empty ROI";
         default:
           return "";
       }
@@ -546,6 +548,9 @@
           break;
         case "AVOID_MARGIN":
           configHtml = this._renderAvoidMarginEditor(rule.config);
+          break;
+        case "EMPTY":
+          configHtml = `<p class="text-sm text-gray-500">Creates an empty (zero-voxel) ROI. No input structure or parameters are required.</p>`;
           break;
       }
 
@@ -1102,6 +1107,13 @@
             if (select.value) cfg.boundaries.push(select.value);
           });
           break;
+        case "RING":
+          cfg.source = this._getValue("#rbs-ring-source");
+          for (const k of ["l", "r", "a", "p", "h", "f"]) {
+            cfg[`thickness_${k}_mm`] =
+              parseFloat(this._getValue(`#rbs-ring-${k}`)) || 0;
+          }
+          break;
         case "OVERLAP":
           cfg.source = this._getValue("#rbs-overlap-source");
           cfg.others = [];
@@ -1364,6 +1376,14 @@
         } else {
           firstSeen.set(name, idx);
         }
+
+        // Required input: a source-based rule must reference a structure.
+        const reqErr = this._requiredInputError(rule);
+        if (reqErr) {
+          errors.push(
+            `${label}${name ? ` ('${name}')` : ""}: ${reqErr}.`
+          );
+        }
       });
 
       // Ordering: no rule may reference a ROI produced by the same or a later
@@ -1374,6 +1394,45 @@
       }
 
       return errors;
+    }
+
+    _requiredInputError(rule) {
+      // Mirror the server-side `_required_input_error` so the user sees a
+      // missing input before the form is submitted.
+      const cfg = rule.config || {};
+      const has = (v) => !!(v || "").trim();
+      switch (rule.rule_type) {
+        case "MARGIN":
+        case "CLEANUP":
+        case "RING":
+          return has(cfg.source) ? null : `needs a source structure (${rule.rule_type})`;
+        case "CROP":
+          if (!has(cfg.source)) return "needs a source structure (Crop)";
+          if (!(cfg.boundaries || []).some(has))
+            return "needs at least one boundary structure (Crop)";
+          return null;
+        case "OVERLAP":
+          if (!has(cfg.source)) return "needs a source structure (Overlap)";
+          if (!(cfg.others || []).some(has))
+            return "needs at least one other structure (Overlap)";
+          return null;
+        case "EXPAND_SUBTRACT":
+          if (!has(cfg.source)) return "needs a source structure (Expand & Subtract)";
+          if (!has(cfg.subtract)) return "needs a subtract structure (Expand & Subtract)";
+          return null;
+        case "AVOID_MARGIN":
+          if (!has(cfg.source)) return "needs a source structure (Avoid-with-Margin)";
+          if (!has(cfg.avoid)) return "needs an avoid structure (Avoid-with-Margin)";
+          return null;
+        case "INTENSITY":
+          if (cfg.seed_type === "STRUCTURE" && !has(cfg.seed_roi))
+            return "needs a seed structure (Intensity)";
+          if (cfg.seed_type === "BOUNDARY" && !has(cfg.boundary_roi))
+            return "needs a boundary structure (Intensity)";
+          return null;
+        default:
+          return null;
+      }
     }
 
     showValidationErrors(errors) {

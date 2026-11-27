@@ -66,6 +66,7 @@ class PipelineRule(models.Model):
         ("OVERLAP", "Overlap"),
         ("EXPAND_SUBTRACT", "Expand & Subtract"),
         ("AVOID_MARGIN", "Avoid with Margin"),
+        ("EMPTY", "Create empty ROI"),
     ]
 
     OUTPUT_ACTION_CHOICES = [

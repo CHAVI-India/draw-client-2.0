@@ -128,6 +128,16 @@ def create_segmentation_job(
     return job
 
 
+def _describe_error(e: Exception) -> str:
+    """A short, human-readable form of an exception for logs + the UI: the
+    exception class name plus its message. If the message is empty (e.g. a bare
+    ``KeyError('')``), the class name alone is returned, so an error never shows
+    up as just ``''``.
+    """
+    text = str(e).strip()
+    return f"{type(e).__name__}: {text}" if text else type(e).__name__
+
+
 def _fail_job(job: SegmentationJob, message: str) -> None:
     """Mark a job FAILED with a reason; used by every chain-step failure path."""
     job.status = "FAILED"
@@ -229,12 +239,13 @@ def execute_rule_step(job: SegmentationJob, order: int) -> None:
     try:
         engine = SegmentationEngine.from_workdir(wd.root)
     except Exception as e:
-        logger.error(f"Job {job.id} step {order} failed to reload state: {e}", exc_info=True)
+        desc = _describe_error(e)
+        logger.error(f"Job {job.id} step {order} failed to reload state: {desc}", exc_info=True)
         step.status = "FAILED"
-        step.error = str(e)
+        step.error = desc
         step.completed_at = timezone.now()
         step.save()
-        _fail_job(job, f"Could not reload job state for step {order}: {e}")
+        _fail_job(job, f"Could not reload job state for step {order}: {desc}")
         raise
 
     if wd.rule_already_committed(engine.rtstruct, order):
@@ -250,12 +261,17 @@ def execute_rule_step(job: SegmentationJob, order: int) -> None:
         output_name = engine.run_rule(rule)
         wd.commit_rule_output(engine.rtstruct, order, output_name)
     except Exception as e:
-        logger.error(f"Job {job.id} rule {order} ({rule.name}) failed: {e}", exc_info=True)
+        desc = _describe_error(e)
+        logger.error(
+            "Job %s rule %d ('%s', type=%s) failed: %s",
+            job.id, order, rule.name, rule.rule_type, desc,
+            exc_info=True,
+        )
         step.status = "FAILED"
-        step.error = str(e)
+        step.error = desc
         step.completed_at = timezone.now()
         step.save()
-        _fail_job(job, f"Rule '{rule.name}' (step {order}) failed: {e}")
+        _fail_job(job, f"Rule '{rule.name}' (step {order}, {rule.rule_type}) failed: {desc}")
         raise
 
     step.status = "SUCCESS"

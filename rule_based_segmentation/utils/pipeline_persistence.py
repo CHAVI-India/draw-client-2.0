@@ -86,7 +86,8 @@ def save_pipeline_from_dict(data, user, pipeline=None):
 
 
 def _validate_pipeline_rules(rules):
-    """Validate pipeline rule ordering and output-name uniqueness."""
+    """Validate pipeline rule ordering, output-name uniqueness, and that each
+    source-based rule has the input structure(s) it needs."""
     name_max_len = PipelineRule._meta.get_field("name").max_length
 
     output_names = set()
@@ -105,6 +106,13 @@ def _validate_pipeline_rules(rules):
             )
         output_names.add(name)
 
+    for idx, rule in enumerate(rules, start=1):
+        missing = _required_input_error(rule)
+        if missing:
+            raise ValueError(
+                f"Rule {idx} ('{rule.get('name', '').strip()}') {missing}."
+            )
+
     produced_by_index = {}
     for idx, rule in enumerate(rules, start=1):
         produced_by_index[rule.get("name", "").strip()] = idx
@@ -117,6 +125,48 @@ def _validate_pipeline_rules(rules):
                     f"Rule '{rule.get('name')}' references '{required}', which is produced by "
                     f"rule {required_source}. Move the source rule before this rule."
                 )
+
+
+def _required_input_error(rule_data):
+    """Return a human-readable error if a source-based rule is missing a required
+    input structure, else ``None``. Catches bad rules at authoring time (the
+    builder may leave a source field empty) so they never reach the engine.
+    """
+    rt = rule_data.get("rule_type")
+    cfg = rule_data.get("config") or {}
+
+    def _has(value):
+        return bool((value or "").strip())
+
+    if rt in ("MARGIN", "CLEANUP", "RING"):
+        if not _has(cfg.get("source")):
+            return f"needs a source structure ({rt})"
+    elif rt == "CROP":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Crop)"
+        if not any(_has(b) for b in (cfg.get("boundaries") or [])):
+            return "needs at least one boundary structure (Crop)"
+    elif rt == "OVERLAP":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Overlap)"
+        if not any(_has(o) for o in (cfg.get("others") or [])):
+            return "needs at least one other structure (Overlap)"
+    elif rt == "EXPAND_SUBTRACT":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Expand & Subtract)"
+        if not _has(cfg.get("subtract")):
+            return "needs a subtract structure (Expand & Subtract)"
+    elif rt == "AVOID_MARGIN":
+        if not _has(cfg.get("source")):
+            return "needs a source structure (Avoid-with-Margin)"
+        if not _has(cfg.get("avoid")):
+            return "needs an avoid structure (Avoid-with-Margin)"
+    elif rt == "INTENSITY":
+        if cfg.get("seed_type") == "STRUCTURE" and not _has(cfg.get("seed_roi")):
+            return "needs a seed structure (Intensity)"
+        if cfg.get("seed_type") == "BOUNDARY" and not _has(cfg.get("boundary_roi")):
+            return "needs a boundary structure (Intensity)"
+    return None
 
 
 def _collect_required_structure_names(rule):
@@ -181,7 +231,7 @@ def _save_rule(pipeline, order, rule_data):
         rule_type=rule_data.get("rule_type"),
         name=(rule_data.get("name") or "").strip(),
         output_action=rule_data.get("output_action", "CREATE_NEW"),
-        output_color=rule_data.get("output_color") or "255\\255\\0",
+        output_color=_hex_to_rgb_dicom(rule_data.get("output_color") or "255\\255\\0"),
         output_roi_type=rule_data.get("output_roi_type", "ORGAN"),
     )
 
@@ -369,7 +419,26 @@ def _save_avoid_margin_config(rule, config):
 # ---------------------------------------------------------------------------
 
 def _rgb_dicom_to_hex(color_string):
+    """Convert a stored ROI color to a UI hex string (#RRGGBB).
+
+    Tolerates both the canonical DICOM R\\G\\B form and a hex value (a row that
+    predates the R\\G\\B normalization). A hex input is normalized to 6-digit
+    uppercase hex rather than being lost to the yellow default (this is what
+    previously caused colors to turn yellow when a UI-built pipeline was
+    re-opened).
+    """
     if not color_string:
+        return "#FFFF00"
+    s = color_string.strip()
+    if s.startswith("#"):
+        try:
+            hv = s[1:]
+            if len(hv) == 3:
+                hv = "".join(c * 2 for c in hv)
+            if len(hv) == 6:
+                return "#" + hv.upper()
+        except (ValueError, IndexError):
+            pass
         return "#FFFF00"
     parts = [p.strip() for p in color_string.split("\\")]
     if len(parts) != 3:
@@ -378,6 +447,28 @@ def _rgb_dicom_to_hex(color_string):
         return "#" + "".join(f"{int(p):02X}" for p in parts)
     except ValueError:
         return "#FFFF00"
+
+
+def _hex_to_rgb_dicom(color_string):
+    """Normalize a color to the canonical DICOM R\\G\\B string (the inverse of
+    :func:`_rgb_dicom_to_hex`).
+
+    Accepts a hex value (#RGB / #RRGGBB) and converts it to R\\G\\B; a value that
+    is already R\\G\\B (or blank) is returned as-is. Used so the DB column is
+    always stored in the DICOM-native format.
+    """
+    if not color_string:
+        return color_string
+    s = color_string.strip()
+    if s.startswith("#"):
+        hv = s[1:]
+        try:
+            if len(hv) == 3:
+                hv = "".join(c * 2 for c in hv)
+            return f"{int(hv[0:2], 16)}\\{int(hv[2:4], 16)}\\{int(hv[4:6], 16)}"
+        except (ValueError, IndexError):
+            return s
+    return s
 
 
 def _boolean_node_to_json(node):
