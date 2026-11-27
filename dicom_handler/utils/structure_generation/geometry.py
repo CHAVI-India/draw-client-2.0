@@ -19,6 +19,55 @@ from dicom_handler.utils.safe_paths import validate_stored_path
 logger = logging.getLogger(__name__)
 
 
+def _series_slice_order(paths: List[str]) -> List[str]:
+    """Return *paths* reordered by 3D slice position (ascending along the
+    slice normal).
+
+    ``sitk.ImageSeriesReader`` does NOT reliably normalise unsorted input:
+    feeding it the files in an arbitrary (e.g. database) order can produce a
+    mis-computed *average* inter-slice spacing and a drifted physical<->voxel
+    mapping (surfacing as a "Non uniform sampling or missing slices detected"
+    warning) -- even for a perfectly uniform CT. Ordering the files by their
+    slice position first yields a uniform, correctly georeferenced volume and
+    the correct per-axis spacing (which mm-based operations such as margin and
+    crop rely on).
+
+    Readable headers are ordered by ``ImagePositionPatient`` projected onto the
+    slice normal (the cross product of the row/column direction cosines);
+    unreadable files are pushed to the end. Falls back to the original order
+    when the orientation cannot be determined.
+    """
+    try:
+        import pydicom
+    except Exception:
+        return list(paths)
+
+    headers: Dict[str, Optional[np.ndarray]] = {}
+    normal = None
+    for p in paths:
+        try:
+            ds = pydicom.dcmread(p, stop_before_pixels=True, force=True)
+            iop = np.asarray(ds.ImageOrientationPatient, dtype=float).reshape(2, 3)
+            n = np.cross(iop[0], iop[1])
+            norm = float(np.linalg.norm(n))
+            if normal is None and norm > 0:
+                normal = n / norm
+            headers[p] = np.asarray(ds.ImagePositionPatient, dtype=float)
+        except Exception:
+            headers[p] = None
+
+    if normal is None:
+        return list(paths)
+
+    def key(p: str):
+        ipp = headers.get(p)
+        if ipp is None:
+            return (1, 0.0, p)
+        return (0, float(np.dot(ipp, normal)), p)
+
+    return [k[2] for k in sorted(key(p) for p in paths)]
+
+
 def load_ct_series_as_sitk_image(series_data: Dict[str, Any]) -> sitk.Image:
     """
     Load CT DICOM series as a SimpleITK image.
@@ -54,20 +103,24 @@ def load_ct_series_as_sitk_image(series_data: Dict[str, Any]) -> sitk.Image:
     
     if not dicom_files:
         raise ValueError("No valid DICOM files found - all instance paths are missing or invalid")
-    
-    logger.info(f"Loading CT series with {len(dicom_files)} slices")
+
+    # Order slices by 3D position before handing them to SimpleITK. The reader
+    # does not reliably reorder unsorted input, so database-order files could
+    # otherwise corrupt the spacing / physical->voxel mapping (see
+    # _series_slice_order).
+    ordered_files = _series_slice_order(dicom_files)
+
+    logger.info(f"Loading CT series with {len(ordered_files)} slices")
     
     try:
         # Use SimpleITK's ImageSeriesReader for proper DICOM series loading
         reader = sitk.ImageSeriesReader()
-        reader.SetFileNames(dicom_files)
+        reader.SetFileNames(ordered_files)
         
-        # Load the series
-        # This automatically:
-        # - Sorts slices by ImagePositionPatient
-        # - Sets correct spacing (PixelSpacing + slice thickness)
-        # - Sets origin from ImagePositionPatient
-        # - Sets direction from ImageOrientationPatient
+        # Load the series. The files are pre-sorted by slice position (above),
+        # so the reader sees a uniform, monotonically-ordered stack and sets
+        # the correct spacing (PixelSpacing + slice thickness), origin and
+        # direction -- no "non uniform sampling" degradation.
         ct_image = reader.Execute()
         
         # Log geometric information
