@@ -25,6 +25,7 @@ boundary/composite operations take their named roles (``source``,
 
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import SimpleITK as sitk
 
 from . import advanced_operations, operations
@@ -93,14 +94,20 @@ def _expand(mask: sitk.Image, params: Dict[str, Any], prefix: str) -> sitk.Image
     """Expand ``mask`` by the six per-direction distances (mm) for ``prefix``.
 
     The canonical params are ``{prefix}_l_mm`` ... ``{prefix}_f_mm`` (positive
-    = expand toward that side, 0 = unchanged). To apply the same distance on
-    every side, pass the same value in all six. Previously-saved pipelines
-    that still carry the legacy ``variant`` / ``{prefix}_mm`` /
+    = expand toward that side, 0 = unchanged). A uniform value (all six
+    equal) is applied as a true 3D millimetre margin via the signed-distance
+    threshold (Slicer/Eclipse-style); genuinely mixed per-direction values
+    fall back to the per-axis dilation approximation. Previously-saved
+    pipelines that still carry the legacy ``variant`` / ``{prefix}_mm`` /
     ``{prefix}_x/y/z_mm`` / ``kernel_type`` params keep working through the
     legacy primitives (uniform ball dilation / per-axis anisotropic margin).
     """
     margins = _directional_margins(params, prefix)
     if margins is not None:
+        uniform = _all_equal_directional(margins)
+        if uniform is not None and uniform != 0.0:
+            _check_sdf_margin_feasible(mask, uniform, f"{prefix.title()} expansion")
+            return operations.apply_sdf_margin(mask, uniform)
         return operations.apply_directional_margin(mask, margins)
     variant = params.get("variant", "UNIFORM")
     if variant == VARIANT_ANISO:
@@ -139,6 +146,37 @@ def _margin_directional(params: Dict[str, Any], prefix: str = "margin") -> Dict[
     return {k: m for k in keys}
 
 
+def _all_equal_directional(margins: Dict[str, float]) -> Optional[float]:
+    """Return the common value if all six directions are equal, else None."""
+    values = [float(margins.get(k, 0.0) or 0.0) for k in _DIRECTIONS]
+    if all(abs(v - values[0]) < 1e-9 for v in values):
+        return values[0]
+    return None
+
+
+def _check_sdf_margin_feasible(mask: sitk.Image, margin_mm: float, op_name: str) -> None:
+    """Refuse a uniform margin smaller than one voxel on any axis.
+
+    Mirrors 3D Slicer's Margin effect guard ("Not feasible at current
+    resolution"): with an SDF threshold a sub-voxel margin would not shift
+    that axis by even a single voxel, so the result would silently differ
+    from the requested mm. Failing loudly is the intended behaviour — the
+    job-creation view pre-checks this against the series' spacing so users
+    see it before a job is even enqueued.
+    """
+    spacing = mask.GetSpacing()
+    worst = max(spacing)
+    if abs(margin_mm) + 1e-9 < worst:
+        axis = ("X", "Y", "Z")[int(np.argmax(spacing))]
+        raise OperationExecutionError(
+            f"{op_name}: margin {margin_mm:g} mm is smaller than the voxel size "
+            f"along the {axis} axis ({worst:g} mm) — not feasible at current "
+            f"resolution (it would not shift that axis by even one voxel). "
+            f"Set a margin of at least {worst:g} mm or run on a finer-resolution "
+            f"series."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Per-operation handlers
 # ---------------------------------------------------------------------------
@@ -147,6 +185,12 @@ def _margin_directional(params: Dict[str, Any], prefix: str = "margin") -> Dict[
 def _h_margin(roles, params, image=None):
     source = _single(roles, "source", "margin")
     margins = _margin_directional(params, "margin")
+    uniform = _all_equal_directional(margins)
+    if uniform is not None and uniform != 0.0:
+        # True 3D mm margin (Slicer/Eclipse-style distance threshold).
+        _check_sdf_margin_feasible(source, uniform, "Margin")
+        return operations.apply_sdf_margin(source, uniform)
+    # Mixed per-direction values keep the legacy per-axis dilation semantics.
     return operations.apply_directional_margin(source, margins)
 
 

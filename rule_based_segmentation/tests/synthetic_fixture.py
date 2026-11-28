@@ -182,26 +182,47 @@ def read_roi_mask_zyx(rtstruct_path: str, ct_dir: str, roi_name: str) -> np.ndar
 
 
 def expected_margin(array_zyx: np.ndarray, margin_mm: float, spacing) -> np.ndarray:
-    """Ground-truth for a margin, as an L-infinity (box) dilation/erosion by
-    ``ceil(|mm| / spacing)`` voxels per axis.
+    """Ground-truth for a margin: the Slicer/Eclipse-style true 3D mm threshold.
 
-    This matches the engine's margin path exactly: a (uniform or anisotropic)
-    margin is applied through ``apply_directional_margin`` -- six one-sided,
-    line-shaped dilations/erosions along the array axes -- whose union is the
-    full L-infinity box of the given per-axis radius. (A plain
-    ``sitk.BinaryDilate`` ball, by contrast, leaves the corners unfilled and is
-    therefore *not* the engine's margin.) ``scipy.ndimage``'s box
-    dilation/erosion is the independent ground truth for that L-infinity box.
+    Computed INDEPENDENTLY of the engine: per-voxel exact Euclidean distance
+    (in mm, anisotropy-aware) to the opposite voxel set via a KD-tree over
+    voxel centers.
+
+    * grow (margin_mm > 0): outside voxels whose center is within ``margin_mm``
+      of the structure are included;
+    * shrink (margin_mm < 0): inside voxels whose center is more than
+      ``|margin_mm|`` from the outside are kept.
+
+    (The legacy engine margin was an L-infinity box dilation by
+    ``ceil(|mm| / spacing)`` per axis; that is no longer the semantics for
+    uniform margins — see ``operations.apply_sdf_margin``.)
     """
-    from scipy import ndimage
+    from scipy.spatial import cKDTree
 
     arr = np.asarray(array_zyx).astype(bool)
-    rx, ry, rz = (int(np.ceil(abs(margin_mm) / s)) for s in spacing)  # spacing=(x,y,z)
-    # scipy operates on the (Z, Y, X) array, so the structure is (rz, ry, rx).
-    struct = np.ones((2 * rz + 1, 2 * ry + 1, 2 * rx + 1), dtype=int)
+    # Voxel-center scale in mm along the array axes (z, y, x).
+    scale = np.array([spacing[2], spacing[1], spacing[0]], dtype=float)
+    eps = 1e-9 * max(1.0, abs(margin_mm))
     if margin_mm > 0:
-        return ndimage.binary_dilation(arr, structure=struct)
-    return ndimage.binary_erosion(arr, structure=struct)
+        inside_pts = np.argwhere(arr) * scale
+        if len(inside_pts) == 0:
+            return np.zeros_like(arr)
+        tree = cKDTree(inside_pts)
+        out_idx = np.argwhere(~arr)
+        dist = tree.query(out_idx * scale)[0]  # mm to structure surface
+        out = arr.copy()
+        out[out_idx[:, 0], out_idx[:, 1], out_idx[:, 2]] = dist <= margin_mm + eps
+        return out
+    out_idx = np.argwhere(~arr) * scale
+    if len(out_idx) == 0:
+        return arr.copy()
+    tree = cKDTree(out_idx)
+    in_idx = np.argwhere(arr)
+    dist = tree.query(in_idx * scale)[0]  # mm to the outside
+    out = np.zeros_like(arr)
+    keep = dist > -margin_mm + eps
+    out[in_idx[keep, 0], in_idx[keep, 1], in_idx[keep, 2]] = True
+    return out
 
 
 def expected_crop(array_zyx: np.ndarray, *boundaries) -> np.ndarray:

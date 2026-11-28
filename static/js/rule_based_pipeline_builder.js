@@ -956,6 +956,12 @@
             <label class="block text-sm font-medium text-gray-700">Source Structure</label>
             ${this._renderStructureSelect("rbs-crop-source", config.source)}
           </div>
+          <div class="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 leading-relaxed">
+            This keeps <b>only the overlapping region</b> (intersection) of the
+            source and the boundary — the part of the source that lies <b>outside</b>
+            the boundary is removed. If you need the <i>non-overlapping</i> part of
+            the source (source minus boundary), use a Subtract rule instead.
+          </div>
           <div>
             <label class="block text-sm font-medium text-gray-700">Boundaries</label>
             <div id="rbs-crop-boundaries" class="space-y-2 mt-1">${boundariesHtml}</div>

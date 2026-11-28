@@ -491,6 +491,17 @@ def job_create(request, pipeline_id):
                 )
                 return redirect("rule_based_segmentation:upload_image_series")
 
+            # Slicer-style pre-flight: refuse to enqueue a job whose uniform
+            # margins are smaller than the series' voxel size — otherwise the
+            # job would fail mid-chain (or silently under-margin). The error
+            # renders on this page, so the user sees it before anything runs.
+            margin_errors = _margin_feasibility_errors(pipeline, series_uid)
+            if margin_errors:
+                raise ValueError(
+                    "Margin not feasible at this series' resolution: "
+                    + "; ".join(margin_errors)
+                )
+
             destination_node = _resolve_destination_node(
                 request.POST.get("destination_node_id")
             )
@@ -1164,6 +1175,96 @@ def _series_files_missing(series_uid: str) -> bool:
             )
             return True
     return False
+
+
+def _series_voxel_spacing_mm(series_uid: str):
+    """(x, y, z) voxel size in mm from one instance header, or None.
+
+    Header-only read (no pixel data): z comes from PixelSpacing[2] when
+    present, else SliceThickness.
+    """
+    try:
+        series = DICOMSeries.objects.get(series_instance_uid=series_uid)
+        instance = series.dicominstance_set.order_by("id").first()
+        if not instance or not instance.instance_path or not os.path.exists(instance.instance_path):
+            return None
+        ds = pydicom.dcmread(instance.instance_path, stop_before_pixels=True)
+        pixel_spacing = list(ds.PixelSpacing)
+        z = (
+            float(pixel_spacing[2])
+            if len(pixel_spacing) > 2 and pixel_spacing[2]
+            else float(ds.SliceThickness)
+        )
+        return (float(pixel_spacing[0]), float(pixel_spacing[1]), z)
+    except Exception as e:
+        logger.warning(f"Could not read voxel spacing for series {series_uid}: {e}")
+        return None
+
+
+_MARGIN_RULE_CONFIGS = {
+    "MARGIN": ("margin_config", "margin"),
+    "RING": ("ring_config", "thickness"),
+    "EXPAND_SUBTRACT": ("expand_subtract_config", "distance"),
+    "AVOID_MARGIN": ("avoid_margin_config", "margin"),
+}
+
+
+def _rule_uniform_margin_mm(rule):
+    """The uniform mm margin of a margin-based rule, or None.
+
+    Returns a value only when the rule executes through the true-3D-mm
+    (signed-distance) path: all six directional values equal, or a legacy
+    single / all-equal uniform value. Mixed per-direction rules keep the
+    per-axis dilation semantics, which are always representable (>= 1 voxel
+    per direction), so they never need the feasibility warning.
+    """
+    entry = _MARGIN_RULE_CONFIGS.get(rule.rule_type)
+    if entry is None:
+        return None
+    config_name, prefix = entry
+    config = getattr(rule, config_name, None)
+    if config is None:
+        return None
+
+    directions = [(getattr(config, f"{prefix}_{k}_mm") or 0.0) for k in ("l", "r", "a", "p", "h", "f")]
+    if any(directions):
+        values = directions
+    else:
+        uniform = getattr(config, f"{prefix}_mm", None)
+        if uniform:
+            return float(uniform)
+        aniso = [getattr(config, f"{prefix}_{a}_mm", None) or 0.0 for a in ("x", "y", "z")]
+        if any(aniso):
+            # Legacy mapping (execution._margin_directional): x -> H/F, y -> A/P, z -> L/R.
+            values = [aniso[2], aniso[2], aniso[1], aniso[1], aniso[0], aniso[0]]
+        else:
+            return None
+    if not all(abs(v - values[0]) < 1e-9 for v in values):
+        return None
+    if abs(values[0]) <= 1e-9:
+        return None
+    return float(values[0])
+
+
+def _margin_feasibility_errors(pipeline, series_uid: str) -> list:
+    """Slicer-style pre-flight: uniform margins smaller than the series' voxel
+    size cannot shift that axis by even one voxel ('Not feasible at current
+    resolution'). Returns human-readable error strings, one per offending
+    rule; empty when everything is feasible (or spacing is unknown)."""
+    spacing = _series_voxel_spacing_mm(series_uid)
+    if spacing is None:
+        return []
+    worst = max(spacing)
+    axis = ("X", "Y", "Z")[[spacing[0], spacing[1], spacing[2]].index(worst)]
+    errors = []
+    for rule in pipeline.rules.all().order_by("order"):
+        margin_mm = _rule_uniform_margin_mm(rule)
+        if margin_mm is not None and abs(margin_mm) + 1e-9 < worst:
+            errors.append(
+                f"rule '{rule.name}' ({rule.rule_type}): margin {margin_mm:g} mm is smaller "
+                f"than the voxel size along the {axis} axis ({worst:g} mm)"
+            )
+    return errors
 
 
 def _validate_pipeline_against_rtstruct(pipeline, rtstruct_path):

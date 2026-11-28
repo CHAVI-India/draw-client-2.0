@@ -8,6 +8,9 @@ Layout (under ``get_job_workdir_base()``):
         working.dcm        RTStruct with all completed rules applied
         working.tmp.dcm    scratch file for commit-by-rename
         step-{order}.json  commit manifest: {"output_name": "<ROI name>"}
+        intermediate/      NIfTI masks of INTERMEDIATE (not-exported) rule
+                           outputs: {order:03d}.nii.gz — available to later
+                           steps but NEVER written into working.dcm
 
 Commit protocol (crash-safe, see plan design notes):
     1. save updated RTStruct to working.tmp.dcm
@@ -16,6 +19,7 @@ Commit protocol (crash-safe, see plan design notes):
 """
 
 import json
+import logging
 import os
 import shutil
 from typing import Dict, List, Optional
@@ -23,6 +27,8 @@ from typing import Dict, List, Optional
 import SimpleITK as sitk
 
 from dicom_handler.models import DICOMInstance, SystemConfiguration
+
+logger = logging.getLogger(__name__)
 
 
 def get_job_workdir_base() -> str:
@@ -40,6 +46,7 @@ class JobWorkdir:
         self.image_cache_path = os.path.join(self.root, "image.nii.gz")
         self.working_path = os.path.join(self.root, "working.dcm")
         self.working_tmp_path = os.path.join(self.root, "working.tmp.dcm")
+        self.intermediate_dir = os.path.join(self.root, "intermediate")
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -105,3 +112,56 @@ class JobWorkdir:
         if not manifest:
             return False
         return manifest.get("output_name") in rtstruct.get_roi_names()
+
+    # -- intermediate (not-exported) masks ---------------------------------
+
+    def intermediate_mask_path(self, order: int) -> str:
+        return os.path.join(self.intermediate_dir, f"{order:03d}.nii.gz")
+
+    def save_intermediate_mask(self, order: int, mask) -> None:
+        """Persist an INTERMEDIATE rule's mask so later steps (each running in
+        its own process) can resolve it. Kept OUT of working.dcm on purpose —
+        intermediate structures must not appear in the exported RTStruct."""
+        import SimpleITK as sitk
+
+        os.makedirs(self.intermediate_dir, exist_ok=True)
+        # SimpleITK selects its writer by file extension, so the scratch
+        # file must keep a .nii.gz suffix to be renamed into place.
+        tmp = os.path.join(self.intermediate_dir, f"{order:03d}.tmp.nii.gz")
+        sitk.WriteImage(mask, tmp, compressionLevel=3)
+        os.replace(tmp, self.intermediate_mask_path(order))
+
+    def load_intermediate_masks(self) -> Dict[str, "sitk.Image"]:
+        """Return {ROI name: SimpleITK mask} for all persisted intermediates."""
+        return load_intermediate_masks(self.root)
+
+
+def load_intermediate_masks(workdir_root: str) -> Dict[str, "sitk.Image"]:
+    """Load INTERMEDIATE masks persisted under ``<root>/intermediate/``.
+
+    Each ``{order:03d}.nii.gz`` is paired with its ``step-{order}.json``
+    manifest for the ROI name; orphan files (manifest lost) are skipped.
+    Returns an empty dict when the directory does not exist.
+    """
+    import SimpleITK as sitk
+
+    inter_dir = os.path.join(workdir_root, "intermediate")
+    masks: Dict[str, "sitk.Image"] = {}
+    if not os.path.isdir(inter_dir):
+        return masks
+    for fname in sorted(os.listdir(inter_dir)):
+        if not fname.endswith(".nii.gz"):
+            continue
+        order = int(fname[:3])
+        manifest_path = os.path.join(workdir_root, f"step-{order}.json")
+        name = None
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                name = json.load(fh).get("output_name")
+        if not name:
+            logger.warning(
+                "Intermediate mask %s has no step manifest; skipping", fname
+            )
+            continue
+        masks[name] = sitk.ReadImage(os.path.join(inter_dir, fname))
+    return masks

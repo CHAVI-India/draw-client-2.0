@@ -11,7 +11,13 @@ from django.urls import reverse
 
 from ..models import PipelineRule, RuleStep, SegmentationJob, SegmentationPipeline
 from dicom_handler.models import AutosegmentationTemplate
-from .helpers import create_minimal_rtstruct_file, make_in_memory_file
+from .helpers import (
+    create_dicom_models,
+    create_minimal_rtstruct_file,
+    create_pipeline_with_rules,
+    create_synthetic_ct_series,
+    make_in_memory_file,
+)
 
 User = get_user_model()
 
@@ -618,3 +624,88 @@ class TemplatePreviewTests(TestCase):
             {"template_id": "00000000-0000-0000-0000-000000000000"},
         )
         self.assertEqual(resp.status_code, 404)
+
+
+class MarginFeasibilityPrecheckTests(TestCase):
+    """Slicer-style pre-flight at job creation: uniform margins smaller than
+    the series' voxel size must be refused on the job-create page, not at
+    mid-chain execution."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix="rbs_precheck_")
+        self.series_uid = "1.2.3.4.5.6.7.8.11"
+        self.study_uid = "1.2.3.4.5.6.7.8.12"
+        # 1 mm in-plane, 2.5 mm SI slices.
+        self.ct_files = create_synthetic_ct_series(
+            self.temp_dir,
+            num_slices=10,
+            rows=64,
+            cols=64,
+            spacing=(1.0, 1.0, 2.5),
+            series_uid=self.series_uid,
+            study_uid=self.study_uid,
+        )
+        create_dicom_models(self.ct_files, self.series_uid, self.study_uid)
+        from rule_based_segmentation import views
+
+        self.views = views
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _pipeline_with_margin(self, margin_mm):
+        return create_pipeline_with_rules(
+            name="Margin Precheck",
+            rules_data=[
+                {
+                    "rule_type": "MARGIN",
+                    "name": "PTV",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Anything",
+                        "margin_mm": margin_mm,
+                        "kernel_type": "ball",
+                    },
+                }
+            ],
+        )
+
+    def test_sub_voxel_margin_reported_infeasible(self):
+        pipeline = self._pipeline_with_margin(2.0)
+        errors = self.views._margin_feasibility_errors(pipeline, self.series_uid)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("rule 'PTV'", errors[0])
+        self.assertIn("2.5", errors[0])
+
+    def test_feasible_margin_no_error(self):
+        pipeline = self._pipeline_with_margin(3.0)
+        self.assertEqual(self.views._margin_feasibility_errors(pipeline, self.series_uid), [])
+
+    def test_mixed_directional_margin_not_blocked(self):
+        # Per-axis dilation semantics: each set direction gets >= 1 voxel, so
+        # a sub-slice in-plane value is representable and not pre-blocked.
+        pipeline = create_pipeline_with_rules(
+            name="Mixed",
+            rules_data=[
+                {
+                    "rule_type": "MARGIN",
+                    "name": "PTV",
+                    "config": {
+                        "variant": "UNIFORM",
+                        "source": "Anything",
+                        "kernel_type": "ball",
+                        "margin_l_mm": 2.0,
+                    },
+                }
+            ],
+        )
+        self.assertEqual(self.views._margin_feasibility_errors(pipeline, self.series_uid), [])
+
+    def test_unknown_series_no_error(self):
+        pipeline = self._pipeline_with_margin(1.0)
+        self.assertEqual(
+            self.views._margin_feasibility_errors(pipeline, "9.9.9.missing"), []
+        )
+

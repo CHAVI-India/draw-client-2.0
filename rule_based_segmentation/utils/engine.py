@@ -143,6 +143,13 @@ class SegmentationEngine:
         engine.image = image
         engine.series = None
         engine.available_masks = LazyMaskCache(rtstruct, image)
+        # INTERMEDIATE (not-exported) rule outputs are persisted under
+        # <root>/intermediate/ (never in working.dcm) so that later steps —
+        # each running in its own process — can resolve them by name.
+        from .job_workdir import load_intermediate_masks
+
+        for name, mask in load_intermediate_masks(workdir_root).items():
+            engine.available_masks[name] = mask
         engine.summary = {
             "created_rois": [],
             "replaced_rois": [],

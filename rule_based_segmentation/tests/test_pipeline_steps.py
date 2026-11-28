@@ -46,6 +46,32 @@ RULES = [
 ]
 
 
+# A MARGIN rule that is NOT exported (held for later rules) feeding a BOOLEAN
+# rule that references it by name — the regression case for job-chain steps,
+# where each step runs in its own process and reloads state from the work dir.
+INTERMEDIATE_RULES = [
+    {
+        "rule_type": "MARGIN",
+        "name": "PTV_mid",
+        "output_action": "INTERMEDIATE",
+        "config": {
+            "variant": "UNIFORM",
+            "source": "Box",
+            "margin_mm": 2.0,
+            "kernel_type": "ball",
+        },
+    },
+    {
+        "rule_type": "BOOLEAN",
+        "name": "Union",
+        "config": {
+            "operation": "UNION",
+            "operands": [{"name": "Box"}, {"name": "PTV_mid"}],
+        },
+    },
+]
+
+
 class StepTestBase(TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="rbs_steps_")
@@ -238,6 +264,64 @@ class ExecuteRuleStepTests(StepTestBase):
         self.assertEqual(rtstruct.get_roi_names().count("PTV"), 1)
 
 
+class IntermediateRuleStepTests(StepTestBase):
+    """INTERMEDIATE (not-exported) rules must stay out of the working RTStruct
+    but remain resolvable by later steps (each a fresh process/engine)."""
+
+    def _prepared_job(self):
+        pipeline = create_pipeline_with_rules(
+            name="Intermediate Pipeline", rules_data=INTERMEDIATE_RULES
+        )
+        job = self.make_job(pipeline=pipeline)
+        job_service.prepare_job(job)
+        return job
+
+    def test_intermediate_not_in_working_rtstruct_but_persisted(self):
+        job = self._prepared_job()
+        job_service.execute_rule_step(job, 1)
+
+        # Not written into working.dcm (it must never be exported).
+        rtstruct = self._working_rtstruct(job)
+        self.assertNotIn("PTV_mid", rtstruct.get_roi_names())
+        # But persisted in the work dir for later steps.
+        wd = self.wd(job)
+        self.assertTrue(os.path.exists(wd.intermediate_mask_path(1)))
+        step = RuleStep.objects.get(job=job, order=1)
+        self.assertEqual(step.status, "SUCCESS")
+        self.assertEqual(step.output_roi_name, "PTV_mid")
+
+    def test_boolean_in_later_step_can_reference_intermediate(self):
+        job = self._prepared_job()
+        job_service.execute_rule_step(job, 1)
+        # Step 2 runs in a fresh engine reloaded from the work dir — the
+        # intermediate mask must be resolvable by name.
+        job_service.execute_rule_step(job, 2)
+
+        step2 = RuleStep.objects.get(job=job, order=2)
+        self.assertEqual(step2.status, "SUCCESS")
+        self.assertIsNone(step2.error)
+        rtstruct = self._working_rtstruct(job)
+        self.assertIn("Union", rtstruct.get_roi_names())
+        self.assertNotIn("PTV_mid", rtstruct.get_roi_names())
+
+    def test_intermediate_redelivery_keeps_single_mask_file(self):
+        job = self._prepared_job()
+        job_service.execute_rule_step(job, 1)
+        # Intermediate steps are never 'already committed' in working.dcm, so
+        # a redelivery re-runs and re-persists — the file must not duplicate.
+        job_service.execute_rule_step(job, 1)
+
+        wd = self.wd(job)
+        self.assertEqual(
+            len([f for f in os.listdir(wd.intermediate_dir) if f.endswith(".nii.gz")]),
+            1,
+        )
+        job_service.execute_rule_step(job, 2)
+        self.assertEqual(
+            RuleStep.objects.get(job=job, order=2).status, "SUCCESS"
+        )
+
+
 class FinalizeJobTests(StepTestBase):
     def _completed_job(self):
         job = self.make_job()
@@ -285,3 +369,26 @@ class FinalizeJobTests(StepTestBase):
         self.assertEqual(first, second)
         job.refresh_from_db()
         self.assertEqual(job.status, "SUCCESS")
+
+    def test_finalize_output_excludes_intermediate_rois(self):
+        pipeline = create_pipeline_with_rules(
+            name="Intermediate Pipeline", rules_data=INTERMEDIATE_RULES
+        )
+        job = self.make_job(pipeline=pipeline)
+        job_service.prepare_job(job)
+        job_service.execute_rule_step(job, 1)
+        job_service.execute_rule_step(job, 2)
+
+        summary = job_service.finalize_job(job)
+
+        self.assertEqual(summary["created_rois"], ["Union"])
+        output_record = RTStructureSetFile.objects.get(id=summary["output_record_id"])
+        voi_names = set(output_record.vois.values_list("roi_name", flat=True))
+        self.assertEqual(voi_names, {"Box", "Union"})
+        self.assertNotIn("PTV_mid", voi_names)
+        # The exported file itself must not carry the intermediate ROI.
+        rtstruct = RTStructBuilder.create_from(
+            dicom_series_path=os.path.dirname(self.rtstruct_path),
+            rt_struct_path=job.output_file_path,
+        )
+        self.assertNotIn("PTV_mid", rtstruct.get_roi_names())

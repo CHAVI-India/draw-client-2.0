@@ -224,6 +224,11 @@ def execute_rule_step(job: SegmentationJob, order: int) -> None:
     """
     Chain step N — evaluate one rule and commit its output to the work dir.
 
+    CREATE_NEW / REPLACE_EXISTING outputs are committed into working.dcm;
+    INTERMEDIATE (not-exported) outputs are persisted under
+    <root>/intermediate/ instead, so later steps can resolve them by name
+    without them ever appearing in the exported RTStruct.
+
     Idempotent under redelivery: SUCCESS steps are skipped; steps whose disk
     commit already applied (worker died before the step UPDATE) complete
     without re-adding the ROI.
@@ -259,6 +264,12 @@ def execute_rule_step(job: SegmentationJob, order: int) -> None:
 
     try:
         output_name = engine.run_rule(rule)
+        # INTERMEDIATE outputs live only in the in-memory mask cache (they must
+        # never reach working.dcm / the exported RTStruct), but each step runs
+        # in a fresh process — persist the mask in the work dir so later rules
+        # (e.g. a BOOLEAN referencing it) can resolve it by name.
+        if rule.output_action == "INTERMEDIATE":
+            wd.save_intermediate_mask(order, engine.available_masks[output_name])
         wd.commit_rule_output(engine.rtstruct, order, output_name)
     except Exception as e:
         desc = _describe_error(e)
@@ -309,6 +320,13 @@ def finalize_job(job: SegmentationJob) -> dict:
         ).order_by("order")
         if s.output_roi_name
     ]
+    intermediate_rois = [
+        s.output_roi_name
+        for s in job.steps.filter(
+            status="SUCCESS", rule__output_action="INTERMEDIATE"
+        ).order_by("order")
+        if s.output_roi_name
+    ]
 
     try:
         engine = SegmentationEngine.from_workdir(wd.root)
@@ -323,6 +341,23 @@ def finalize_job(job: SegmentationJob) -> dict:
             )
         else:
             regenerate_instance_uids(engine.rtstruct)  # fresh SOP/Series UIDs
+        # Safety net: intermediate (not-exported) structures must never reach
+        # the output file. They are held in <workdir>/intermediate/ only, so a
+        # name ending up in working.dcm can only happen via a stale or manual
+        # state — strip any such ROI before writing the structure set.
+        if intermediate_rois:
+            from .rtstruct_io import _remove_roi_from_rtstruct
+
+            exported = set(created_rois) | set(replaced_rois)
+            for name in intermediate_rois:
+                # A later CREATE/REPLACE rule may legitimately reuse an
+                # intermediate's name and export it — don't strip that one.
+                if name not in exported and name in engine.rtstruct.get_roi_names():
+                    logger.warning(
+                        f"Job {job.id}: intermediate ROI '{name}' found in "
+                        "working RTStruct; removing before export"
+                    )
+                    _remove_roi_from_rtstruct(engine.rtstruct, name)
         # Write a NEW structure set file (original + new ROIs) and register it as
         # a new RTStructureSetFile with per-ROI approval. The input file is left
         # untouched.

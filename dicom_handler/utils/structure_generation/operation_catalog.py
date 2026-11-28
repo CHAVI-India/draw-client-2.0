@@ -252,7 +252,12 @@ OPERATIONS: Dict[str, OperationSpec] = {
     "crop_to_boundary": OperationSpec(
         id="crop_to_boundary",
         name="Crop to Boundary",
-        description="Limit a structure to one or more boundary structures.",
+        description=(
+            "Keep only the part of the source that OVERLAPS the boundary "
+            "(intersection). Any part of the source outside the boundary is "
+            "removed. The result is the overlapping region of source and "
+            "boundary — not the non-overlapping part of the source."
+        ),
         category="boundary",
         icon="⊏",
         color="indigo",

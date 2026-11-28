@@ -94,6 +94,121 @@ class OperationCatalogTests(TestCase):
                 self.assertNotIn(f"{prefix}_z_mm", names)
 
 
+class SdfMarginTests(TestCase):
+    """Uniform margins now use the Slicer/Eclipse-style signed-distance
+    threshold (true 3D mm) instead of per-axis ceil dilations."""
+
+    def _image(self, array, spacing=(1.0, 1.0, 1.0)):
+        img = sitk.GetImageFromArray(array.astype(np.uint8))
+        img.SetSpacing(spacing)
+        img.SetOrigin((0.0, 0.0, 0.0))
+        return img
+
+    def _box(self, z0, z1, y0, y1, x0, x1, shape=(20, 20, 20)):
+        arr = np.zeros(shape, dtype=np.uint8)
+        arr[z0:z1, y0:y1, x0:x1] = 1
+        return arr
+
+    def test_grow_uniform_exact_mm_threshold_anisotropic(self):
+        # 1.0 in-plane / 2.5 SI grid; box 2 slices (5 mm) thick.
+        img = self._image(self._box(8, 10, 8, 12, 8, 12), spacing=(1.0, 1.0, 2.5))
+        out = execute_operation(
+            "margin",
+            {"source": img},
+            {f"margin_{k}_mm": 2.5 for k in "lraphf"},
+        )
+        arr = sitk.GetArrayFromImage(out)
+        coords = np.argwhere(arr).reshape(-1, 3)
+        self.assertEqual((coords[:, 0].min(), coords[:, 0].max()), (7, 10))  # SI: +1 slice each side
+        self.assertEqual((coords[:, 2].min(), coords[:, 2].max()), (6, 13))  # in-plane: +2 voxels each side
+
+    def test_shrink_uniform_exact_mm(self):
+        img = self._image(self._box(2, 8, 2, 8, 2, 8))
+        out = execute_operation(
+            "margin",
+            {"source": img},
+            {f"margin_{k}_mm": -1.0 for k in "lraphf"},
+        )
+        arr = sitk.GetArrayFromImage(out)
+        coords = np.argwhere(arr).reshape(-1, 3)
+        # Keep voxels whose center is more than 1 mm from the outside: the
+        # 4x4x4 core at [3:7] on every axis (edge diagonals excluded, true ball).
+        self.assertEqual((coords[:, 0].min(), coords[:, 0].max()), (3, 6))
+        self.assertEqual(int(np.count_nonzero(arr)), 4 ** 3)
+
+    def test_sub_voxel_margin_raises_not_feasible(self):
+        # 2.4 mm < 2.5 mm slice thickness: Slicer's 'not feasible at current
+        # resolution' guard — fail loudly instead of a silent 0-slice margin.
+        img = self._image(self._box(8, 10, 8, 12, 8, 12), spacing=(1.0, 1.0, 2.5))
+        with self.assertRaises(OperationExecutionError) as ctx:
+            execute_operation(
+                "margin",
+                {"source": img},
+                {"variant": "UNIFORM", "margin_mm": 2.4, "kernel_type": "ball"},
+            )
+        self.assertIn("not feasible", str(ctx.exception))
+
+    def test_mixed_directional_still_per_axis_no_feasibility_error(self):
+        # L=2.0 mm on a 2.5 mm-slice grid: mixed values keep the per-axis
+        # dilation semantics (each set direction gets >= 1 voxel), no error.
+        # L is patient +x (identity orientation), so the +x edge grows.
+        img = self._image(self._box(8, 10, 8, 12, 8, 12), spacing=(1.0, 1.0, 2.5))
+        params = {f"margin_{k}_mm": 0.0 for k in "lraphf"}
+        params["margin_l_mm"] = 2.0
+        out = execute_operation("margin", {"source": img}, params)
+        arr = sitk.GetArrayFromImage(out)
+        xs = np.argwhere(arr).reshape(-1, 3)[:, 2]
+        self.assertGreater(xs.max(), 11)  # +x edge grew by 2 mm
+        self.assertEqual(xs.min(), 8)     # -x edge untouched
+
+    def test_expand_subtract_uses_true_mm(self):
+        src = self._image(self._box(8, 10, 8, 12, 8, 12), spacing=(1.0, 1.0, 2.5))
+        sub = self._image(self._box(0, 2, 0, 2, 0, 2), spacing=(1.0, 1.0, 2.5))
+        out = execute_operation(
+            "expand_subtract",
+            {"source": src, "subtract": sub},
+            {f"distance_{k}_mm": 2.5 for k in "lraphf"},
+        )
+        zs = np.argwhere(sitk.GetArrayFromImage(out)).reshape(-1, 3)[:, 0]
+        self.assertEqual((zs.min(), zs.max()), (7, 10))  # exactly 1 slice each side
+
+    def test_ring_shell_true_thickness(self):
+        src = self._image(self._box(8, 10, 8, 12, 8, 12), spacing=(1.0, 1.0, 2.5))
+        out = execute_operation(
+            "ring",
+            {"source": src},
+            {f"thickness_{k}_mm": 2.5 for k in "lraphf"},
+        )
+        arr = sitk.GetArrayFromImage(out)
+        zs = np.argwhere(arr).reshape(-1, 3)[:, 0]
+        self.assertEqual((zs.min(), zs.max()), (7, 10))
+        self.assertEqual(int(arr[8:10, 8:12, 8:12].sum()), 0)  # core hollowed out
+
+    def test_avoid_margin_true_mm(self):
+        src = self._image(self._box(4, 14, 4, 14, 4, 14))
+        avoid = self._image(self._box(8, 9, 4, 14, 4, 14))  # strip inside source
+        out = execute_operation(
+            "avoid_margin",
+            {"source": src, "avoid": avoid},
+            {f"margin_{k}_mm": 2.0 for k in "lraphf"},
+        )
+        arr = sitk.GetArrayFromImage(out)
+        # 2 mm ring around the avoid strip on a 1 mm grid: z=6..10 cleared.
+        self.assertEqual(int(arr[6:11, :, :].sum()), 0)
+        self.assertGreater(int(arr[5, :, :].sum()), 0)
+
+    def test_legacy_contract_alias_shrinks(self):
+        img = self._image(self._box(2, 8, 2, 8, 2, 8))
+        out = execute_operation(
+            "contract",
+            {"source": img},
+            {"variant": "UNIFORM", "margin_mm": 1.0, "kernel_type": "ball"},
+        )
+        arr = sitk.GetArrayFromImage(out)
+        zs = np.argwhere(arr).reshape(-1, 3)[:, 0]
+        self.assertEqual((zs.min(), zs.max()), (3, 6))
+
+
 class OperationExecutionTests(TestCase):
     def setUp(self):
         shape = (20, 20, 20)
@@ -326,7 +441,10 @@ class DirectionalMarginTests(TestCase):
         r = execute_operation("margin", {"source": self.A}, params)
         self.assertEqual(self._x_range(r), (1, 8))
         self.assertEqual(self._z_range(r), (1, 8))
-        self.assertEqual(_vox(r), 8 * 8 * 8)
+        # True 1 mm Euclidean ball (SDF threshold): edge/corner diagonals are
+        # sqrt(2) mm away and stay excluded -> 6 face slabs of 6x6, not the
+        # old 8x8x8 L-infinity box.
+        self.assertEqual(_vox(r), 6 * 6 * 6 + 6 * (6 * 6))
 
     def test_legacy_uniform_backcompat(self):
         r = execute_operation(
@@ -334,7 +452,7 @@ class DirectionalMarginTests(TestCase):
         )
         self.assertEqual(self._x_range(r), (1, 8))
         self.assertEqual(self._z_range(r), (1, 8))
-        self.assertEqual(_vox(r), 8 * 8 * 8)
+        self.assertEqual(_vox(r), 6 * 6 * 6 + 6 * (6 * 6))
 
     def test_legacy_contract_alias(self):
         r = execute_operation("contract", {"source": self.A}, {"margin_h_mm": 1.0})
@@ -373,9 +491,8 @@ class DirectionalCompositeTests(TestCase):
     def test_ring_uniform_via_six_equal_directions(self):
         params = {f"thickness_{k}_mm": 1.0 for k in ("l", "r", "a", "p", "h", "f")}
         r = execute_operation("ring", {"source": self.A}, params)
-        # (9^3 shell around the 6-cube via six one-sided 1-voxel dilations):
-        # 8x8x8 bounding box minus the interior cube.
-        self.assertEqual(_vox(r), 8 * 8 * 8 - 6 * 6 * 6)
+        # 1 mm shell = true Euclidean ball growth (6 face slabs) minus the cube.
+        self.assertEqual(_vox(r), 6 * (6 * 6))
 
     def test_ring_zero_thickness_is_empty(self):
         params = {f"thickness_{k}_mm": 0.0 for k in ("l", "r", "a", "p", "h", "f")}

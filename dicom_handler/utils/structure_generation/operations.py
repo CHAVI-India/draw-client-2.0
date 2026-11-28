@@ -15,6 +15,8 @@ import numpy as np
 import logging
 from typing import Union, List, Tuple, Optional, Dict
 
+from scipy import ndimage
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +92,70 @@ def apply_uniform_margin(
         result = erode.Execute(mask)
         logger.info(f"Applied {abs(margin_mm)}mm contraction")
     
+    return result
+
+
+def apply_sdf_margin(
+    mask: sitk.Image,
+    margin_mm: float,
+) -> sitk.Image:
+    """
+    Apply a true 3D millimetre margin via a signed-distance threshold.
+
+    Slicer-style margin (3D Slicer's Margin effect: ``vtkITKImageMargin`` =
+    signed 3D Euclidean distance transform + threshold): a voxel is included
+    iff its center lies within ``margin_mm`` of the structure surface in
+    physical 3D space (spacing-aware, anisotropy-aware). Unlike the
+    kernel-based :func:`apply_uniform_margin` / :func:`apply_directional_margin`
+    (which expand whole voxels per axis with ceil rounding), this decides per
+    voxel in exact mm, so e.g. a 7 mm margin on 2.5 mm slices rasterizes to the
+    same slices a distance-transform TPS (e.g. Eclipse) would produce.
+
+    Args:
+        mask: SimpleITK binary mask (must carry spacing).
+        margin_mm: positive grows, negative shrinks, zero is a no-op.
+
+    Returns:
+        sitk.Image: masked result with the same geometry as ``mask``.
+    """
+    margin_mm = float(margin_mm)
+    if margin_mm == 0:
+        return mask
+
+    arr = sitk.GetArrayFromImage(mask) > 0
+    if not arr.any() or arr.all():
+        # No surface exists (empty or image-filling structure): nothing to
+        # distance from. Return an identical mask rather than a full-volume
+        # artifact (the EDT of an all-background input is 0 everywhere).
+        logger.warning(
+            "SDF margin: structure is empty or fills the whole volume; "
+            "returning it unchanged"
+        )
+        result = sitk.GetImageFromArray(arr.astype(np.uint8))
+        result.CopyInformation(mask)
+        return result
+
+    sp = mask.GetSpacing()
+    sampling = (sp[2], sp[1], sp[0])  # array axes (z, y, x)
+
+    eps = 1e-9 * max(1.0, abs(margin_mm))
+    if margin_mm > 0:
+        # Grow: outside voxels within margin_mm of the surface. scipy's EDT
+        # reports, at each SET voxel of the input, the distance to the nearest
+        # unset voxel — so the distance-to-structure field on the OUTSIDE is
+        # edt(~arr) (valid only where ~arr is set).
+        dist_out = ndimage.distance_transform_edt(~arr, sampling=sampling)
+        out = arr | (~arr) & (dist_out <= margin_mm + eps)
+    else:
+        # Shrink: keep inside voxels whose center is more than |margin_mm|
+        # from the outside (Slicer's invert-grow-invert equivalent). The
+        # distance-to-outside field on the INSIDE is edt(arr) itself.
+        dist_in = ndimage.distance_transform_edt(arr, sampling=sampling)
+        out = arr & (dist_in > -margin_mm + eps)
+
+    result = sitk.GetImageFromArray(out.astype(np.uint8))
+    result.CopyInformation(mask)
+    logger.info(f"Applied SDF margin of {margin_mm} mm")
     return result
 
 

@@ -61,7 +61,7 @@ def _color_spec():
             {"rule_type": "MARGIN", "name": "ColInherit", "output_roi_type": "PTV",
              "output_color": None,
              "config": {"variant": "UNIFORM", "source": "BTV",
-                        "margin_mm": 2.0, "kernel_type": "ball"}},
+                        "margin_mm": 3.0, "kernel_type": "ball"}},
         ],
     }
 
