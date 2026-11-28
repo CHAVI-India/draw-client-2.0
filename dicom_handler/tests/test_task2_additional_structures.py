@@ -308,3 +308,45 @@ class Task2RbsReidentificationOrderTests(TestCase):
                             self.deid_map,
                             "contour reference was not re-identified to an original SOP UID",
                         )
+
+    def test_sibling_series_in_same_directory_does_not_break_generation(self):
+        """Production incident: ``series_root_path`` held more than one series.
+
+        rt-utils walks the given directory in full, so a sibling series with
+        overlapping slice positions made
+        ``RTStructBuilder.create_from(dicom_series_path=series_root_path)``
+        raise "more than one image at the same slice position" and drop every
+        additional structure. The builder must be built from this series' own
+        instances only.
+        """
+        from dicom_handler.import_services.task2_reidentify_rtstruct import (
+            _reidentify_dicom_tags,
+        )
+
+        # A second series in the same datastore folder, same geometry, so a
+        # directory-wide scan would see two images per slice position.
+        sibling_dir = os.path.join(self.temp_dir, "sibling_series")
+        os.makedirs(sibling_dir)
+        create_synthetic_ct_series(
+            sibling_dir, num_slices=10, rows=64, cols=64,
+            series_uid="1.2.3.4.5.6.7.8.21", study_uid=self.study_uid,
+        )
+
+        # Sanity check: the on-disk scan this test used to trigger really
+        # would have failed on duplicate positions.
+        from rt_utils import image_helper
+
+        with self.assertRaises(Exception):
+            image_helper.load_sorted_image_series(self.temp_dir)
+
+        series_data = {
+            "series": self.series,
+            "study": self.series.study,
+            "patient": self.series.study.patient,
+            "instances": list(self.series.dicominstance_set.all()),
+        }
+        ds = _reidentify_dicom_tags(self.rtstruct_path, series_data)
+        self.assertIsNotNone(ds, "re-identification failed entirely")
+
+        names = {str(r.ROIName) for r in ds.StructureSetROISequence}
+        self.assertIn("Extra_PTV", names)

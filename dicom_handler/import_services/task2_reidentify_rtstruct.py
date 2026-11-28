@@ -40,6 +40,7 @@ from ..models import (
 from dicom_server.models import RemoteDicomNode
 from dicom_server.cstore_push_service import send_dicom_files_to_node
 from ..utils.structure_generation import load_ct_series_as_sitk_image
+from ..utils.safe_paths import validate_stored_path
 from ..utils.log_masking import mask_sensitive_data
 
 logger = logging.getLogger(__name__)
@@ -622,22 +623,40 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
         ct_image = load_ct_series_as_sitk_image(series_data)
         logger.info(f"Loaded CT image: {ct_image.GetSize()}")
 
-        series_root_path = series.series_root_path
-        if not series_root_path or not os.path.exists(series_root_path):
-            logger.warning(f"Series root path not found: {mask_sensitive_data(series_root_path, 'file_path')}")
+        # rt-utils accepts either a directory path or an in-memory list of
+        # pydicom datasets. A path is walked in full, and series_root_path can
+        # hold more than one series, in which case rt-utils raises
+        # "more than one image at the same slice position". Hand it this
+        # series' own slices (the same rows used to build ct_image above) so
+        # the builder is built against exactly one series.
+        image_datasets = []
+        for instance in instances:
+            safe_path = validate_stored_path(instance.instance_path)
+            if safe_path and os.path.exists(safe_path):
+                image_datasets.append(pydicom.dcmread(safe_path, force=True))
+            else:
+                logger.warning(
+                    f"Instance file missing or invalid, skipping: "
+                    f"{mask_sensitive_data(instance.instance_path, 'file_path')}"
+                )
+        if not image_datasets:
+            logger.warning("No readable CT instances found - cannot execute pipelines")
             return
 
         # The RBS engine reads existing ROI masks from a file-backed
-        # RTStructBuilder, so save the reidentified structure set to a temp file
-        # and build the builder against the real series.
-        temp_rtstruct_path = os.path.join(os.path.dirname(series_root_path), 'temp_rtstruct.dcm')
+        # RTStructBuilder, so save the reidentified structure set to a temp
+        # file and build the builder against the series' own datasets.
+        import tempfile
+
+        temp_dir = tempfile.mkdtemp(prefix="draw_rtstruct_")
+        temp_rtstruct_path = os.path.join(temp_dir, 'temp_rtstruct.dcm')
         ds.save_as(temp_rtstruct_path, write_like_original=False)
 
         try:
             from rule_based_segmentation.utils.inline_runner import InlineSegmentationRunner
 
             rtstruct = RTStructBuilder.create_from(
-                dicom_series_path=series_root_path,
+                dicom_series_path=image_datasets,
                 rt_struct_path=temp_rtstruct_path,
             )
             runner = InlineSegmentationRunner(rtstruct, ct_image, series=series)
@@ -682,8 +701,7 @@ def _add_additional_structures_to_rtstruct(ds: pydicom.Dataset, series_data: Dic
                 f"Skipped: {skipped_count}, Failed: {failed_count}"
             )
         finally:
-            if os.path.exists(temp_rtstruct_path):
-                os.remove(temp_rtstruct_path)
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     except Exception as e:
         logger.error(f"Error adding additional structures to RT Structure Set: {str(e)}", exc_info=True)
